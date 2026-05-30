@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import type { Session } from '@supabase/supabase-js'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import McPrimeLogo from '@/components/McPrimeLogo'
 
@@ -21,65 +22,56 @@ export default function SetPasswordPage() {
 
   useEffect(() => {
     const supabase = createClient()
-    let isHandlingHash = false
+    let active = true
 
-    if (typeof window !== 'undefined' && window.location.hash) {
-      const hash = window.location.hash.substring(1) // remove '#'
-      const params = new URLSearchParams(hash)
-      const accessToken = params.get('access_token')
-      const refreshToken = params.get('refresh_token')
-
-      if (accessToken && refreshToken) {
-        isHandlingHash = true
-        supabase.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken
-        }).then(({ data, error }) => {
-          if (!error && data?.session?.user?.email) {
-            setEmail(data.session.user.email)
-            setSessionReady(true)
-            
-            // Clean URL
-            window.history.replaceState({}, document.title, window.location.pathname)
-          }
-          setPageLoading(false)
-        })
+    // Invite/recovery links carry the session in the URL. The browser
+    // client auto-detects it and emits SIGNED_IN; we adopt the session
+    // from whichever source resolves first.
+    function adopt(session: Session | null): boolean {
+      if (!active || !session?.user?.email) return false
+      setEmail(session.user.email)
+      setSessionReady(true)
+      setPageLoading(false)
+      // Strip the token from the address bar now it's been consumed.
+      if (typeof window !== 'undefined' && window.location.hash) {
+        window.history.replaceState({}, document.title, window.location.pathname)
       }
+      return true
     }
 
-    if (!isHandlingHash) {
-      // Listen for the AUTH event as a fallback
-      const { data: { subscription } } = 
-        supabase.auth.onAuthStateChange(async (event, session) => {
-          if (
-            event === 'INITIAL_SESSION' ||
-            event === 'SIGNED_IN' ||
-            event === 'USER_UPDATED' ||
-            event === 'PASSWORD_RECOVERY'
-          ) {
-            if (session?.user?.email) {
-              setEmail(session.user.email)
-              setSessionReady(true)
-              setPageLoading(false)
-            }
-          }
-        })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => { adopt(session) }
+    )
 
-      supabase.auth.getSession().then(({ data }) => {
-        if (data.session?.user?.email) {
-          setEmail(data.session.user.email)
-          setSessionReady(true)
-          setPageLoading(false)
-        } else {
-          setTimeout(() => {
-            if (!sessionReady) setPageLoading(false)
-          }, 1500)
+    supabase.auth.getSession().then(async ({ data }) => {
+      if (adopt(data.session)) return
+
+      // Fallback: token arrived in the hash but wasn't auto-detected —
+      // set the session from it manually.
+      if (typeof window !== 'undefined' && window.location.hash) {
+        const p = new URLSearchParams(window.location.hash.substring(1))
+        const access_token = p.get('access_token')
+        const refresh_token = p.get('refresh_token')
+        if (access_token && refresh_token) {
+          const { data: setData } = await supabase.auth.setSession({
+            access_token,
+            refresh_token,
+          })
+          if (adopt(setData.session)) return
         }
-      })
+      }
 
-      return () => subscription.unsubscribe()
+      // Give auto-detection a brief moment before declaring failure.
+      setTimeout(() => {
+        if (active) setPageLoading(false)
+      }, 1500)
+    })
+
+    return () => {
+      active = false
+      subscription.unsubscribe()
     }
-  }, [sessionReady])
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
