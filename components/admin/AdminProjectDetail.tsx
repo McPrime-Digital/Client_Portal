@@ -10,6 +10,7 @@ import MessageThread from '@/components/shared/MessageThread'
 import TaskBoard from '@/components/shared/TaskBoard'
 import type { Message } from '@/lib/types/database'
 import { logActivity } from '@/lib/logActivity'
+import { uploadFileToR2 } from '@/lib/uploadClient'
 import {
   ArrowLeft,
   LayoutDashboard,
@@ -335,20 +336,13 @@ export default function AdminProjectDetail({
     setUploadError('')
 
     try {
-      // Use server-side upload to bypass all storage RLS
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('project_id', project.id)
-      formData.append('client_id', client.id)
-
-      const res = await fetch('/api/admin/upload', {
-        method: 'POST',
-        body: formData,
+      const uploaded = await uploadFileToR2({
+        file,
+        projectId: project.id,
+        direction: 'delivery',
       })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error ?? 'Upload failed')
 
-      setFiles((prev: any[]) => [json.file, ...prev])
+      setFiles((prev: any[]) => [uploaded, ...prev])
       e.target.value = ''
     } catch (err: any) {
       console.error('Upload failed:', err)
@@ -359,16 +353,21 @@ export default function AdminProjectDetail({
   }
 
   async function handleDownload(file: any) {
-    const { data } = await supabase.storage
-      .from(file.bucket)
-      .createSignedUrl(file.file_path, 3600)
-    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+    // Route through the API so it works for both backends (R2 + Supabase).
+    const res = await fetch(`/api/files/${file.id}/download`)
+    const json = await res.json()
+    if (res.ok && json.url) window.open(json.url, '_blank')
   }
 
-  async function handleDeleteFile(fileId: string, filePath: string, bucket: string) {
+  async function handleDeleteFile(fileId: string, _filePath: string, _bucket: string) {
     try {
-      await supabase.storage.from(bucket).remove([filePath])
-      await adminAction('delete_file', { file_id: fileId })
+      // The API removes the blob from the correct backend (R2 or
+      // Supabase) and deletes the metadata row in one step.
+      const res = await fetch(`/api/files/${fileId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const json = await res.json()
+        throw new Error(json.error ?? 'Delete failed')
+      }
       setFiles((prev: any[]) => prev.filter((f) => f.id !== fileId))
     } catch (err: any) {
       console.error('Delete failed:', err)
@@ -436,16 +435,15 @@ export default function AdminProjectDetail({
   }
 
   async function handleAttachmentUpload(file: File): Promise<{ url: string; name: string }> {
-    const bucket = 'deliverables'
-    const path = `${client.id}/${project.id}/${Date.now()}-${file.name}`
-    const { error: uploadError } = await supabase.storage
-      .from(bucket)
-      .upload(path, file, { upsert: false })
-    if (uploadError) throw uploadError
+    const uploaded = await uploadFileToR2({
+      file,
+      projectId: project.id,
+      direction: 'delivery',
+    })
 
     return {
-      url: `${bucket}::${path}`,
-      name: file.name,
+      url: `${uploaded.bucket}::${uploaded.file_path}`,
+      name: uploaded.file_name,
     }
   }
 

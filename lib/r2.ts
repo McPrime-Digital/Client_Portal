@@ -196,3 +196,25 @@ export async function deleteFromR2(
     })
   )
 }
+
+// Generates a presigned PUT URL so the browser can upload a file
+// straight to R2 — bypassing the serverless function entirely.
+// This is what makes large uploads work on hosts (e.g. Vercel) that
+// cap request bodies at a few MB: the bytes never touch our function.
+// The key is always generated server-side (see /api/files/presign)
+// so a client can't target an arbitrary object.
+export async function getSignedUploadUrl(
+  path: string,
+  contentType: string,
+  expiresInSeconds = 600
+): Promise<string> {
+  return getSignedUrl(
+    r2,
+    new PutObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME!,
+      Key: path,
+      ContentType: contentType,
+    }),
+    { expiresIn: expiresInSeconds }
+  )
+}

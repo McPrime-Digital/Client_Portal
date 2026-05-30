@@ -19,7 +19,7 @@ There is no test framework configured. Do not invent one or claim tests passed.
 ## Build / lint quirks
 
 - Next 16 removed `next lint`. Linting runs via `eslint .` (flat config in `eslint.config.mjs`) and is **not** run during `next build` — run `npm run lint` explicitly to surface issues. Lint failures do not fail the build.
-- `experimental.serverActions.bodySizeLimit` is `"50gb"` to support large deliverable uploads — don't shrink it without checking the upload flow in `lib/r2.ts`.
+- `experimental.serverActions.bodySizeLimit` is `"50gb"` — a historical setting from when uploads were buffered through Server Actions. Uploads now go direct browser→R2 (see "Uploads" below), so this limit no longer governs them; it only affects any remaining Server Actions.
 - `next.config.mjs` pins `turbopack.root` to the project dir — a stray `package-lock.json` in the home directory otherwise makes Next infer the wrong workspace root.
 
 ## Supabase clients — pick the right one
@@ -52,13 +52,20 @@ When editing the proxy, walk through each of these paths mentally before saving.
 - `app/(admin)/` — admin-only (`/admin`). Layout enforces `role === 'admin'`.
 - `app/api/` — route handlers for files, portal, admin, and webhooks (Stripe).
 
-## R2 uploads (`lib/r2.ts`)
+## Uploads — direct-to-R2 (presigned)
 
-- Files < 5GB: single PUT.
-- Files ≥ 5GB: multipart upload, 256MB chunks (supports up to 5TB).
-- Signed download URLs expire in 2 minutes.
+All file/attachment uploads go **straight from the browser to Cloudflare R2** via a presigned PUT URL — the bytes never pass through a serverless function, so there is no request-body size limit (this is what makes uploads work on Vercel, which hard-caps function bodies at ~4.5MB).
 
-Don't "simplify" the multipart path away — large video deliverables depend on it.
+Flow (`lib/uploadClient.ts` → two route handlers):
+1. `POST /api/files/presign` — auth + authorize for the project, mint a collision-safe key `<clientId>/<projectId>/<rand>` and return a presigned PUT URL. The key is always server-generated; the message-attachment route derives the owning client from the first path segment, so keep that namespacing.
+2. Browser `PUT`s the file to R2 (Content-Type must match what was presigned).
+3. `POST /api/files/commit` — re-authorize, verify the key prefix, insert the `files` row with `bucket: 'r2'`.
+
+Reads already branch on `bucket === 'r2'`: `getSignedDownloadUrl` (2-min download / longer inline) and `getR2ObjectStream` (the same-origin `/raw` proxy). **Do not reintroduce server-side upload routes that buffer the file** (`req.formData()` → upload) — they break on Vercel above 4.5MB. Direct browser→R2 needs a CORS policy on the bucket allowing `PUT` from the app origin.
+
+Avatars/logos are the one exception: small images still upload through `/api/portal/avatar` to Supabase Storage (`client-files`), which can mint the ~10-year signed URL the sidebar needs (R2 presigned URLs max out at 7 days).
+
+`lib/r2.ts` still exports the legacy `uploadToR2`/multipart helpers, but nothing calls them now.
 
 ## Required env vars
 

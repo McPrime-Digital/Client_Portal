@@ -16,6 +16,7 @@ import type {
 import MessageThread from '@/components/shared/MessageThread'
 import TaskBoard from '@/components/shared/TaskBoard'
 import { logActivity } from '@/lib/logActivity'
+import { uploadFileToR2 } from '@/lib/uploadClient'
 import {
   ArrowLeft,
   Clock,
@@ -377,24 +378,18 @@ export default function ProjectDetail({
   }
 
   async function handleAttachmentUpload(file: File): Promise<{ url: string; name: string }> {
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('project_id', project.id)
-    formData.append('direction', 'client-upload')
-
-    const res = await fetch('/api/portal/upload', {
-      method: 'POST',
-      body: formData,
+    const uploaded = await uploadFileToR2({
+      file,
+      projectId: project.id,
+      direction: 'client-upload',
     })
-    const json = await res.json()
-    if (!res.ok) throw new Error(json.error ?? 'Upload failed')
 
     // Also add to fileList so it appears in the Files tab!
-    setFileList((prev) => [json.file, ...prev])
-    
+    setFileList((prev) => [uploaded as any, ...prev])
+
     return {
-      url: `${json.file.bucket}::${json.file.file_path}`,
-      name: json.file.file_name,
+      url: `${uploaded.bucket}::${uploaded.file_path}`,
+      name: uploaded.file_name,
     }
   }
 
@@ -436,19 +431,13 @@ export default function ProjectDetail({
     setUploading(true)
     setUploadError('')
     try {
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('project_id', project.id)
-      formData.append('direction', direction)
-
-      const res = await fetch('/api/portal/upload', {
-        method: 'POST',
-        body: formData,
+      const uploaded = await uploadFileToR2({
+        file,
+        projectId: project.id,
+        direction,
       })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error ?? 'Upload failed')
 
-      setFileList((prev) => [json.file, ...prev])
+      setFileList((prev) => [uploaded as any, ...prev])
       e.target.value = ''
     } catch (err: any) {
       console.error('Upload failed:', err)
@@ -459,12 +448,11 @@ export default function ProjectDetail({
   }
 
   async function handleDownload(file: FileRecord) {
-    const { data } = await supabase.storage
-      .from(file.bucket)
-      .createSignedUrl(file.file_path, 3600)
-
-    if (data?.signedUrl) {
-      window.open(data.signedUrl, '_blank')
+    // Route through the API so it works for both backends (R2 + Supabase).
+    const res = await fetch(`/api/files/${file.id}/download`)
+    const json = await res.json()
+    if (res.ok && json.url) {
+      window.open(json.url, '_blank')
     }
   }
 

@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
           },
           redirectTo: `${
             process.env.NEXT_PUBLIC_APP_URL
-          }/auth/callback?next=/dashboard`,
+          }/auth/callback?next=/set-password`,
         }
       )
 

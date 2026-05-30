@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import MessageThread from '@/components/shared/MessageThread'
 import type { Message } from '@/lib/types/database'
+import { uploadFileToR2 } from '@/lib/uploadClient'
 
 type Thread = {
   id: string
@@ -363,22 +364,15 @@ export default function AdminMessagesHub({
 
   async function handleAttachmentUpload(file: File): Promise<{ url: string; name: string }> {
     if (!activeThread || !activeThread.client) throw new Error('No active thread or client')
-    // Upload via the server (service role) so it never depends on storage RLS.
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('project_id', activeThread.id)
-    formData.append('client_id', activeThread.client.id)
-
-    const res = await fetch('/api/admin/upload', {
-      method: 'POST',
-      body: formData,
+    const uploaded = await uploadFileToR2({
+      file,
+      projectId: activeThread.id,
+      direction: 'delivery',
     })
-    const json = await res.json()
-    if (!res.ok) throw new Error(json.error ?? 'Upload failed')
 
     return {
-      url: `${json.file.bucket}::${json.file.file_path}`,
-      name: json.file.file_name,
+      url: `${uploaded.bucket}::${uploaded.file_path}`,
+      name: uploaded.file_name,
     }
   }
 

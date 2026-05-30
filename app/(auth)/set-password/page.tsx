@@ -184,13 +184,11 @@ export default function SetPasswordPage() {
                 backgroundColor: 'hsl(var(--destructive) / 0.08)',
                 border: '1px solid hsl(var(--destructive) / 0.2)',
                 color: 'hsl(var(--destructive))',
-                wordBreak: 'break-all'
               }}
             >
-              <strong>Auth session missing</strong><br/><br/>
-              <strong>Debug URL:</strong> {typeof window !== 'undefined' ? window.location.href : 'SSR'}<br/><br/>
-              <strong>Debug Hash:</strong> {typeof window !== 'undefined' ? window.location.hash : 'SSR'}<br/><br/>
-              <strong>Debug Search:</strong> {typeof window !== 'undefined' ? window.location.search : 'SSR'}<br/>
+              For your security, invite links can only be used once and
+              expire after a short time. Reach out and we&apos;ll send a
+              fresh one.
             </div>
             <a
               href="mailto:hello@mcprimedigital.com"

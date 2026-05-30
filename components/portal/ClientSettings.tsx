@@ -12,6 +12,7 @@ import {
   Eye,
   EyeOff,
   ImagePlus,
+  Trash2,
 } from 'lucide-react'
 
 type Props = {
@@ -50,6 +51,12 @@ export default function ClientSettings({
   ) {
     const file = e.target.files?.[0]
     if (!file) return
+    // Logos are small; keep them well under the serverless body limit.
+    if (file.size > 4 * 1024 * 1024) {
+      setAvatarError('Logo must be under 4 MB.')
+      if (avatarInputRef.current) avatarInputRef.current.value = ''
+      return
+    }
     setAvatarUploading(true)
     setAvatarError('')
     try {
@@ -67,6 +74,21 @@ export default function ClientSettings({
     } finally {
       setAvatarUploading(false)
       if (avatarInputRef.current) avatarInputRef.current.value = ''
+    }
+  }
+
+  async function removeAvatar() {
+    setAvatarUploading(true)
+    setAvatarError('')
+    try {
+      const res = await fetch('/api/portal/avatar', { method: 'DELETE' })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error ?? 'Could not remove logo.')
+      setAvatarUrl(null)
+    } catch (err: any) {
+      setAvatarError(err.message ?? 'Could not remove logo.')
+    } finally {
+      setAvatarUploading(false)
     }
   }
 
@@ -237,7 +259,7 @@ export default function ClientSettings({
         <div className="flex items-center gap-4">
           <div
             className="w-16 h-16 rounded-xl overflow-hidden flex
-            items-center justify-center flex-shrink-0"
+            items-center justify-center flex-shrink-0 p-1.5"
             style={{
               backgroundColor: 'hsl(var(--primary-foreground))',
               border: '1px solid hsl(var(--border))',
@@ -248,7 +270,9 @@ export default function ClientSettings({
               <img
                 src={avatarUrl}
                 alt="Logo"
-                className="w-full h-full object-cover"
+                // object-contain (not cover) so wide brand lockups
+                // are letterboxed inside the tile, never cropped.
+                className="w-full h-full object-contain"
               />
             ) : (
               <span
@@ -267,27 +291,51 @@ export default function ClientSettings({
               className="hidden"
               onChange={uploadAvatar}
             />
-            <button
-              type="button"
-              onClick={() => avatarInputRef.current?.click()}
-              disabled={avatarUploading}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg
-              text-sm font-medium transition-all disabled:opacity-60"
-              style={{
-                backgroundColor: 'hsl(var(--secondary))',
-                color: 'hsl(var(--foreground))',
-                border: '1px solid hsl(var(--border))',
-              }}
-            >
-              {avatarUploading ? (
-                <Loader2 size={13} className="animate-spin" />
-              ) : (
-                <ImagePlus size={13} />
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => avatarInputRef.current?.click()}
+                disabled={avatarUploading}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg
+                text-sm font-medium transition-all disabled:opacity-60"
+                style={{
+                  backgroundColor: 'hsl(var(--secondary))',
+                  color: 'hsl(var(--foreground))',
+                  border: '1px solid hsl(var(--border))',
+                }}
+              >
+                {avatarUploading ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <ImagePlus size={13} />
+                )}
+                {avatarUrl ? 'Change Logo' : 'Upload Logo'}
+              </button>
+              {avatarUrl && (
+                <button
+                  type="button"
+                  onClick={removeAvatar}
+                  disabled={avatarUploading}
+                  aria-label="Remove logo"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg
+                  text-sm font-medium transition-all disabled:opacity-60"
+                  style={{
+                    backgroundColor: 'transparent',
+                    color: 'hsl(var(--destructive))',
+                    border: '1px solid hsl(var(--border))',
+                  }}
+                >
+                  <Trash2 size={13} />
+                  Remove
+                </button>
               )}
-              {avatarUrl ? 'Change Logo' : 'Upload Logo'}
-            </button>
+            </div>
+            <p className="text-xs mt-1.5"
+              style={{ color: 'hsl(var(--muted-foreground))' }}>
+              PNG, JPG or SVG · max 4&nbsp;MB
+            </p>
             {avatarError && (
-              <p className="text-xs mt-1.5"
+              <p className="text-xs mt-1"
                 style={{ color: 'hsl(var(--destructive))' }}>
                 {avatarError}
               </p>

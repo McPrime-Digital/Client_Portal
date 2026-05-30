@@ -86,3 +86,54 @@ export async function POST(req: NextRequest) {
     )
   }
 }
+
+// Remove the client's logo: clear avatar_url and best-effort delete
+// the stored image(s) under their folder.
+export async function DELETE() {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { data: client } = await supabaseAdmin
+      .from('clients')
+      .select('id')
+      .eq('user_id', user.id)
+      .single()
+
+    if (!client) {
+      return NextResponse.json({ error: 'Client not found.' }, { status: 404 })
+    }
+
+    // Best-effort blob cleanup — never block clearing the field.
+    try {
+      const { data: objects } = await supabaseAdmin.storage
+        .from('client-files')
+        .list(client.id)
+      if (objects?.length) {
+        await supabaseAdmin.storage
+          .from('client-files')
+          .remove(objects.map((o) => `${client.id}/${o.name}`))
+      }
+    } catch {
+      // non-critical
+    }
+
+    const { error: updateError } = await supabaseAdmin
+      .from('clients')
+      .update({ avatar_url: null })
+      .eq('id', client.id)
+
+    if (updateError) throw updateError
+
+    return NextResponse.json({ success: true })
+  } catch (err: any) {
+    console.error('[avatar] delete error:', err)
+    return NextResponse.json(
+      { error: err.message ?? 'Could not remove logo.' },
+      { status: 500 }
+    )
+  }
+}

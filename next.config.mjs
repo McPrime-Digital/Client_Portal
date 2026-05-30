@@ -10,10 +10,6 @@ const nextConfig = {
   turbopack: {
     root: __dirname,
   },
-  // Keep ffmpeg-static out of the server bundle so its binary path
-  // (resolved via __dirname) stays correct — otherwise the bundler
-  // rewrites it to /ROOT/... and spawn fails with ENOENT.
-  serverExternalPackages: ['ffmpeg-static'],
   experimental: {
     serverActions: {
       bodySizeLimit: '50gb',

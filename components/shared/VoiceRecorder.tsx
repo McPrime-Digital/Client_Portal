@@ -63,10 +63,14 @@ export default function VoiceRecorder({
         }
         streamRef.current = stream
 
-        const mime = MediaRecorder.isTypeSupported('audio/webm')
-          ? 'audio/webm'
-          : MediaRecorder.isTypeSupported('audio/mp4')
+        // Prefer audio/mp4 (AAC) — it plays in every browser including
+        // Safari. Fall back to webm/opus on browsers that can't record
+        // mp4 (e.g. Chrome). There's no server-side transcode anymore,
+        // so picking the most portable container we can record matters.
+        const mime = MediaRecorder.isTypeSupported('audio/mp4')
           ? 'audio/mp4'
+          : MediaRecorder.isTypeSupported('audio/webm')
+          ? 'audio/webm'
           : ''
         const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
         chunksRef.current = []
