@@ -1,0 +1,479 @@
+import { createClient } from
+  '@/lib/supabase/server'
+import { supabaseAdmin } from
+  '@/lib/supabase/admin'
+import { redirect, notFound }
+  from 'next/navigation'
+import Link from 'next/link'
+import {
+  ArrowLeft,
+  Mail,
+  Phone,
+  Building2,
+  Calendar,
+  UserCheck,
+  Clock,
+  Folder,
+} from 'lucide-react'
+
+export default async function ClientDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
+  const { id } = await params
+  const supabase = await createClient()
+
+  const { data: { user } } =
+    await supabase.auth.getUser()
+
+  if (
+    !user ||
+    user.user_metadata?.role !== 'admin'
+  ) {
+    redirect('/login')
+  }
+
+  // Fetch client + projects + recent activity
+  const { data: client } = await supabaseAdmin
+    .from('clients')
+    .select(`
+      id,
+      name,
+      email,
+      company,
+      phone,
+      notes,
+      is_active,
+      invited_at,
+      onboarded_at,
+      created_at,
+      projects (
+        id,
+        title,
+        status,
+        created_at
+      )
+    `)
+    .eq('id', id)
+    .single()
+
+  if (!client) notFound()
+
+  const { data: recentActivity } =
+    await supabaseAdmin
+      .from('activity_log')
+      .select(
+        'id, event_type, title, created_at'
+      )
+      .eq('client_id', id)
+      .order('created_at', { ascending: false })
+      .limit(10)
+
+  const isOnboarded = !!client.onboarded_at
+  const statusColor = isOnboarded
+    ? 'hsl(var(--status-green))' : 'hsl(var(--primary))'
+  const statusLabel = isOnboarded
+    ? 'Active' : 'Pending Onboarding'
+
+  function fmt(iso: string | null) {
+    if (!iso) return '—'
+    return new Date(iso).toLocaleDateString(
+      'en-US',
+      {
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+      }
+    )
+  }
+
+  const infoRows = [
+    {
+      icon: Mail,
+      label: 'Email',
+      value: client.email,
+      href: `mailto:${client.email}`,
+    },
+    {
+      icon: Phone,
+      label: 'Phone',
+      value: client.phone ?? '—',
+    },
+    {
+      icon: Building2,
+      label: 'Company',
+      value: client.company ?? '—',
+    },
+    {
+      icon: Calendar,
+      label: 'Invited',
+      value: fmt(client.invited_at),
+    },
+    {
+      icon: UserCheck,
+      label: 'Onboarded',
+      value: fmt(client.onboarded_at),
+    },
+  ]
+
+  return (
+    <div className="space-y-6
+      max-w-[900px]">
+
+      {/* Back */}
+      <Link
+        href="/admin/clients"
+        className="inline-flex items-center
+        gap-2 text-sm transition-colors"
+        style={{ color: 'hsl(var(--muted-foreground))' }}
+      >
+        <ArrowLeft size={14} />
+        Back to Clients
+      </Link>
+
+      {/* Header */}
+      <div className="flex items-start
+        justify-between gap-4">
+        <div>
+          <h1
+            className="font-display text-2xl
+            font-bold"
+            style={{ color: 'hsl(var(--foreground))' }}
+          >
+            {client.name}
+          </h1>
+          {client.company && (
+            <p className="text-sm mt-1"
+              style={{ color: 'hsl(var(--muted-foreground))' }}>
+              {client.company}
+            </p>
+          )}
+          <span
+            className="inline-flex items-center
+            gap-1.5 px-2.5 py-1 rounded-full
+            text-xs font-semibold mt-2"
+            style={{
+              backgroundColor:
+                `color-mix(in srgb, ${statusColor} 9%, transparent)`,
+              color: statusColor,
+            }}
+          >
+            <span
+              className="w-1.5 h-1.5
+              rounded-full"
+              style={{
+                backgroundColor: statusColor,
+              }}
+            />
+            {statusLabel}
+          </span>
+        </div>
+
+        <div className="flex gap-2">
+          <a
+            href={`mailto:${client.email}`}
+            className="flex items-center gap-2
+            px-4 py-2.5 rounded-lg text-sm
+            font-medium transition-all"
+            style={{
+              backgroundColor: 'hsl(var(--secondary))',
+              color: 'hsl(var(--foreground))',
+              border: '1px solid hsl(var(--border))',
+            }}
+          >
+            <Mail size={14} />
+            Email Client
+          </a>
+          <Link
+            href={
+              `/admin/clients/${client.id}/edit`
+            }
+            className="flex items-center gap-2
+            px-4 py-2.5 rounded-lg text-sm
+            font-semibold transition-all"
+            style={{
+              backgroundColor: 'hsl(var(--primary))',
+              color: 'hsl(var(--primary-foreground))',
+            }}
+          >
+            Edit Profile
+          </Link>
+        </div>
+      </div>
+
+      {/* Two column layout */}
+      <div className="grid grid-cols-1
+        lg:grid-cols-3 gap-6">
+
+        {/* Left — Info */}
+        <div className="lg:col-span-1
+          space-y-5">
+
+          {/* Contact details card */}
+          <div
+            className="p-5 rounded-xl"
+            style={{
+              backgroundColor: 'hsl(var(--card))',
+              border: '1px solid hsl(var(--border))',
+            }}
+          >
+            <p
+              className="text-xs font-semibold
+              uppercase tracking-wider mb-4"
+              style={{ color: 'hsl(var(--text-faint))' }}
+            >
+              Contact Details
+            </p>
+            <div className="space-y-3.5">
+              {infoRows.map((row) => (
+                <div
+                  key={row.label}
+                  className="flex items-start
+                  gap-3"
+                >
+                  <row.icon
+                    size={14}
+                    className="flex-shrink-0
+                    mt-0.5"
+                    style={{ color: 'hsl(var(--text-faint))' }}
+                  />
+                  <div>
+                    <p
+                      className="text-xs mb-0.5"
+                      style={{
+                        color: 'hsl(var(--text-faint))',
+                      }}
+                    >
+                      {row.label}
+                    </p>
+                    {row.href ? (
+                      <a
+                        href={row.href}
+                        className="text-sm
+                        transition-colors"
+                        style={{
+                          color: 'hsl(var(--primary))',
+                        }}
+                      >
+                        {row.value}
+                      </a>
+                    ) : (
+                      <p
+                        className="text-sm"
+                        style={{
+                          color: 'hsl(var(--foreground))',
+                        }}
+                      >
+                        {row.value}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Notes */}
+          {client.notes && (
+            <div
+              className="p-5 rounded-xl"
+              style={{
+                backgroundColor: 'hsl(var(--card))',
+                border: '1px solid hsl(var(--border))',
+              }}
+            >
+              <p
+                className="text-xs font-semibold
+                uppercase tracking-wider mb-3"
+                style={{ color: 'hsl(var(--text-faint))' }}
+              >
+                Internal Notes
+              </p>
+              <p
+                className="text-sm leading-relaxed"
+                style={{ color: 'hsl(var(--muted-foreground))' }}
+              >
+                {client.notes}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Right — Projects + Activity */}
+        <div className="lg:col-span-2
+          space-y-5">
+
+          {/* Projects */}
+          <div
+            className="p-5 rounded-xl"
+            style={{
+              backgroundColor: 'hsl(var(--card))',
+              border: '1px solid hsl(var(--border))',
+            }}
+          >
+            <div className="flex items-center
+              justify-between mb-4">
+              <p
+                className="text-xs font-semibold
+                uppercase tracking-wider"
+                style={{ color: 'hsl(var(--text-faint))' }}
+              >
+                Projects
+              </p>
+              <Link
+                href="/admin/projects/new"
+                className="text-xs transition-colors"
+                style={{ color: 'hsl(var(--primary))' }}
+              >
+                + New Project
+              </Link>
+            </div>
+
+            {client.projects &&
+            client.projects.length > 0 ? (
+              <div className="space-y-2">
+                {client.projects.map((p) => (
+                  <Link
+                    key={p.id}
+                    href={
+                      `/admin/projects/${p.id}`
+                    }
+                    className="flex items-center
+                    justify-between p-3.5
+                    rounded-lg transition-colors
+                    group"
+                    style={{
+                      backgroundColor: 'hsl(var(--primary-foreground))',
+                      border: '1px solid hsl(var(--border))',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget
+                        .style.borderColor =
+                        'hsl(var(--primary))'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget
+                        .style.borderColor =
+                        'hsl(var(--border))'
+                    }}
+                  >
+                    <div className="flex
+                      items-center gap-3">
+                      <Folder
+                        size={14}
+                        style={{
+                          color: 'hsl(var(--primary))',
+                        }}
+                      />
+                      <span
+                        className="text-sm
+                        font-medium"
+                        style={{
+                          color: 'hsl(var(--foreground))',
+                        }}
+                      >
+                        {p.title}
+                      </span>
+                    </div>
+                    <span
+                      className="text-xs
+                      px-2 py-0.5 rounded-full
+                      capitalize"
+                      style={{
+                        backgroundColor:
+                          'hsl(var(--secondary))',
+                        color: 'hsl(var(--muted-foreground))',
+                      }}
+                    >
+                      {p.status}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm py-4
+                text-center"
+                style={{ color: 'hsl(var(--text-faint))' }}>
+                No projects linked yet
+              </p>
+            )}
+          </div>
+
+          {/* Recent activity */}
+          <div
+            className="p-5 rounded-xl"
+            style={{
+              backgroundColor: 'hsl(var(--card))',
+              border: '1px solid hsl(var(--border))',
+            }}
+          >
+            <p
+              className="text-xs font-semibold
+              uppercase tracking-wider mb-4"
+              style={{ color: 'hsl(var(--text-faint))' }}
+            >
+              Recent Activity
+            </p>
+            {recentActivity &&
+            recentActivity.length > 0 ? (
+              <div className="space-y-3">
+                {recentActivity.map((a) => (
+                  <div
+                    key={a.id}
+                    className="flex items-start
+                    gap-3"
+                  >
+                    <div
+                      className="w-1.5 h-1.5
+                      rounded-full mt-1.5
+                      flex-shrink-0"
+                      style={{
+                        backgroundColor:
+                          'hsl(var(--primary))',
+                      }}
+                    />
+                    <div>
+                      <p
+                        className="text-sm"
+                        style={{
+                          color: 'hsl(var(--foreground))',
+                        }}
+                      >
+                        {a.title}
+                      </p>
+                      <p
+                        className="text-xs mt-0.5"
+                        style={{
+                          color: 'hsl(var(--text-faint))',
+                        }}
+                      >
+                        {new Date(
+                          a.created_at
+                        ).toLocaleDateString(
+                          'en-US',
+                          {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          }
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm py-4
+                text-center"
+                style={{ color: 'hsl(var(--text-faint))' }}>
+                No activity yet
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

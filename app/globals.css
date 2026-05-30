@@ -2,26 +2,135 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
+  /* ── Light theme — white canvas, shark surfaces ── */
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: 210 36% 98%;        /* #F7F9FB near-white canvas */
+    --foreground: 216 22% 12%;        /* #171C23 cool near-black */
+    --card: 208 26% 92%;             /* #E2E8ED soft shark surface */
+    --card-foreground: 216 22% 12%;
+    --popover: 0 0% 100%;             /* #FFFFFF clean menus/popovers */
+    --popover-foreground: 216 22% 12%;
+    --primary: 40 57% 45%;            /* deeper gold for legibility on white */
+    --primary-foreground: 226 60% 10%;
+    --secondary: 208 24% 87%;         /* #D5DEE4 shark fill / hover */
+    --secondary-foreground: 216 22% 12%;
+    --muted: 208 24% 87%;
+    --muted-foreground: 211 13% 37%;  /* #525C66 */
+    --accent: 208 24% 87%;
+    --accent-foreground: 216 22% 12%;
+    --destructive: 350 65% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 208 20% 78%;            /* #BFCAD3 shark border / divider */
+    --input: 208 20% 78%;
+    --ring: 40 57% 45%;
+    --text-faint: 210 10% 48%;        /* #6F7881 */
+    --radius: 0.5rem;
+
+    /* Status accents — shared across themes (used as solid text + translucent bg) */
+    --status-blue: 205 60% 50%;
+    --status-amber: 24 73% 50%;
+    --status-violet: 265 55% 62%;
+    --status-green: 98 45% 38%;
+    --status-gray: 210 8% 45%;
+  }
+
+  /* ── Dark theme — deep navy ── */
+  .dark {
+    --background: 228 90% 9%;         /* #020A2B deep navy canvas */
+    --foreground: 226 39% 92%;        /* #E8EBF5 off-white */
+    --card: 225 70% 19%;              /* #0C1E55 lifted card / panel */
+    --card-foreground: 226 39% 92%;
+    --popover: 225 70% 19%;
+    --popover-foreground: 226 39% 92%;
+    --primary: 42 55% 55%;            /* #C8A24A gold */
+    --primary-foreground: 226 60% 8%;
+    --secondary: 225 68% 25%;         /* #142A6B */
+    --secondary-foreground: 226 39% 92%;
+    --muted: 225 55% 22%;
+    --muted-foreground: 226 29% 69%;  /* #9AA5C8 */
+    --accent: 225 68% 25%;
+    --accent-foreground: 226 39% 92%;
+    --destructive: 348 62% 59%;
+    --destructive-foreground: 226 39% 96%;
+    --border: 226 45% 30%;            /* visible card / divider / tab edges */
+    --input: 226 45% 30%;
+    --ring: 42 55% 55%;
+    --text-faint: 227 23% 49%;        /* #606C99 */
+
+    --status-blue: 205 65% 62%;
+    --status-amber: 30 80% 60%;
+    --status-violet: 265 60% 70%;
+    --status-green: 98 42% 52%;
+    --status-gray: 220 12% 58%;
   }
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-body, sans-serif);
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display, sans-serif);
+    @apply tracking-tight;
+  }
 }
 
 @layer utilities {
-  .text-balance {
-    text-wrap: balance;
+  .font-display { font-family: var(--font-display, sans-serif); }
+  .font-body { font-family: var(--font-body, sans-serif); }
+
+  /* Bridge utilities mapped to semantic tokens (kept for any lingering usage) */
+  .bg-surface { background-color: hsl(var(--card)); }
+  .bg-surface-2 { background-color: hsl(var(--secondary)); }
+  .bg-surface-offset { background-color: hsl(var(--secondary)); }
+  .text-muted-custom { color: hsl(var(--muted-foreground)); }
+  .text-primary-gold { color: hsl(var(--primary)); }
+  .border-custom { border-color: hsl(var(--border)); }
+
+  .focus-gold:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  /* Premium interactive cards — subtle lift on hover, press on click.
+     Respects prefers-reduced-motion. Pair with a transition-friendly card. */
+  .card-interactive {
+    transition:
+      transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+      box-shadow 0.18s ease,
+      border-color 0.18s ease,
+      background-color 0.18s ease;
+    will-change: transform;
+  }
+  .card-interactive:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 28px -12px hsl(var(--foreground) / 0.18);
+    border-color: hsl(var(--primary) / 0.35);
+  }
+  .card-interactive:active {
+    transform: translateY(-1px) scale(0.992);
+    transition-duration: 0.08s;
+    box-shadow: 0 4px 14px -10px hsl(var(--foreground) / 0.16);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .card-interactive,
+    .card-interactive:hover,
+    .card-interactive:active {
+      transform: none;
+      transition: border-color 0.18s ease, background-color 0.18s ease;
+    }
+  }
+
+  /* Scrollbar styling */
+  .scrollbar-thin::-webkit-scrollbar { width: 4px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: hsl(var(--card)); }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 9999px;
   }
 }
