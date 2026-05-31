@@ -22,39 +22,36 @@ type Props = { adminName: string }
 
 const adminNavItems = [
   {
-    label: 'Dashboard',
-    href: '/admin',
-    icon: LayoutDashboard,
+    section: 'Workspace',
+    items: [
+      { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
+      { label: 'Clients', href: '/admin/clients', icon: Users },
+      { label: 'Projects', href: '/admin/projects', icon: FolderOpen },
+    ],
   },
   {
-    label: 'Clients',
-    href: '/admin/clients',
-    icon: Users,
+    section: 'Communication',
+    items: [
+      { label: 'Messages', href: '/admin/messages', icon: MessageSquare },
+    ],
   },
   {
-    label: 'Projects',
-    href: '/admin/projects',
-    icon: FolderOpen,
+    section: 'Billing',
+    items: [
+      { label: 'Invoices', href: '/admin/invoices', icon: Receipt },
+    ],
   },
   {
-    label: 'File Vault',
-    href: '/admin/files',
-    icon: Files,
+    section: 'Assets',
+    items: [
+      { label: 'File Vault', href: '/admin/files', icon: Files },
+    ],
   },
   {
-    label: 'Messages',
-    href: '/admin/messages',
-    icon: MessageSquare,
-  },
-  {
-    label: 'Invoices',
-    href: '/admin/invoices',
-    icon: Receipt,
-  },
-  {
-    label: 'Settings',
-    href: '/admin/settings',
-    icon: Settings,
+    section: 'Account',
+    items: [
+      { label: 'Settings', href: '/admin/settings', icon: Settings },
+    ],
   },
 ]
 
@@ -130,37 +127,44 @@ export default function AdminSidebar({ adminName }: Props) {
         </div>
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 px-3 py-4">
-        <div className="space-y-0.5">
-          {adminNavItems.map((item) => {
-            const Icon = item.icon
-            const isActive =
-              item.href === '/admin'
-                ? pathname === '/admin'
-                : pathname.startsWith(item.href)
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={close}
-                className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-all ${
-                  isActive
-                    ? 'bg-primary/10 text-primary font-medium'
-                    : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
-                }`}
-              >
-                <Icon size={16} />
-                {item.label}
-                {item.href === '/admin/messages' && unreadClientMessages > 0 && (
-                  <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center bg-destructive text-destructive-foreground">
-                    {unreadClientMessages > 9 ? '9+' : unreadClientMessages}
-                  </span>
-                )}
-              </Link>
-            )
-          })}
-        </div>
+      {/* Nav — grouped like the client portal */}
+      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-6 scrollbar-thin">
+        {adminNavItems.map((group) => (
+          <div key={group.section}>
+            <p className="text-[11px] font-semibold uppercase tracking-widest px-3 mb-2 text-faint">
+              {group.section}
+            </p>
+            <div className="space-y-0.5">
+              {group.items.map((item) => {
+                const Icon = item.icon
+                const isActive =
+                  item.href === '/admin'
+                    ? pathname === '/admin'
+                    : pathname.startsWith(item.href)
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={close}
+                    className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-all ${
+                      isActive
+                        ? 'bg-primary/10 text-primary font-medium'
+                        : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                    }`}
+                  >
+                    <Icon size={16} />
+                    {item.label}
+                    {item.href === '/admin/messages' && unreadClientMessages > 0 && (
+                      <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center bg-destructive text-destructive-foreground">
+                        {unreadClientMessages > 9 ? '9+' : unreadClientMessages}
+                      </span>
+                    )}
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
       {/* Admin user card */}

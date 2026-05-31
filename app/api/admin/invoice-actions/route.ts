@@ -70,7 +70,6 @@ export async function POST(req: NextRequest) {
             title: title.trim(),
             description: description?.trim() || null,
             amount: Number(amount),
-            currency: 'USD',
             status: finalStatus,
             payment_method: payment_method || 'bank_transfer',
             line_items: line_items ?? [],

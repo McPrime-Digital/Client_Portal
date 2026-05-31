@@ -94,6 +94,12 @@ export default function MessagesHub({
     'list' | 'thread'
   >('list')
 
+  // Auto-select the first thread (desktop) so the client can message right
+  // away instead of landing on an empty conversation pane.
+  useEffect(() => {
+    if (!activeThread && threads.length > 0) setActiveThread(threads[0])
+  }, [threads, activeThread])
+
   // Load messages for active thread
   const loadMessages = useCallback(
     async (projectId: string) => {

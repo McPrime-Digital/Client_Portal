@@ -50,6 +50,30 @@ export async function createNotification(opts: {
   }
 }
 
+// Admin-facing notification (shows in the admin bell). Always carries the
+// related client_id (the notifications table is client-keyed) plus
+// for_admin=true so the admin stream can be queried separately.
+export async function createAdminNotification(opts: {
+  clientId: string | null | undefined
+  projectId?: string | null
+  type: NotificationType
+  title: string
+  body?: string | null
+}): Promise<void> {
+  try {
+    await supabaseAdmin.from('notifications').insert({
+      client_id: opts.clientId ?? null,
+      project_id: opts.projectId ?? null,
+      type: opts.type,
+      title: opts.title,
+      body: opts.body ?? null,
+      for_admin: true,
+    })
+  } catch {
+    // best-effort
+  }
+}
+
 // Resolve a project's client_id (used by event sources that only have a
 // project_id, e.g. messages/tasks).
 export async function clientIdForProject(projectId: string | null | undefined): Promise<string | null> {

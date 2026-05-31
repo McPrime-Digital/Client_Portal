@@ -337,14 +337,14 @@ export default function AdminFileVault({ files }: { files: AdminFileRow[] }) {
                           </button>
 
                           {projOpen && (
-                            <div className="pb-1">
+                            <div className="px-4 pl-[4.5rem] pb-3 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
                               {project.files.map((file) => {
                                 const Icon = CAT_ICON[file.category]
                                 const color = CATEGORY_COLOR[file.category]
                                 return (
                                   <div
                                     key={file.id}
-                                    className="group flex items-center gap-3 px-4 py-2 pl-[4.5rem] transition-colors hover:bg-secondary"
+                                    className="group flex items-center gap-3 p-3 rounded-xl border border-border bg-card transition-colors hover:border-ring/40"
                                   >
                                     <button
                                       onClick={() => setPreview(file)}

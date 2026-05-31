@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { createAdminNotification } from '@/lib/notify'
 
 // Verify the calling user is an authenticated client
 async function verifyClient() {
@@ -47,11 +48,18 @@ export async function POST(req: NextRequest) {
         const now = new Date().toISOString()
         const { data, error } = await supabaseAdmin
           .from('tasks')
-          .update({ approved_at: now, status: 'completed', completed_at: now })
+          .update({ approved_at: now, status: 'completed', completed_at: now, approval_status: 'approved' })
           .eq('id', task_id)
           .select()
           .single()
         if (error) throw error
+        await createAdminNotification({
+          clientId: client.id,
+          projectId: data.project_id,
+          type: 'task_updated',
+          title: `${client.name} approved a task`,
+          body: null,
+        })
         return NextResponse.json({ task: data })
       }
 
@@ -92,6 +100,13 @@ export async function POST(req: NextRequest) {
           .single()
 
         if (error) throw error
+        await createAdminNotification({
+          clientId: client.id,
+          projectId: project_id,
+          type: 'message',
+          title: `New message from ${client.name}`,
+          body: typeof msgBody === 'string' ? msgBody.slice(0, 120) : null,
+        })
         return NextResponse.json({ message: data })
       }
 

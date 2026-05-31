@@ -396,8 +396,8 @@ export default function AdminDashboard({
               <p className="text-xs mt-2" style={{ color: 'hsl(var(--text-faint))' }}>No activity yet</p>
             </div>
           ) : (
-            <div className="space-y-1">
-              {activity.map((event, i) => <ActivityItem key={event.id} event={event} isFirst={i === 0} />)}
+            <div className="space-y-1 max-h-[420px] overflow-y-auto scrollbar-thin -mr-1 pr-1">
+              {activity.slice(0, 20).map((event, i) => <ActivityItem key={event.id} event={event} isFirst={i === 0} />)}
             </div>
           )}
         </section>

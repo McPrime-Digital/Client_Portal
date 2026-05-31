@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation'
 import { ChevronRight, Shield, Menu } from 'lucide-react'
 import { useSidebarStore } from '@/lib/stores/sidebar-store'
 import ThemeToggle from '../ThemeToggle'
+import AdminNotificationBell from './AdminNotificationBell'
 
 type Props = { adminName: string }
 
@@ -42,6 +43,7 @@ export default function AdminTopbar({ adminName }: Props) {
         <span className="text-foreground truncate">{pageName}</span>
       </div>
       <div className="flex items-center gap-2">
+        <AdminNotificationBell />
         <ThemeToggle />
         <div className="text-xs px-3 py-1 rounded-full font-medium bg-primary/10 text-primary border border-primary/20">
           {adminName}
