@@ -152,6 +152,11 @@ export default async function DashboardPage() {
   // source of truth shared with project detail pages).
   applyCanonicalProgress(projects, phases)
 
+  // Tasks the client needs to approve (shared, in review, not yet approved).
+  const pendingApprovals = (tasks ?? []).filter(
+    (t: any) => t.visible_to_client && t.status === 'review' && !t.approved_at
+  )
+
   // ── Derived metrics ──
   const activeProjects = (projects ?? []).filter(
     (p) => p.status !== 'Completed' && p.status !== 'On Hold'
@@ -274,6 +279,34 @@ export default async function DashboardPage() {
 
       {/* Welcome banner for first-time clients */}
       <WelcomeBanner clientName={client?.name ?? 'there'} isFirstLogin={isFirstLogin} />
+
+      {/* Pending approvals — items awaiting the client's review */}
+      {pendingApprovals.length > 0 && (
+        <Link href="/projects" className="block">
+          <div
+            className="flex items-center justify-between gap-4 p-4 rounded-xl flex-wrap card-interactive"
+            style={{
+              backgroundColor: 'hsl(var(--primary) / 0.06)',
+              border: '1px solid hsl(var(--primary) / 0.25)',
+            }}
+          >
+            <div className="flex items-center gap-3">
+              <CheckSquare size={18} style={{ color: 'hsl(var(--primary))' }} />
+              <div>
+                <p className="text-sm font-semibold" style={{ color: 'hsl(var(--primary))' }}>
+                  {pendingApprovals.length} item{pendingApprovals.length === 1 ? '' : 's'} awaiting your approval
+                </p>
+                <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  Review and approve deliverables in your projects
+                </p>
+              </div>
+            </div>
+            <span className="text-xs font-semibold flex items-center gap-1" style={{ color: 'hsl(var(--primary))' }}>
+              Review now <ArrowRight size={12} />
+            </span>
+          </div>
+        </Link>
+      )}
 
       {/* Header — time-based greeting (like the admin portal) */}
       <div className="flex items-start justify-between gap-4 flex-wrap">

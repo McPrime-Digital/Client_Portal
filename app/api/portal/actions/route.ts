@@ -31,6 +31,30 @@ export async function POST(req: NextRequest) {
   try {
     switch (action) {
 
+      // ── Client approves a shared task ───────────────────────
+      case 'approve_task': {
+        const { task_id } = body
+        const { data: task } = await supabaseAdmin
+          .from('tasks')
+          .select('id, project_id, visible_to_client, projects(client_id)')
+          .eq('id', task_id)
+          .single()
+        const rel = (task as { projects?: { client_id?: string } | { client_id?: string }[] } | null)?.projects
+        const ownerClientId = Array.isArray(rel) ? rel[0]?.client_id : rel?.client_id
+        if (!task || ownerClientId !== client.id || !task.visible_to_client) {
+          return NextResponse.json({ error: 'Task not found.' }, { status: 404 })
+        }
+        const now = new Date().toISOString()
+        const { data, error } = await supabaseAdmin
+          .from('tasks')
+          .update({ approved_at: now, status: 'completed', completed_at: now })
+          .eq('id', task_id)
+          .select()
+          .single()
+        if (error) throw error
+        return NextResponse.json({ task: data })
+      }
+
       case 'send_message': {
         const {
           project_id,

@@ -86,6 +86,7 @@ export type Task = {
   category: string
   due_date: string | null
   completed_at: string | null
+  approved_at: string | null
   sort_order: number
   visible_to_client: boolean
   created_at: string

@@ -25,6 +25,22 @@ export function clampPct(value: number): number {
   return Math.max(0, Math.min(100, value))
 }
 
+// Distinct per-phase identifier colours (theme-token based) so each
+// production phase reads as its own step. Cycled by phase index.
+export const PHASE_COLORS = [
+  'hsl(var(--status-blue))',
+  'hsl(var(--status-violet))',
+  'hsl(var(--primary))',
+  'hsl(var(--status-green))',
+  'hsl(var(--status-blue))',
+  'hsl(var(--status-violet))',
+  'hsl(var(--primary))',
+]
+
+export function phaseColor(index: number): string {
+  return PHASE_COLORS[index % PHASE_COLORS.length]
+}
+
 // Server-side: overwrite each project's `progress` with the canonical
 // value derived from its phases, so list/overview pages match the
 // detail pages even when the stored projects.progress is stale.

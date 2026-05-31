@@ -12,6 +12,8 @@ type Props = {
   step?: number
   disabled?: boolean
   showLabel?: boolean
+  // Per-phase identifier colour for the fill/thumb (turns green at 100%).
+  accentColor?: string
   className?: string
 }
 
@@ -21,11 +23,14 @@ export default function ProgressSlider({
   step = 5,
   disabled = false,
   showLabel = true,
+  accentColor,
   className = '',
 }: Props) {
   const v = clampPct(Math.round(value ?? 0))
   const complete = v >= 100
-  const accent = complete ? 'hsl(var(--status-green))' : 'hsl(var(--primary))'
+  const accent = complete
+    ? 'hsl(var(--status-green))'
+    : (accentColor ?? 'hsl(var(--primary))')
 
   return (
     <div className={`flex items-center gap-3 ${className}`}>

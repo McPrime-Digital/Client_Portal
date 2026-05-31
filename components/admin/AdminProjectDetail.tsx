@@ -13,7 +13,7 @@ import { logActivity } from '@/lib/logActivity'
 import { uploadFileToR2 } from '@/lib/uploadClient'
 import ProgressBar from '@/components/shared/ProgressBar'
 import ProgressSlider from '@/components/shared/ProgressSlider'
-import { computeProjectProgress } from '@/lib/projectProgress'
+import { computeProjectProgress, phaseColor } from '@/lib/projectProgress'
 import {
   ArrowLeft,
   LayoutDashboard,
@@ -325,6 +325,38 @@ export default function AdminProjectDetail({
       alert(`Failed to update phase: ${err.message}`)
     } finally {
       setSavingPhase(null)
+    }
+  }
+
+  // ── PHASE MANAGEMENT ──
+  const [newPhaseName, setNewPhaseName] = useState('')
+  const [phaseBusy, setPhaseBusy] = useState(false)
+
+  async function addPhase(e: React.FormEvent) {
+    e.preventDefault()
+    if (!newPhaseName.trim()) return
+    setPhaseBusy(true)
+    try {
+      const { phase } = await adminAction('add_phase', {
+        project_id: project.id,
+        name: newPhaseName.trim(),
+      })
+      setPhases((prev: any[]) => [...prev, phase])
+      setNewPhaseName('')
+    } catch (err: any) {
+      alert(`Failed to add phase: ${err.message}`)
+    } finally {
+      setPhaseBusy(false)
+    }
+  }
+
+  async function deletePhase(phaseId: string) {
+    if (!confirm('Remove this phase? Its progress will be discarded.')) return
+    setPhases((prev: any[]) => prev.filter((p) => p.id !== phaseId))
+    try {
+      await adminAction('delete_phase', { phase_id: phaseId })
+    } catch (err: any) {
+      alert(`Failed to delete phase: ${err.message}`)
     }
   }
 
@@ -712,7 +744,7 @@ export default function AdminProjectDetail({
               Production Phases — drag sliders to update
             </h3>
             <div className="space-y-6">
-              {phases.map((phase: any) => (
+              {phases.map((phase: any, i: number) => (
                 <div key={phase.id}>
                   <div className="flex items-center 
                     justify-between mb-2">
@@ -771,6 +803,17 @@ export default function AdminProjectDetail({
                       >
                         {phase.progress}%
                       </span>
+                      <button
+                        type="button"
+                        onClick={() => deletePhase(phase.id)}
+                        className="p-1 rounded-md transition-colors"
+                        style={{ color: 'hsl(var(--text-faint))' }}
+                        title="Remove phase"
+                        onMouseEnter={(e) => { e.currentTarget.style.color = 'hsl(var(--destructive))' }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = 'hsl(var(--text-faint))' }}
+                      >
+                        <X size={13} />
+                      </button>
                     </div>
                   </div>
                   {phase.description && (
@@ -783,11 +826,31 @@ export default function AdminProjectDetail({
                     <ProgressSlider
                       value={phase.progress}
                       onChange={(v) => updatePhaseProgress(phase.id, v)}
+                      accentColor={phaseColor(i)}
                       showLabel={false}
                     />
                   </div>
                 </div>
               ))}
+
+              {/* Add a production phase */}
+              <form onSubmit={addPhase} className="flex items-center gap-2 pt-2">
+                <input
+                  value={newPhaseName}
+                  onChange={(e) => setNewPhaseName(e.target.value)}
+                  placeholder="Add a production phase…"
+                  className="flex-1 px-3 py-2 rounded-lg text-sm outline-none transition-colors"
+                  style={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                />
+                <button
+                  type="submit"
+                  disabled={phaseBusy || !newPhaseName.trim()}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all disabled:opacity-50"
+                  style={{ backgroundColor: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
+                >
+                  <Plus size={13} /> Add
+                </button>
+              </form>
             </div>
           </div>
         </div>

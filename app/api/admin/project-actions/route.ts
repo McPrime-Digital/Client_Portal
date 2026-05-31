@@ -147,12 +147,77 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ phase: data, overall })
       }
 
+      // ── Add a production phase ──────────────────────────
+      case 'add_phase': {
+        const { project_id, name, description } = body
+        const { data: maxRow } = await supabaseAdmin
+          .from('project_phases')
+          .select('sort_order')
+          .eq('project_id', project_id)
+          .order('sort_order', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        const sort_order = ((maxRow?.sort_order ?? -1) as number) + 1
+        const { data, error } = await supabaseAdmin
+          .from('project_phases')
+          .insert({ project_id, name, description: description || null, sort_order, progress: 0, is_complete: false })
+          .select()
+          .single()
+        if (error) throw error
+        return NextResponse.json({ phase: data })
+      }
+
+      // ── Rename / edit a phase ───────────────────────────
+      case 'rename_phase': {
+        const { phase_id, name, description } = body
+        const { data, error } = await supabaseAdmin
+          .from('project_phases')
+          .update({ name, description: description ?? null })
+          .eq('id', phase_id)
+          .select()
+          .single()
+        if (error) throw error
+        return NextResponse.json({ phase: data })
+      }
+
+      // ── Delete a phase (then recompute project progress) ─
+      case 'delete_phase': {
+        const { phase_id } = body
+        const { data: ph } = await supabaseAdmin
+          .from('project_phases').select('project_id').eq('id', phase_id).single()
+        const { error } = await supabaseAdmin
+          .from('project_phases').delete().eq('id', phase_id)
+        if (error) throw error
+        if (ph?.project_id) {
+          const { data: phases } = await supabaseAdmin
+            .from('project_phases').select('progress').eq('project_id', ph.project_id)
+          await supabaseAdmin
+            .from('projects')
+            .update({ progress: computeProjectProgress(phases, 0) })
+            .eq('id', ph.project_id)
+        }
+        return NextResponse.json({ success: true })
+      }
+
       // ── Add task ────────────────────────────────────────
       case 'add_task': {
-        const { project_id, title, sort_order } = body
+        const {
+          project_id, title, sort_order,
+          priority, category, due_date, description, visible_to_client,
+        } = body
         const { data, error } = await supabaseAdmin
           .from('tasks')
-          .insert({ project_id, title, status: 'pending', sort_order })
+          .insert({
+            project_id,
+            title,
+            status: 'pending',
+            sort_order: sort_order ?? 0,
+            priority: priority ?? 'medium',
+            category: category ?? 'deliverable',
+            due_date: due_date || null,
+            description: description || null,
+            visible_to_client: visible_to_client ?? true,
+          })
           .select()
           .single()
         if (error) throw error
@@ -171,13 +236,24 @@ export async function POST(req: NextRequest) {
       // ── Toggle task ─────────────────────────────────────
       case 'toggle_task': {
         const { task_id, status } = body
+        const completed_at = status === 'completed' ? new Date().toISOString() : null
         const { data, error } = await supabaseAdmin
           .from('tasks')
-          .update({ status })
+          .update({ status, completed_at })
           .eq('id', task_id)
           .select()
           .single()
         if (error) throw error
+        // Notify the client when a task they can see is completed.
+        if (status === 'completed' && data?.visible_to_client !== false) {
+          await createNotification({
+            clientId: await clientIdForProject(data.project_id),
+            projectId: data.project_id,
+            type: 'task_updated',
+            title: 'A task was completed',
+            body: data.title ?? null,
+          })
+        }
         return NextResponse.json({ task: data })
       }
 

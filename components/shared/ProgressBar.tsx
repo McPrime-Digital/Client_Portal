@@ -8,6 +8,8 @@ type Props = {
   value: number
   size?: 'sm' | 'md' | 'lg'
   showLabel?: boolean
+  // Per-phase identifier colour (turns green at 100%).
+  accentColor?: string
   className?: string
 }
 
@@ -21,11 +23,14 @@ export default function ProgressBar({
   value,
   size = 'md',
   showLabel = false,
+  accentColor,
   className = '',
 }: Props) {
   const v = clampPct(Math.round(value ?? 0))
   const complete = v >= 100
-  const accent = complete ? 'hsl(var(--status-green))' : 'hsl(var(--primary))'
+  const accent = complete
+    ? 'hsl(var(--status-green))'
+    : (accentColor ?? 'hsl(var(--primary))')
 
   return (
     <div className={`flex items-center gap-3 ${className}`}>
@@ -41,9 +46,7 @@ export default function ProgressBar({
           className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-500 ease-out"
           style={{
             width: `${v}%`,
-            background: complete
-              ? 'hsl(var(--status-green))'
-              : 'linear-gradient(90deg, hsl(var(--primary) / 0.8), hsl(var(--primary)))',
+            background: complete ? 'hsl(var(--status-green))' : accent,
           }}
         />
       </div>

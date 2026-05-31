@@ -34,6 +34,7 @@ export type Task = {
   category: string
   due_date: string | null
   completed_at: string | null
+  approved_at: string | null
   sort_order: number
   visible_to_client: boolean
   created_at: string
@@ -161,6 +162,20 @@ export default function TaskBoard({
   const supabase = createClient()
   const [tasks, setTasks] = useState(initialTasks)
 
+  // Task writes go through the admin server route (service role) so they're
+  // RLS-safe and fire client notifications. The realtime channel below
+  // reconciles state across sessions.
+  async function taskAction(payload: Record<string, unknown>) {
+    const res = await fetch('/api/admin/project-actions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    const json = await res.json()
+    if (!res.ok) throw new Error(json.error ?? 'Action failed')
+    return json
+  }
+
   const [updating, setUpdating] =
     useState<string | null>(null)
   const [showAddForm, setShowAddForm] =
@@ -287,52 +302,61 @@ export default function TaskBoard({
       )
     )
 
-    const { error } = await supabase
-      .from('tasks')
-      .update({
-        status: nextStatus,
-        completed_at: isCompleting
-          ? new Date().toISOString()
-          : null,
-      })
-      .eq('id', task.id)
-
-    if (error) {
+    try {
+      await taskAction({ action: 'toggle_task', task_id: task.id, status: nextStatus })
+      if (isCompleting) {
+        logActivity({
+          projectId: task.project_id,
+          actorId: 'admin',
+          actorName: 'Admin',
+          actorRole: 'admin',
+          eventType: 'task_completed',
+          title: `Task completed: “${task.title}”`,
+          meta: { task_id: task.id },
+        }).catch(() => {})
+      }
+    } catch {
       // Rollback
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.id === task.id ? task : t
-        )
-      )
-    } else if (isCompleting) {
-      // Log task completed — fire-and-forget
-      // actorId unknown client-side; use project owner placeholder
-      logActivity({
-        projectId: task.project_id,
-        actorId: 'admin',
-        actorName: 'Admin',
-        actorRole: 'admin',
-        eventType: 'task_completed',
-        title: `Task completed: “${task.title}”`,
-        meta: { task_id: task.id },
-      }).catch(() => {})
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? task : t)))
+    } finally {
+      setUpdating(null)
     }
+  }
 
-    setUpdating(null)
+  // Client approves a shared task → completes it; admin sees it live.
+  async function approveTask(task: Task) {
+    if (userRole !== 'client') return
+    setUpdating(task.id)
+    const now = new Date().toISOString()
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === task.id ? { ...t, approved_at: now, status: 'completed', completed_at: now } : t
+      )
+    )
+    try {
+      const res = await fetch('/api/portal/actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve_task', task_id: task.id }),
+      })
+      if (!res.ok) throw new Error('approve failed')
+    } catch {
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? task : t)))
+    } finally {
+      setUpdating(null)
+    }
   }
 
   // Delete task (admin only)
   async function deleteTask(taskId: string) {
     if (!confirm('Delete this task?')) return
 
-    setTasks((prev) =>
-      prev.filter((t) => t.id !== taskId)
-    )
-
-    await supabase
-      .from('tasks')
-      .delete()
-      .eq('id', taskId)
+    setTasks((prev) => prev.filter((t) => t.id !== taskId))
+    try {
+      await taskAction({ action: 'delete_task', task_id: taskId })
+    } catch {
+      // best-effort; realtime will reconcile if it failed
+    }
   }
 
   // Add new task (admin only)
@@ -344,36 +368,32 @@ export default function TaskBoard({
 
     setAddingTask(true)
 
-    const { data, error } = await supabase
-      .from('tasks')
-      .insert({
+    try {
+      const { task: data } = await taskAction({
+        action: 'add_task',
         project_id: projectId,
         title: newTask.title.trim(),
-        description:
-          newTask.description.trim() || null,
+        description: newTask.description.trim() || null,
         priority: newTask.priority,
         category: newTask.category,
         due_date: newTask.due_date || null,
-        visible_to_client:
-          newTask.visible_to_client,
+        visible_to_client: newTask.visible_to_client,
         sort_order: tasks.length,
       })
-      .select()
-      .single()
-
-    if (!error && data) {
-      setTasks((prev) => [...prev, data])
-
-      // Log task created — fire-and-forget
-      logActivity({
-        projectId,
-        actorId: 'admin',
-        actorName: 'Admin',
-        actorRole: 'admin',
-        eventType: 'task_created',
-        title: `Task created: “${data.title}”`,
-        meta: { task_id: data.id },
-      }).catch(() => {})
+      if (data) {
+        setTasks((prev) => [...prev, data])
+        logActivity({
+          projectId,
+          actorId: 'admin',
+          actorName: 'Admin',
+          actorRole: 'admin',
+          eventType: 'task_created',
+          title: `Task created: “${data.title}”`,
+          meta: { task_id: data.id },
+        }).catch(() => {})
+      }
+    } catch {
+      // surfaced via the realtime channel / no insert on failure
     }
 
     setNewTask({
@@ -850,6 +870,7 @@ export default function TaskBoard({
               onCycleStatus={() =>
                 cycleStatus(task)
               }
+              onApprove={() => approveTask(task)}
               onDelete={() => deleteTask(task.id)}
             />
           ))}
@@ -865,6 +886,7 @@ export default function TaskBoard({
           expandedId={expandedId}
           setExpandedId={setExpandedId}
           onCycleStatus={cycleStatus}
+          onApprove={approveTask}
           onDelete={deleteTask}
         />
       )}
@@ -881,6 +903,7 @@ function TaskRow({
   isExpanded,
   onToggleExpand,
   onCycleStatus,
+  onApprove,
   onDelete,
 }: {
   task: Task
@@ -889,6 +912,7 @@ function TaskRow({
   isExpanded: boolean
   onToggleExpand: () => void
   onCycleStatus: () => void
+  onApprove: () => void
   onDelete: () => void
 }) {
   const cfg =
@@ -1024,6 +1048,16 @@ function TaskRow({
                 Internal
               </span>
             )}
+
+            {/* Approved badge */}
+            {task.approved_at && (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded font-semibold"
+                style={{ backgroundColor: 'hsl(var(--status-green) / 0.12)', color: 'hsl(var(--status-green))' }}
+              >
+                ✓ Approved
+              </span>
+            )}
           </div>
 
           {/* Due date */}
@@ -1074,6 +1108,19 @@ function TaskRow({
             {cfg.label}
           </span>
         </div>
+
+        {/* Client approval */}
+        {userRole === 'client' && task.visible_to_client &&
+          task.status === 'review' && !task.approved_at && (
+          <button
+            onClick={onApprove}
+            disabled={isUpdating}
+            className="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all disabled:opacity-60"
+            style={{ backgroundColor: 'hsl(var(--status-green))', color: 'hsl(var(--primary-foreground))' }}
+          >
+            Approve
+          </button>
+        )}
 
         {/* Expand / admin actions */}
         <div className="flex items-center
@@ -1184,6 +1231,7 @@ function CompletedGroup({
   expandedId,
   setExpandedId,
   onCycleStatus,
+  onApprove,
   onDelete,
 }: {
   tasks: Task[]
@@ -1192,6 +1240,7 @@ function CompletedGroup({
   expandedId: string | null
   setExpandedId: (id: string | null) => void
   onCycleStatus: (task: Task) => void
+  onApprove: (task: Task) => void
   onDelete: (id: string) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -1249,6 +1298,7 @@ function CompletedGroup({
               onCycleStatus={() =>
                 onCycleStatus(task)
               }
+              onApprove={() => onApprove(task)}
               onDelete={() => onDelete(task.id)}
             />
           ))}

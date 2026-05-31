@@ -18,7 +18,7 @@ import TaskBoard from '@/components/shared/TaskBoard'
 import { logActivity } from '@/lib/logActivity'
 import { uploadFileToR2 } from '@/lib/uploadClient'
 import ProgressBar from '@/components/shared/ProgressBar'
-import { computeProjectProgress } from '@/lib/projectProgress'
+import { computeProjectProgress, phaseColor } from '@/lib/projectProgress'
 import {
   ArrowLeft,
   Clock,
@@ -604,7 +604,7 @@ export default function ProjectDetail({
                 Production Phases
               </h3>
               <div className="space-y-5">
-                {phases.map((phase) => (
+                {phases.map((phase, i) => (
                   <div key={phase.id}>
                     <div className="flex items-center 
                       justify-between mb-2">
@@ -656,7 +656,7 @@ export default function ProjectDetail({
                         {phase.description}
                       </p>
                     )}
-                    <ProgressBar value={phase.progress} size="sm" className="ml-7" />
+                    <ProgressBar value={phase.progress} size="sm" accentColor={phaseColor(i)} className="ml-7" />
                   </div>
                 ))}
               </div>
