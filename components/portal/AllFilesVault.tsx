@@ -20,11 +20,12 @@ import {
   resolveCategory,
   CATEGORY_COLOR,
   formatBytes,
-  fileSource,
-  SOURCE_COLOR,
-  SOURCE_ORDER,
+  resolveFolder,
+  FOLDER_LABEL,
+  FOLDER_DESC,
+  FOLDER_COLOR,
+  VAULT_FOLDERS,
   type FileCategory,
-  type FileSource,
 } from '@/lib/fileCategories'
 
 type FileRow = {
@@ -37,6 +38,8 @@ type FileRow = {
   category: string | null
   is_final: boolean
   direction: 'delivery' | 'client-upload'
+  folder: string | null
+  task_id: string | null
   created_at: string
 }
 
@@ -77,23 +80,17 @@ export default function AllFilesVault({ files, projects }: Props) {
     return (id: string | null) => (id ? m.get(id) ?? 'Project' : 'No project')
   }, [projects])
 
-  // Annotate once with type category (for filtering/counts) and source
-  // (for grouping into folders). Compute source from the raw stored
-  // category before it's overwritten with the resolved type.
+  // Annotate once with vault folder (for grouping) and type category (for
+  // filtering/counts). Resolve folder from the raw stored fields before
+  // category is overwritten with the resolved display type.
   const annotated = useMemo(
     () => files.map((f) => ({
       ...f,
-      source: fileSource(f.category, f.direction),
+      folder: resolveFolder({ folder: f.folder, category: f.category, direction: f.direction, taskId: f.task_id }),
       category: resolveCategory(f.category, f.file_name, f.mime_type || f.file_type),
     })),
     [files]
   )
-
-  const SOURCE_LABEL: Record<FileSource, string> = {
-    delivery: 'From McPrime Digital',
-    client: 'Your Uploads',
-    chat: 'Chat Files',
-  }
 
   const visible = annotated.filter((f) => {
     if (projectId !== 'all' && f.project_id !== projectId) return false
@@ -229,17 +226,18 @@ export default function AllFilesVault({ files, projects }: Props) {
         </div>
       ) : (
         <div className="space-y-6">
-          {SOURCE_ORDER.map((src) => {
-            const group = visible.filter((f) => f.source === src)
+          {VAULT_FOLDERS.map((folder) => {
+            const group = visible.filter((f) => f.folder === folder)
             if (group.length === 0) return null
             return (
-              <div key={src}>
+              <div key={folder}>
                 <div className="flex items-center gap-2 mb-2.5">
-                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: SOURCE_COLOR[src] }} />
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: FOLDER_COLOR[folder] }} />
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-faint">
-                    {SOURCE_LABEL[src]}
+                    {FOLDER_LABEL[folder]}
                   </h3>
                   <span className="text-[11px] text-faint">({group.length})</span>
+                  <span className="text-[11px] text-faint hidden sm:inline">· {FOLDER_DESC[folder]}</span>
                 </div>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {group.map((file) => {

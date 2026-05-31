@@ -36,6 +36,8 @@ export default async function AdminFilesPage() {
         file_type: f.file_type,
         mime_type: f.mime_type,
         category: (f as { category?: string | null }).category ?? null,
+        folder: (f as { folder?: string | null }).folder ?? null,
+        task_id: (f as { task_id?: string | null }).task_id ?? null,
         is_final: f.is_final,
         direction: f.direction,
         created_at: f.created_at,

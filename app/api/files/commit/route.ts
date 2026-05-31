@@ -1,7 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { resolveUploadScope } from '@/lib/uploadScope'
-import { createNotification } from '@/lib/notify'
+import { createNotification, createAdminNotification } from '@/lib/notify'
+import { resolveFolder } from '@/lib/fileCategories'
 import { NextRequest, NextResponse } from 'next/server'
 
 // Step 2 of the direct-to-R2 upload: the browser has PUT the file to R2
@@ -27,6 +28,9 @@ export async function POST(req: NextRequest) {
       direction: requestedDirection,
       category,
       invoiceId,
+      folder: requestedFolder,
+      taskId,
+      isFinal,
     } = await req.json()
 
     if (!key || !fileName) {
@@ -51,6 +55,15 @@ export async function POST(req: NextRequest) {
       role === 'admin' ? requestedDirection || 'delivery' : 'client-upload'
     const mime = contentType || 'application/octet-stream'
 
+    // Resolve the vault folder: honour an explicit pick, else derive from
+    // task link / category / direction so every file lands in a folder.
+    const folder = resolveFolder({
+      folder: requestedFolder,
+      category,
+      direction,
+      taskId,
+    })
+
     const { data: fileRecord, error: insertError } = await supabaseAdmin
       .from('files')
       .insert({
@@ -64,7 +77,11 @@ export async function POST(req: NextRequest) {
         direction,
         bucket: 'r2',
         category: category ?? null,
+        folder,
+        task_id: taskId ?? null,
+        is_final: role === 'admin' ? !!isFinal : false,
         uploaded_by: user.id,
+        uploaded_by_role: role,
       })
       .select()
       .single()
@@ -96,6 +113,17 @@ export async function POST(req: NextRequest) {
         projectId: projectId ?? null,
         type: 'file_delivered',
         title: 'New file delivered',
+        body: fileName,
+      })
+    }
+
+    // Notify the admin when a client uploads (esp. a payment receipt).
+    if (role !== 'admin' && category !== 'message') {
+      await createAdminNotification({
+        clientId: scope.clientId,
+        projectId: projectId ?? null,
+        type: category === 'receipt' ? 'invoice_created' : 'file_delivered',
+        title: category === 'receipt' ? 'Payment receipt uploaded' : 'Client uploaded a file',
         body: fileName,
       })
     }

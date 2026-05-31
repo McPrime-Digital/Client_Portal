@@ -23,10 +23,12 @@ import {
   CATEGORY_COLOR,
   CATEGORY_LABEL,
   formatBytes,
-  fileSource,
-  SOURCE_COLOR,
+  resolveFolder,
+  FOLDER_LABEL,
+  FOLDER_COLOR,
+  VAULT_FOLDERS,
   type FileCategory,
-  type FileSource,
+  type VaultFolder,
 } from '@/lib/fileCategories'
 
 export type AdminFileRow = {
@@ -38,6 +40,8 @@ export type AdminFileRow = {
   file_type: string | null
   mime_type: string | null
   category: string | null
+  folder: string | null
+  task_id: string | null
   is_final: boolean
   direction: 'delivery' | 'client-upload'
   created_at: string
@@ -57,19 +61,12 @@ const CAT_ICON: Record<FileCategory, typeof FileIcon> = {
 }
 
 type CatFilter = 'all' | 'final' | FileCategory
-type SourceFilter = 'all' | FileSource
+type FolderFilter = 'all' | VaultFolder
 
-const SOURCE_FILTERS: { key: SourceFilter; label: string }[] = [
-  { key: 'all', label: 'All sources' },
-  { key: 'delivery', label: 'Deliverables' },
-  { key: 'client', label: 'Client uploads' },
-  { key: 'chat', label: 'Chat files' },
+const FOLDER_FILTERS: { key: FolderFilter; label: string }[] = [
+  { key: 'all', label: 'All folders' },
+  ...VAULT_FOLDERS.map((f) => ({ key: f as FolderFilter, label: FOLDER_LABEL[f] })),
 ]
-const SOURCE_LABEL_ADMIN: Record<FileSource, string> = {
-  delivery: 'Delivery',
-  client: 'Client upload',
-  chat: 'Chat file',
-}
 
 function formatDate(s: string) {
   return new Date(s).toLocaleDateString('en-US', {
@@ -82,7 +79,7 @@ function formatDate(s: string) {
 export default function AdminFileVault({ files }: { files: AdminFileRow[] }) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<CatFilter>('all')
-  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
+  const [folderFilter, setFolderFilter] = useState<FolderFilter>('all')
   const [collapsedClients, setCollapsedClients] = useState<Set<string>>(new Set())
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set())
   const [preview, setPreview] = useState<ViewerFile | null>(null)
@@ -91,7 +88,7 @@ export default function AdminFileVault({ files }: { files: AdminFileRow[] }) {
   const annotated = useMemo(
     () => files.map((f) => ({
       ...f,
-      source: fileSource(f.category, f.direction),
+      vaultFolder: resolveFolder({ folder: f.folder, category: f.category, direction: f.direction, taskId: f.task_id }),
       category: resolveCategory(f.category, f.file_name, f.mime_type || f.file_type),
     })),
     [files]
@@ -99,7 +96,7 @@ export default function AdminFileVault({ files }: { files: AdminFileRow[] }) {
 
   const filtered = annotated.filter((f) => {
     if (search && !f.file_name.toLowerCase().includes(search.toLowerCase())) return false
-    if (sourceFilter !== 'all' && f.source !== sourceFilter) return false
+    if (folderFilter !== 'all' && f.vaultFolder !== folderFilter) return false
     if (filter === 'all') return true
     if (filter === 'final') return f.is_final
     return f.category === filter
@@ -152,7 +149,7 @@ export default function AdminFileVault({ files }: { files: AdminFileRow[] }) {
     return c
   }, [annotated])
 
-  const searching = search.length > 0 || filter !== 'all'
+  const searching = search.length > 0 || filter !== 'all' || folderFilter !== 'all'
 
   async function handleDownload(file: { id: string; file_name: string }) {
     setDownloadingId(file.id)
@@ -248,14 +245,14 @@ export default function AdminFileVault({ files }: { files: AdminFileRow[] }) {
         })}
       </div>
 
-      {/* Source filter — distinguishes deliverables, client uploads and chat files */}
+      {/* Folder filter — the enterprise vault taxonomy */}
       <div className="flex flex-wrap gap-1.5">
-        {SOURCE_FILTERS.map(({ key, label }) => {
-          const active = sourceFilter === key
+        {FOLDER_FILTERS.map(({ key, label }) => {
+          const active = folderFilter === key
           return (
             <button
               key={key}
-              onClick={() => setSourceFilter(key)}
+              onClick={() => setFolderFilter(key)}
               className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
                 active
                   ? 'bg-foreground text-background'
@@ -264,7 +261,7 @@ export default function AdminFileVault({ files }: { files: AdminFileRow[] }) {
             >
               {key !== 'all' && (
                 <span className="inline-block w-1.5 h-1.5 rounded-full"
-                  style={{ backgroundColor: SOURCE_COLOR[key as FileSource] }} />
+                  style={{ backgroundColor: FOLDER_COLOR[key as VaultFolder] }} />
               )}
               {label}
             </button>
@@ -368,8 +365,8 @@ export default function AdminFileVault({ files }: { files: AdminFileRow[] }) {
                                         </span>
                                         <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                                           <span className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0"
-                                            style={{ backgroundColor: SOURCE_COLOR[file.source] }} />
-                                          {SOURCE_LABEL_ADMIN[file.source]} · {formatBytes(file.file_size)} ·{' '}
+                                            style={{ backgroundColor: FOLDER_COLOR[file.vaultFolder] }} />
+                                          {FOLDER_LABEL[file.vaultFolder]} · {formatBytes(file.file_size)} ·{' '}
                                           {formatDate(file.created_at)}
                                         </span>
                                       </span>

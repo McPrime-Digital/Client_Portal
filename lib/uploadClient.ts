@@ -34,9 +34,15 @@ export async function uploadFileToR2(opts: {
   // to link the uploaded file to as its payment receipt.
   category?: string
   invoiceId?: string
+  // Vault folder taxonomy (deliverables/tasks/brand/invoices/chat/general)
+  // and an optional task this upload is the approval media for.
+  folder?: string
+  taskId?: string
+  // Admin-only: mark this as the final delivery.
+  isFinal?: boolean
   onProgress?: (percent: number) => void
 }): Promise<UploadedFile> {
-  const { file, projectId, clientId, direction, category, invoiceId, onProgress } = opts
+  const { file, projectId, clientId, direction, category, invoiceId, folder, taskId, isFinal, onProgress } = opts
   const fileName = file.name
   const declaredType = file.type || 'application/octet-stream'
 
@@ -92,6 +98,9 @@ export async function uploadFileToR2(opts: {
       direction,
       category,
       invoiceId,
+      folder,
+      taskId,
+      isFinal,
     }),
   })
   const commit = await commitRes.json()

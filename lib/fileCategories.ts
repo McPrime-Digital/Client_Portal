@@ -113,3 +113,76 @@ export const SOURCE_COLOR: Record<FileSource, string> = {
 
 // Ordered for stable section rendering.
 export const SOURCE_ORDER: FileSource[] = ['delivery', 'client', 'chat']
+
+// ── Enterprise vault folder taxonomy ──────────────────────────────────────
+// `files.folder` is the source of truth; when absent we derive a folder from
+// the file's category/direction/task link so legacy rows still slot in. Both
+// the admin and client vaults render the same folders for a consistent,
+// SaaS-grade information architecture.
+export type VaultFolder =
+  | 'deliverables'
+  | 'tasks'
+  | 'brand'
+  | 'invoices'
+  | 'chat'
+  | 'general'
+
+// Stable render order (most important first).
+export const VAULT_FOLDERS: VaultFolder[] = [
+  'deliverables', 'tasks', 'brand', 'invoices', 'chat', 'general',
+]
+
+export const FOLDER_LABEL: Record<VaultFolder, string> = {
+  deliverables: 'Deliverables',
+  tasks: 'Tasks & Approvals',
+  brand: 'Brand Assets',
+  invoices: 'Invoices & Receipts',
+  chat: 'Chat',
+  general: 'General',
+}
+
+// One-line undertext shown beneath each folder header.
+export const FOLDER_DESC: Record<VaultFolder, string> = {
+  deliverables: 'Final files delivered by McPrime',
+  tasks: 'Media shared for your review & approval',
+  brand: 'Logos, guidelines & brand source files',
+  invoices: 'Invoices and payment receipts',
+  chat: 'Attachments shared in messages',
+  general: 'Everything else',
+}
+
+export const FOLDER_COLOR: Record<VaultFolder, string> = {
+  deliverables: 'hsl(var(--primary))',
+  tasks: 'hsl(var(--status-amber))',
+  brand: 'hsl(var(--status-violet))',
+  invoices: 'hsl(var(--status-green))',
+  chat: 'hsl(var(--status-blue))',
+  general: 'hsl(var(--muted-foreground))',
+}
+
+// Folders a user may pick at upload time. Chat is auto-assigned (message
+// attachments) and Tasks is admin-only (approval media carries a task_id),
+// so neither appears in the client picker.
+export const ADMIN_UPLOAD_FOLDERS: VaultFolder[] = [
+  'deliverables', 'brand', 'invoices', 'general',
+]
+export const CLIENT_UPLOAD_FOLDERS: VaultFolder[] = [
+  'brand', 'invoices', 'general',
+]
+
+// Resolve a file's vault folder. Explicit `folder` wins; otherwise derive
+// from task link / category / direction so pre-taxonomy rows still group.
+export function resolveFolder(opts: {
+  folder?: string | null
+  category?: string | null
+  direction?: string | null
+  taskId?: string | null
+}): VaultFolder {
+  const f = opts.folder
+  if (f && (VAULT_FOLDERS as string[]).includes(f)) return f as VaultFolder
+  if (opts.taskId) return 'tasks'
+  if (opts.category === 'receipt' || opts.category === 'invoice') return 'invoices'
+  if (opts.category === 'message') return 'chat'
+  if (opts.direction === 'delivery') return 'deliverables'
+  return 'general'
+}
