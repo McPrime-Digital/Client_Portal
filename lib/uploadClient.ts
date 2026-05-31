@@ -25,11 +25,18 @@ export type UploadedFile = {
 
 export async function uploadFileToR2(opts: {
   file: File
-  projectId: string
+  // Project-scoped (most uploads) or client-scoped (e.g. invoice receipt
+  // with no project) — supply projectId or clientId.
+  projectId?: string
+  clientId?: string
   direction?: 'delivery' | 'client-upload'
+  // Explicit Files Vault category (e.g. 'receipt') and an optional invoice
+  // to link the uploaded file to as its payment receipt.
+  category?: string
+  invoiceId?: string
   onProgress?: (percent: number) => void
 }): Promise<UploadedFile> {
-  const { file, projectId, direction, onProgress } = opts
+  const { file, projectId, clientId, direction, category, invoiceId, onProgress } = opts
   const fileName = file.name
   const declaredType = file.type || 'application/octet-stream'
 
@@ -37,7 +44,7 @@ export async function uploadFileToR2(opts: {
   const presignRes = await fetch('/api/files/presign', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ projectId, fileName, contentType: declaredType }),
+    body: JSON.stringify({ projectId, clientId, fileName, contentType: declaredType }),
   })
   const presign = await presignRes.json()
   if (!presignRes.ok) {
@@ -77,11 +84,14 @@ export async function uploadFileToR2(opts: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       projectId,
+      clientId,
       key,
       fileName,
       fileSize: file.size,
       contentType: declaredType,
       direction,
+      category,
+      invoiceId,
     }),
   })
   const commit = await commitRes.json()

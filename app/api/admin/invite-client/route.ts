@@ -82,6 +82,7 @@ export async function POST(request: NextRequest) {
           notes: notes?.trim() || null,
           user_id: inviteData.user.id,
           invited_at: new Date().toISOString(),
+          invite_count: 1,
         })
         .select()
         .single()

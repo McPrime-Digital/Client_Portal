@@ -1,7 +1,8 @@
 'use client'
 
 import { usePathname } from 'next/navigation'
-import { ChevronRight, Shield } from 'lucide-react'
+import { ChevronRight, Shield, Menu } from 'lucide-react'
+import { useSidebarStore } from '@/lib/stores/sidebar-store'
 import ThemeToggle from '../ThemeToggle'
 
 type Props = { adminName: string }
@@ -18,6 +19,7 @@ const routeNames: Record<string, string> = {
 
 export default function AdminTopbar({ adminName }: Props) {
   const pathname = usePathname()
+  const { toggle } = useSidebarStore()
   const pageName =
     routeNames[pathname] ??
     (pathname.includes('/admin/clients/') ? 'Client Detail' :
@@ -26,11 +28,18 @@ export default function AdminTopbar({ adminName }: Props) {
 
   return (
     <header className="flex items-center justify-between px-6 lg:px-8 flex-shrink-0 h-[60px] bg-card border-b border-border">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Shield size={14} className="text-primary" />
+      <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0">
+        <button
+          onClick={toggle}
+          className="lg:hidden p-2 -ml-2 rounded-md transition-colors text-muted-foreground hover:text-foreground"
+          aria-label="Open menu"
+        >
+          <Menu size={18} />
+        </button>
+        <Shield size={14} className="text-primary flex-shrink-0" />
         <span className="text-primary">Admin</span>
-        <ChevronRight size={12} className="text-faint" />
-        <span className="text-foreground">{pageName}</span>
+        <ChevronRight size={12} className="text-faint flex-shrink-0" />
+        <span className="text-foreground truncate">{pageName}</span>
       </div>
       <div className="flex items-center gap-2">
         <ThemeToggle />

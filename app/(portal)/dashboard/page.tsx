@@ -5,6 +5,9 @@ import Link from 'next/link'
 import StatusBadge from '@/components/portal/StatusBadge'
 import WelcomeBanner from '@/components/portal/WelcomeBanner'
 import OverviewGreeting from '@/components/portal/OverviewGreeting'
+import ProgressBar from '@/components/shared/ProgressBar'
+import RealtimeRefresh from '@/components/shared/RealtimeRefresh'
+import { applyCanonicalProgress } from '@/lib/projectProgress'
 import {
   FolderOpen,
   CheckSquare,
@@ -108,6 +111,7 @@ export default async function DashboardPage() {
     { data: unreadMsgs },
     { data: recentMessages },
     { data: invoices },
+    { data: phases },
   ] = await Promise.all([
     hasProjects
       ? supabaseAdmin.from('tasks').select('*').in('project_id', projectIds)
@@ -136,7 +140,17 @@ export default async function DashboardPage() {
           .limit(6)
       : Promise.resolve({ data: [] as any[] }),
     supabaseAdmin.from('invoices').select('*').eq('client_id', client.id),
+    hasProjects
+      ? supabaseAdmin
+          .from('project_phases')
+          .select('project_id, progress')
+          .in('project_id', projectIds)
+      : Promise.resolve({ data: [] as any[] }),
   ])
+
+  // Keep overview progress in sync with the phase-average (single
+  // source of truth shared with project detail pages).
+  applyCanonicalProgress(projects, phases)
 
   // ── Derived metrics ──
   const activeProjects = (projects ?? []).filter(
@@ -252,6 +266,11 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6 w-full">
+      {/* Live: refresh overview when the client's data changes */}
+      <RealtimeRefresh
+        tables={['projects', 'project_phases', 'invoices', 'activity_log', 'messages', 'files']}
+        pollMs={45000}
+      />
 
       {/* Welcome banner for first-time clients */}
       <WelcomeBanner clientName={client?.name ?? 'there'} isFirstLogin={isFirstLogin} />
@@ -387,12 +406,7 @@ export default async function DashboardPage() {
                           <ArrowRight size={14} style={{ color: 'hsl(var(--text-faint))' }} />
                         </div>
                       </div>
-                      <div className="mt-4 h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
-                        <div
-                          className="h-full rounded-full transition-all"
-                          style={{ width: `${project.progress}%`, backgroundColor: 'hsl(var(--primary))' }}
-                        />
-                      </div>
+                      <ProgressBar value={project.progress} size="sm" className="mt-4" />
                     </div>
                   </Link>
                 ))}
@@ -574,7 +588,7 @@ export default async function DashboardPage() {
           </section>
 
           {/* Support nudge */}
-          <Link href="/messages">
+          <Link href="/messages" className="block">
             <section
               className="card-interactive rounded-xl p-5 cursor-pointer"
               style={{

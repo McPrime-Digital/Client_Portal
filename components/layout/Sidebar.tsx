@@ -56,7 +56,16 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
   const brandName = clientCompany || clientName || 'Client'
   const pathname = usePathname()
   const router = useRouter()
-  const { close } = useSidebarStore()
+  const { isOpen, close } = useSidebarStore()
+
+  // Close the mobile drawer whenever the route changes, and lock body
+  // scroll while it's open. No-ops on desktop (drawer is always open there).
+  useEffect(() => { close() }, [pathname, close])
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    document.body.style.overflow = isOpen ? 'hidden' : ''
+    return () => { document.body.style.overflow = '' }
+  }, [isOpen])
 
   const [unreadMessages, setUnreadMessages] = useState(0)
   const [unpaidInvoices, setUnpaidInvoices] = useState(0)
@@ -102,7 +111,20 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
   }
 
   return (
-    <aside className="hidden lg:flex flex-col w-[240px] flex-shrink-0 h-screen bg-card border-r border-border">
+    <>
+      {/* Mobile backdrop — tap to close. Hidden on lg+. */}
+      <div
+        onClick={close}
+        aria-hidden
+        className={`fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden transition-opacity duration-200 ${
+          isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+      />
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex flex-col w-[260px] h-screen bg-card border-r border-border transition-transform duration-200 ease-out lg:static lg:z-auto lg:w-[240px] lg:flex-shrink-0 lg:translate-x-0 ${
+          isOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
       {/* Logo — client-branded; fixed 60px height so its bottom border aligns with the topbar's */}
       <div className="flex items-center gap-3 px-5 h-[60px] flex-shrink-0 border-b border-border">
         {clientAvatar ? (
@@ -200,6 +222,7 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
           </button>
         </div>
       </div>
-    </aside>
+      </aside>
+    </>
   )
 }

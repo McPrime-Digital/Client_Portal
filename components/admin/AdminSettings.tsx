@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { User } from '@supabase/supabase-js'
 import {
@@ -11,6 +11,7 @@ import {
   AlertCircle,
   Eye,
   EyeOff,
+  CreditCard,
 } from 'lucide-react'
 
 type Props = {
@@ -37,6 +38,58 @@ export default function AdminSettings({ user }: Props) {
   const [passwordSuccess, setPasswordSuccess] = useState(false)
   const [passwordError, setPasswordError] = useState('')
   const [showNext, setShowNext] = useState(false)
+
+  // Payment / business settings (global — shown on client invoices).
+  const emptyPay = {
+    business_name: '', business_email: '', business_address: '',
+    bank_name: '', account_name: '', account_number: '',
+    routing_number: '', swift: '', payment_instructions: '',
+  }
+  const [pay, setPay] = useState(emptyPay)
+  const [paySaving, setPaySaving] = useState(false)
+  const [paySuccess, setPaySuccess] = useState(false)
+  const [payError, setPayError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    fetch('/api/admin/invoice-actions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'get_settings' }),
+    })
+      .then((r) => r.json())
+      .then((j) => {
+        if (active && j.settings) {
+          setPay((prev) =>
+            Object.fromEntries(
+              Object.keys(prev).map((k) => [k, j.settings[k] ?? ''])
+            ) as typeof prev
+          )
+        }
+      })
+      .catch(() => {})
+    return () => { active = false }
+  }, [])
+
+  async function savePayment(e: React.FormEvent) {
+    e.preventDefault()
+    setPaySaving(true); setPayError(''); setPaySuccess(false)
+    try {
+      const res = await fetch('/api/admin/invoice-actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'save_settings', settings: pay }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to save.')
+      setPaySuccess(true)
+      setTimeout(() => setPaySuccess(false), 3000)
+    } catch (err: any) {
+      setPayError(err.message ?? 'Failed to save.')
+    } finally {
+      setPaySaving(false)
+    }
+  }
 
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault()
@@ -110,6 +163,20 @@ export default function AdminSettings({ user }: Props) {
   const labelClass =
     'block text-xs font-semibold uppercase tracking-wider mb-2'
   const labelStyle = { color: 'hsl(var(--muted-foreground))' }
+
+  const payField = (label: string, key: keyof typeof emptyPay) => (
+    <div>
+      <label className={labelClass} style={labelStyle}>{label}</label>
+      <input
+        type="text"
+        value={pay[key]}
+        onChange={(e) => setPay((p) => ({ ...p, [key]: e.target.value }))}
+        className={inputClass}
+        style={inputStyle}
+        {...focusHandlers}
+      />
+    </div>
+  )
 
   return (
     <div className="space-y-6 max-w-[560px]">
@@ -208,6 +275,86 @@ export default function AdminSettings({ user }: Props) {
             </>
           ) : (
             'Save Profile'
+          )}
+        </button>
+      </form>
+
+      {/* ── Payment Details ── */}
+      <form
+        onSubmit={savePayment}
+        className="p-6 rounded-xl space-y-5"
+        style={{
+          backgroundColor: 'hsl(var(--card))',
+          border: '1px solid hsl(var(--border))',
+        }}
+      >
+        <div className="flex items-center gap-3">
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{ backgroundColor: 'hsl(var(--primary) / 0.1)' }}
+          >
+            <CreditCard size={17} style={{ color: 'hsl(var(--primary))' }} />
+          </div>
+          <div>
+            <h2
+              className="font-display text-base font-semibold"
+              style={{ color: 'hsl(var(--foreground))' }}
+            >
+              Payment Details
+            </h2>
+            <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              Shown to clients on unpaid invoices for bank / wire transfers
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {payField('Bank name', 'bank_name')}
+          {payField('Account name', 'account_name')}
+          {payField('Account number', 'account_number')}
+          {payField('Routing number', 'routing_number')}
+          {payField('SWIFT / BIC', 'swift')}
+          {payField('Business name', 'business_name')}
+        </div>
+
+        <div>
+          <label className={labelClass} style={labelStyle}>Payment instructions</label>
+          <textarea
+            value={pay.payment_instructions}
+            onChange={(e) => setPay((p) => ({ ...p, payment_instructions: e.target.value }))}
+            rows={3}
+            placeholder="e.g. Pay in USD. Email or upload your receipt after transferring."
+            className={inputClass}
+            style={inputStyle}
+          />
+        </div>
+
+        {payError && (
+          <div className="flex items-center gap-2">
+            <AlertCircle size={13} style={{ color: 'hsl(var(--destructive))' }} />
+            <p className="text-sm" style={{ color: 'hsl(var(--destructive))' }}>{payError}</p>
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={paySaving}
+          className="flex items-center gap-2 px-5 py-3 rounded-lg text-sm font-semibold transition-all disabled:opacity-60"
+          style={{
+            backgroundColor: paySuccess
+              ? 'hsl(var(--status-green) / 0.15)'
+              : 'hsl(var(--primary))',
+            color: paySuccess
+              ? 'hsl(var(--status-green))'
+              : 'hsl(var(--primary-foreground))',
+          }}
+        >
+          {paySaving ? (
+            <><Loader2 size={13} className="animate-spin" /> Saving...</>
+          ) : paySuccess ? (
+            <><Check size={13} /> Saved</>
+          ) : (
+            'Save Payment Details'
           )}
         </button>
       </form>

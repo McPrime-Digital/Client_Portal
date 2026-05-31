@@ -34,12 +34,13 @@ const PROJECT_TYPES = [
 ]
 
 const DEFAULT_PHASES = [
-  { name: 'Pre-Production', sort_order: 0 },
-  { name: 'Photography / Filming', sort_order: 1 },
-  { name: 'Editing', sort_order: 2 },
-  { name: 'Color & Sound', sort_order: 3 },
-  { name: 'Client Review', sort_order: 4 },
-  { name: 'Final Delivery', sort_order: 5 },
+  { name: 'Discovery & Brief', description: 'Concept development and narrative architecture', sort_order: 0 },
+  { name: 'Pre-Production', description: 'Script design and creative alignment with brand', sort_order: 1 },
+  { name: 'Production G1', description: 'AI-powered scene generation and environment design', sort_order: 2 },
+  { name: 'Production G2', description: 'Cinematic visual composition and motion design', sort_order: 3 },
+  { name: 'Post-Production', description: 'Visual refinement, editing, sound design, voiceover, and audio mastering', sort_order: 4 },
+  { name: 'Revisions', description: 'Commercial campaign formatting for distribution platforms', sort_order: 5 },
+  { name: 'Final Delivery', description: 'Final masters delivered across agreed formats', sort_order: 6 },
 ]
 
 const STATUSES = [
@@ -129,6 +130,7 @@ export default function NewProjectForm({
         .filter((p) => p.enabled)
         .map((p, i) => ({
           name: p.name,
+          description: p.description,
           sort_order: i,
         }))
 
@@ -369,7 +371,7 @@ export default function NewProjectForm({
           </div>
 
           {/* Type + Status */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label
                 className={labelClass}
@@ -427,7 +429,7 @@ export default function NewProjectForm({
           </div>
 
           {/* Dates */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label
                 className={labelClass}
@@ -557,16 +559,24 @@ goals, and deliverables..."
                         style={{ color: 'hsl(var(--primary-foreground))' }} />
                     )}
                   </div>
-                  <span
-                    className="text-sm font-medium"
-                    style={{
-                      color: phase.enabled
-                        ? 'hsl(var(--foreground))'
-                        : 'hsl(var(--text-faint))',
-                    }}
-                  >
-                    {phase.name}
-                  </span>
+                  <div className="min-w-0 text-left">
+                    <span
+                      className="block text-sm font-medium"
+                      style={{
+                        color: phase.enabled
+                          ? 'hsl(var(--foreground))'
+                          : 'hsl(var(--text-faint))',
+                      }}
+                    >
+                      {phase.name}
+                    </span>
+                    {phase.description && (
+                      <span className="block text-[11px] leading-snug mt-0.5"
+                        style={{ color: 'hsl(var(--text-faint))' }}>
+                        {phase.description}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <span
                   className="text-xs"
@@ -708,7 +718,7 @@ goals, and deliverables..."
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label
                   className={labelClass}

@@ -368,6 +368,7 @@ export default function AdminMessagesHub({
       file,
       projectId: activeThread.id,
       direction: 'delivery',
+      category: 'message',
     })
 
     return {

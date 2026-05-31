@@ -18,7 +18,7 @@ export default async function AdminFilesPage() {
   const { data } = await supabaseAdmin
     .from('files')
     .select(
-      'id, project_id, client_id, file_name, file_size, file_type, mime_type, is_final, direction, created_at, projects(title), clients(name, company)'
+      '*, projects(title), clients(name, company)'
     )
     .order('created_at', { ascending: false })
 
@@ -35,6 +35,7 @@ export default async function AdminFilesPage() {
         file_size: f.file_size,
         file_type: f.file_type,
         mime_type: f.mime_type,
+        category: (f as { category?: string | null }).category ?? null,
         is_final: f.is_final,
         direction: f.direction,
         created_at: f.created_at,

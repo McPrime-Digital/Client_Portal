@@ -377,20 +377,22 @@ export default function AdminDashboard({
           )}
         </div>
 
-        {/* Right: Activity feed */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
+        {/* Right: Activity feed — styled like the client portal's Recent Activity card */}
+        <section
+          className="rounded-xl p-5 h-fit"
+          style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
+        >
+          <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <Activity size={14} style={{ color: 'hsl(var(--primary))' }} />
-              <h2 className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Activity</h2>
+              <Activity size={15} style={{ color: 'hsl(var(--primary))' }} />
+              <h2 className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Recent Activity</h2>
             </div>
             <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'hsl(var(--status-green))' }} title="Live" />
           </div>
 
           {activity.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 rounded-xl"
-              style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}>
-              <Clock size={24} style={{ color: 'hsl(var(--text-faint))' }} />
+            <div className="flex flex-col items-center justify-center py-10">
+              <Clock size={22} style={{ color: 'hsl(var(--text-faint))' }} />
               <p className="text-xs mt-2" style={{ color: 'hsl(var(--text-faint))' }}>No activity yet</p>
             </div>
           ) : (
@@ -398,7 +400,7 @@ export default function AdminDashboard({
               {activity.map((event, i) => <ActivityItem key={event.id} event={event} isFirst={i === 0} />)}
             </div>
           )}
-        </div>
+        </section>
       </div>
     </div>
   )

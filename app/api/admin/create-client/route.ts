@@ -120,6 +120,8 @@ export async function POST(req: NextRequest) {
         company: reqBody.company?.trim() || null,
         phone: reqBody.phone?.trim() || null,
         notes: reqBody.notes?.trim() || null,
+        invited_at: useInviteLink ? new Date().toISOString() : null,
+        invite_count: useInviteLink ? 1 : 0,
       })
       .select()
       .single()

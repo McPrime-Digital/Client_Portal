@@ -1,12 +1,14 @@
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { resolveUploadScope } from '@/lib/uploadScope'
+import { createNotification } from '@/lib/notify'
 import { NextRequest, NextResponse } from 'next/server'
 
-// Step 2 of the direct-to-R2 upload: the browser has PUT the file to
-// R2 using the presigned URL; now persist the files-table row. We
-// re-authorize (the presigned URL is short-lived but commit is a
-// separate request) and verify the key belongs to the claimed
-// project, so a client can't register an object outside their scope.
+// Step 2 of the direct-to-R2 upload: the browser has PUT the file to R2
+// using the presigned URL; now persist the files-table row. We re-authorize
+// (commit is a separate request) and verify the key lives under the prefix
+// the caller is allowed to write, so a client can't register an object
+// outside their scope. Supports project-scoped and client-scoped uploads.
 export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient()
@@ -17,67 +19,43 @@ export async function POST(req: NextRequest) {
 
     const {
       projectId,
+      clientId: bodyClientId,
       key,
       fileName,
       fileSize,
       contentType,
       direction: requestedDirection,
+      category,
+      invoiceId,
     } = await req.json()
 
-    if (!projectId || !key || !fileName) {
+    if (!key || !fileName) {
       return NextResponse.json(
-        { error: 'projectId, key and fileName are required.' },
+        { error: 'key and fileName are required.' },
         { status: 400 }
       )
     }
 
-    const { data: project } = await supabaseAdmin
-      .from('projects')
-      .select('id, client_id')
-      .eq('id', projectId)
-      .single()
-
-    if (!project) {
-      return NextResponse.json({ error: 'Project not found.' }, { status: 404 })
-    }
-
     const role = user.user_metadata?.role ?? 'client'
-    let clientId: string | null = project.client_id ?? null
-
-    if (role !== 'admin') {
-      const { data: clientRow } = await supabaseAdmin
-        .from('clients')
-        .select('id')
-        .eq('user_id', user.id)
-        .single()
-
-      if (!clientRow || clientRow.id !== project.client_id) {
-        return NextResponse.json({ error: 'Access denied.' }, { status: 403 })
-      }
-      clientId = clientRow.id
+    const scope = await resolveUploadScope(role, user.id, projectId, bodyClientId)
+    if ('error' in scope) {
+      return NextResponse.json({ error: scope.error }, { status: scope.status })
     }
 
-    // The key must live under the client+project prefix minted by
-    // /presign — recomputed from the caller's own scope so a client
-    // can't register an object outside it.
-    const expectedPrefix = clientId ? `${clientId}/${projectId}` : projectId
-    if (!key.startsWith(`${expectedPrefix}/`)) {
+    if (!key.startsWith(`${scope.prefix}/`)) {
       return NextResponse.json({ error: 'Invalid file key.' }, { status: 400 })
     }
 
     // Clients can only post client-uploads; admins deliver by default.
     const direction =
-      role === 'admin'
-        ? requestedDirection || 'delivery'
-        : 'client-upload'
-
+      role === 'admin' ? requestedDirection || 'delivery' : 'client-upload'
     const mime = contentType || 'application/octet-stream'
 
     const { data: fileRecord, error: insertError } = await supabaseAdmin
       .from('files')
       .insert({
-        project_id: projectId,
-        client_id: clientId,
+        project_id: projectId ?? null,
+        client_id: scope.clientId,
         file_name: fileName,
         file_path: key,
         file_size: typeof fileSize === 'number' ? fileSize : 0,
@@ -85,6 +63,7 @@ export async function POST(req: NextRequest) {
         mime_type: mime,
         direction,
         bucket: 'r2',
+        category: category ?? null,
         uploaded_by: user.id,
       })
       .select()
@@ -94,25 +73,50 @@ export async function POST(req: NextRequest) {
       throw new Error(insertError.message)
     }
 
+    // Link this upload to an invoice as its payment receipt, if asked.
+    // Authorize: admins any invoice; clients only their own.
+    if (invoiceId) {
+      const { data: invoice } = await supabaseAdmin
+        .from('invoices')
+        .select('id, client_id')
+        .eq('id', invoiceId)
+        .single()
+      if (invoice && (role === 'admin' || invoice.client_id === scope.clientId)) {
+        await supabaseAdmin
+          .from('invoices')
+          .update({ receipt_file_id: fileRecord.id })
+          .eq('id', invoiceId)
+      }
+    }
+
+    // Notify the client when McPrime delivers a file (not chat attachments).
+    if (role === 'admin' && direction === 'delivery' && category !== 'message') {
+      await createNotification({
+        clientId: scope.clientId,
+        projectId: projectId ?? null,
+        type: 'file_delivered',
+        title: 'New file delivered',
+        body: fileName,
+      })
+    }
+
     // Activity log — best effort, never fail the upload.
     try {
       await supabaseAdmin.rpc('log_activity', {
-        p_project_id: projectId,
-        p_client_id: clientId,
+        p_project_id: projectId ?? null,
+        p_client_id: scope.clientId,
         p_actor_id: user.id,
         p_actor_name:
           user.user_metadata?.name ??
           (role === 'admin' ? 'McPrime Digital' : 'Client'),
         p_actor_role: role,
-        p_event_type: 'file_uploaded',
-        p_title: `${fileName} uploaded`,
+        p_event_type: category === 'receipt' ? 'receipt_uploaded' : 'file_uploaded',
+        p_title:
+          category === 'receipt'
+            ? `Payment receipt uploaded`
+            : `${fileName} uploaded`,
         p_body: null,
-        p_meta: {
-          file_id: fileRecord.id,
-          size: fileRecord.file_size,
-          mime,
-          storage: 'cloudflare_r2',
-        },
+        p_meta: { file_id: fileRecord.id, size: fileRecord.file_size, mime },
       })
     } catch {
       // RPC not present / non-critical — ignore.

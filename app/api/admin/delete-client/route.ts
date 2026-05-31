@@ -44,6 +44,11 @@ export async function POST(req: NextRequest) {
       .update({ client_id: null })
       .eq('client_id', clientId)
 
+    // Remove rows that reference this client so the delete can't fail on
+    // a foreign-key constraint. (Projects are preserved/unlinked above.)
+    await supabaseAdmin.from('invoices').delete().eq('client_id', clientId)
+    await supabaseAdmin.from('files').delete().eq('client_id', clientId)
+
     // Delete the client record
     const { error: deleteError } = await supabaseAdmin
       .from('clients')

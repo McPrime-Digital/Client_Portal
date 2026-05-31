@@ -60,11 +60,17 @@ export async function POST(req: NextRequest) {
       throw new Error(inviteError.message)
     }
 
-    // Update invited_at timestamp
+    // Bump invited_at + invite_count so the UI can show "Resent".
+    const { data: existing } = await adminSupabase
+      .from('clients')
+      .select('*')
+      .eq('email', email.trim().toLowerCase())
+      .single()
     await adminSupabase
       .from('clients')
       .update({
         invited_at: new Date().toISOString(),
+        invite_count: (existing?.invite_count ?? 1) + 1,
       })
       .eq(
         'email',

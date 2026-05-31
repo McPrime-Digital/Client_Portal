@@ -11,6 +11,9 @@ import TaskBoard from '@/components/shared/TaskBoard'
 import type { Message } from '@/lib/types/database'
 import { logActivity } from '@/lib/logActivity'
 import { uploadFileToR2 } from '@/lib/uploadClient'
+import ProgressBar from '@/components/shared/ProgressBar'
+import ProgressSlider from '@/components/shared/ProgressSlider'
+import { computeProjectProgress } from '@/lib/projectProgress'
 import {
   ArrowLeft,
   LayoutDashboard,
@@ -149,10 +152,9 @@ export default function AdminProjectDetail({
   const [savingSettings, setSavingSettings] = useState(false)
   const [settingsSaved, setSettingsSaved] = useState(false)
 
-  // Compute overall progress live from phases state
-  const computedProgress = phases.length > 0
-    ? Math.round(phases.reduce((sum: number, p: any) => sum + (p.progress ?? 0), 0) / phases.length)
-    : (project.progress ?? 0)
+  // Compute overall progress live from phases state (single source of
+  // truth shared with the client portal, lists and overview).
+  const computedProgress = computeProjectProgress(phases, project.progress)
 
   // Mark client messages as read when messages tab opens
   useEffect(() => {
@@ -439,6 +441,7 @@ export default function AdminProjectDetail({
       file,
       projectId: project.id,
       direction: 'delivery',
+      category: 'message',
     })
 
     return {
@@ -525,7 +528,7 @@ export default function AdminProjectDetail({
         updates: {
           title: settings.title,
           status: settings.status,
-          progress: Number(settings.progress),
+          progress: phases.length > 0 ? computedProgress : Number(settings.progress),
           brief: settings.brief || null,
           kickoff_date: settings.kickoff_date || null,
           due_date: settings.due_date || null,
@@ -633,25 +636,13 @@ export default function AdminProjectDetail({
           </div>
         </div>
 
-        <div
-          className="mt-4 h-2 rounded-full overflow-hidden"
-          style={{ backgroundColor: 'hsl(var(--border))' }}
-        >
-          <div
-            className="h-full rounded-full transition-all 
-            duration-500"
-            style={{
-              width: `${computedProgress}%`,
-              backgroundColor: 'hsl(var(--primary))',
-            }}
-          />
-        </div>
+        <ProgressBar value={computedProgress} className="mt-4" />
       </div>
 
       {/* Tabs */}
       <div
-        className="flex gap-1 p-1 rounded-xl w-fit 
-        overflow-x-auto"
+        className="flex gap-1 p-1 rounded-xl w-fit max-w-full
+        overflow-x-auto scrollbar-none"
         style={{
           backgroundColor: 'hsl(var(--card))',
           border: '1px solid hsl(var(--border))',
@@ -664,8 +655,8 @@ export default function AdminProjectDetail({
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className="flex items-center gap-2 px-4 py-2 
-              rounded-lg text-sm font-medium transition-all 
+              className="flex flex-shrink-0 items-center gap-2 px-4 py-2
+              rounded-lg text-sm font-medium transition-all
               whitespace-nowrap"
               style={{
                 backgroundColor: isActive
@@ -782,27 +773,17 @@ export default function AdminProjectDetail({
                       </span>
                     </div>
                   </div>
+                  {phase.description && (
+                    <p className="ml-7 mt-0.5 mb-1.5 text-[11px] leading-snug"
+                      style={{ color: 'hsl(var(--text-faint))' }}>
+                      {phase.description}
+                    </p>
+                  )}
                   <div className="ml-7">
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      step="5"
+                    <ProgressSlider
                       value={phase.progress}
-                      onChange={(e) =>
-                        updatePhaseProgress(
-                          phase.id,
-                          parseInt(e.target.value)
-                        )
-                      }
-                      className="w-full h-1.5 rounded-full 
-                      appearance-none cursor-pointer"
-                      style={{
-                        accentColor: phase.is_complete
-                          ? 'hsl(var(--status-green))'
-                          : 'hsl(var(--primary))',
-                        backgroundColor: 'hsl(var(--border))',
-                      }}
+                      onChange={(v) => updatePhaseProgress(phase.id, v)}
+                      showLabel={false}
                     />
                   </div>
                 </div>
@@ -987,7 +968,7 @@ export default function AdminProjectDetail({
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label
                   className="block text-xs font-semibold 
@@ -1024,25 +1005,30 @@ export default function AdminProjectDetail({
                 >
                   Overall Progress (%)
                 </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={settings.progress}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      progress: e.target.value,
-                    })
-                  }
-                  className={inputClass}
-                  style={inputStyle}
-                  {...focusHandlers}
-                />
+                {phases.length > 0 ? (
+                  <div className="pt-1">
+                    <ProgressBar value={computedProgress} showLabel />
+                    <p
+                      className="text-xs mt-2"
+                      style={{ color: 'hsl(var(--muted-foreground))' }}
+                    >
+                      Auto-calculated from phase progress.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="pt-1">
+                    <ProgressSlider
+                      value={Number(settings.progress) || 0}
+                      onChange={(v) =>
+                        setSettings({ ...settings, progress: String(v) })
+                      }
+                    />
+                  </div>
+                )}
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label
                   className="block text-xs font-semibold 
@@ -1119,7 +1105,7 @@ export default function AdminProjectDetail({
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label
                   className="block text-xs font-semibold 

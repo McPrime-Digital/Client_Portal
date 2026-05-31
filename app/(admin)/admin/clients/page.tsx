@@ -5,6 +5,7 @@ import { supabaseAdmin } from
 import { redirect } from 'next/navigation'
 import ClientsTable from
   '@/components/admin/ClientsTable'
+import RealtimeRefresh from '@/components/shared/RealtimeRefresh'
 
 export default async function ClientsPage() {
   const supabase = await createClient()
@@ -21,16 +22,10 @@ export default async function ClientsPage() {
 
   const { data: clients } = await supabaseAdmin
     .from('clients')
+    // Select * (not an explicit column list) so a not-yet-migrated
+    // column like invite_count can't blank the whole clients list.
     .select(`
-      id,
-      name,
-      email,
-      company,
-      phone,
-      is_active,
-      invited_at,
-      onboarded_at,
-      created_at,
+      *,
       projects (
         id,
         title,
@@ -41,6 +36,7 @@ export default async function ClientsPage() {
 
   return (
     <div className="space-y-6">
+      <RealtimeRefresh tables={['clients', 'projects']} pollMs={45000} />
       <div className="flex items-center
         justify-between">
         <div>

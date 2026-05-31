@@ -17,6 +17,8 @@ import MessageThread from '@/components/shared/MessageThread'
 import TaskBoard from '@/components/shared/TaskBoard'
 import { logActivity } from '@/lib/logActivity'
 import { uploadFileToR2 } from '@/lib/uploadClient'
+import ProgressBar from '@/components/shared/ProgressBar'
+import { computeProjectProgress } from '@/lib/projectProgress'
 import {
   ArrowLeft,
   Clock,
@@ -146,10 +148,8 @@ export default function ProjectDetail({
     }
   }, [activeTab, project.id])
 
-  // Compute progress dynamically from phases
-  const computedProgress = phases.length > 0
-    ? Math.round(phases.reduce((sum, p) => sum + (p.progress ?? 0), 0) / phases.length)
-    : (project.progress ?? 0)
+  // Single source of truth — same helper the admin + lists use.
+  const computedProgress = computeProjectProgress(phases, project.progress)
 
   // Realtime messages subscription — instant delivery when replication is enabled
   useEffect(() => {
@@ -382,6 +382,7 @@ export default function ProjectDetail({
       file,
       projectId: project.id,
       direction: 'client-upload',
+      category: 'message',
     })
 
     // Also add to fileList so it appears in the Files tab!
@@ -530,23 +531,12 @@ export default function ProjectDetail({
         </div>
 
         {/* Overall progress bar */}
-        <div
-          className="mt-4 h-2 rounded-full overflow-hidden"
-          style={{ backgroundColor: 'hsl(var(--border))' }}
-        >
-          <div
-            className="h-full rounded-full transition-all duration-500"
-            style={{
-              width: `${computedProgress}%`,
-              backgroundColor: 'hsl(var(--primary))',
-            }}
-          />
-        </div>
+        <ProgressBar value={computedProgress} className="mt-4" />
       </div>
 
       {/* Tabs */}
       <div
-        className="flex gap-1 p-1 rounded-xl w-fit"
+        className="flex gap-1 p-1 rounded-xl w-fit max-w-full overflow-x-auto scrollbar-none"
         style={{ backgroundColor: 'hsl(var(--card))',
           border: '1px solid hsl(var(--border))' }}
       >
@@ -557,7 +547,7 @@ export default function ProjectDetail({
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className="flex items-center gap-2 px-4 py-2 
+              className="flex flex-shrink-0 whitespace-nowrap items-center gap-2 px-4 py-2
               rounded-lg text-sm font-medium transition-all"
               style={{
                 backgroundColor: isActive
@@ -660,22 +650,13 @@ export default function ProjectDetail({
                         {phase.progress}%
                       </span>
                     </div>
-                    <div
-                      className="ml-7 h-1.5 rounded-full 
-                      overflow-hidden"
-                      style={{ backgroundColor: 'hsl(var(--border))' }}
-                    >
-                      <div
-                        className="h-full rounded-full 
-                        transition-all duration-500"
-                        style={{
-                          width: `${phase.progress}%`,
-                          backgroundColor: phase.is_complete
-                            ? 'hsl(var(--status-green))'
-                            : 'hsl(var(--primary))',
-                        }}
-                      />
-                    </div>
+                    {phase.description && (
+                      <p className="ml-7 mt-0.5 mb-1.5 text-[11px] leading-snug"
+                        style={{ color: 'hsl(var(--text-faint))' }}>
+                        {phase.description}
+                      </p>
+                    )}
+                    <ProgressBar value={phase.progress} size="sm" className="ml-7" />
                   </div>
                 ))}
               </div>

@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
+import { uploadFileToR2 } from '@/lib/uploadClient'
 import {
   ArrowLeft,
   Plus,
@@ -12,6 +12,7 @@ import {
   DollarSign,
   Check,
   ExternalLink,
+  Upload,
 } from 'lucide-react'
 
 type LineItem = {
@@ -29,10 +30,12 @@ export default function NewInvoiceForm({
   projects: any[]
 }) {
   const router = useRouter()
-  const supabase = createClient()
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
+  const [markPaid, setMarkPaid] = useState(false)
+  const [receiptFile, setReceiptFile] = useState<File | null>(null)
+  const receiptRef = useRef<HTMLInputElement>(null)
 
   const [form, setForm] = useState({
     client_id: '',
@@ -40,6 +43,7 @@ export default function NewInvoiceForm({
     title: '',
     description: '',
     due_date: '',
+    payment_method: 'bank_transfer' as 'bank_transfer' | 'wire',
     stripe_payment_url: '',
     notes: '',
     status: 'unpaid' as
@@ -129,29 +133,50 @@ export default function NewInvoiceForm({
     setError('')
 
     try {
-      const { error: insertError } = await supabase
-        .from('invoices')
-        .insert({
+      const res = await fetch('/api/admin/invoice-actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create_invoice',
           client_id: form.client_id,
           project_id: form.project_id || null,
           title: form.title.trim(),
-          description:
-            form.description.trim() || null,
+          description: form.description.trim() || null,
           amount: subtotal,
-          status: form.status,
-          due_date: form.due_date || null,
-          stripe_payment_url:
-            form.stripe_payment_url.trim() || null,
-          notes: form.notes.trim() || null,
           line_items: lineItems.map((item) => ({
             description: item.description,
             quantity: item.quantity,
             unit_price: item.unit_price,
             total: item.quantity * item.unit_price,
           })),
-        })
+          status: markPaid ? 'paid' : form.status,
+          payment_method: form.payment_method,
+          due_date: form.due_date || null,
+          notes: form.notes.trim() || null,
+          stripe_payment_link: form.stripe_payment_url.trim() || null,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to create invoice.')
 
-      if (insertError) throw insertError
+      // Optionally attach a payment receipt to an already-paid invoice.
+      // It lands in the Files Vault (Invoices & Receipts) and the client's
+      // vault for transparency.
+      if (markPaid && receiptFile && json.invoice) {
+        try {
+          await uploadFileToR2({
+            file: receiptFile,
+            projectId: json.invoice.project_id || undefined,
+            clientId: json.invoice.client_id,
+            category: 'receipt',
+            invoiceId: json.invoice.id,
+            direction: 'delivery',
+          })
+        } catch (uploadErr) {
+          // Non-fatal — the invoice exists; receipt can be added later.
+          console.error('Receipt upload failed:', uploadErr)
+        }
+      }
 
       setDone(true)
       setTimeout(() => {
@@ -276,7 +301,7 @@ export default function NewInvoiceForm({
             Invoice Details
           </h3>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="col-span-2">
               <label
                 className={labelClass}
@@ -409,31 +434,77 @@ Project Fee"
                 className={labelClass}
                 style={labelStyle}
               >
-                Status
+                Payment Method
               </label>
               <select
-                value={form.status}
+                value={form.payment_method}
                 onChange={(e) =>
-                  updateForm('status', e.target.value)
+                  updateForm('payment_method', e.target.value)
                 }
                 className={inputClass}
                 style={inputStyle}
                 {...focusHandlers}
               >
-                <option value="draft"
-                  style={{
-                    backgroundColor: 'hsl(var(--card))',
-                  }}>
-                  Draft (not visible to client)
+                <option value="bank_transfer"
+                  style={{ backgroundColor: 'hsl(var(--card))' }}>
+                  Bank transfer
                 </option>
-                <option value="unpaid"
-                  style={{
-                    backgroundColor: 'hsl(var(--card))',
-                  }}>
-                  Unpaid (visible to client)
+                <option value="wire"
+                  style={{ backgroundColor: 'hsl(var(--card))' }}>
+                  Wire transfer
                 </option>
               </select>
             </div>
+          </div>
+
+          {/* Mark as already paid (record a wire/bank payment received) */}
+          <div
+            className="rounded-lg p-4"
+            style={{ backgroundColor: 'hsl(var(--secondary))' }}
+          >
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={markPaid}
+                onChange={(e) => setMarkPaid(e.target.checked)}
+                className="w-4 h-4 accent-[hsl(var(--primary))]"
+              />
+              <span className="text-sm font-medium"
+                style={{ color: 'hsl(var(--foreground))' }}>
+                Mark as already paid
+              </span>
+            </label>
+            <p className="text-xs mt-1.5 ml-7"
+              style={{ color: 'hsl(var(--text-faint))' }}>
+              The client paid by wire/bank already — record it as paid and
+              optionally attach the receipt. Otherwise it shows to the
+              client as unpaid with your payment details.
+            </p>
+            {markPaid && (
+              <div className="mt-3 ml-7">
+                <input
+                  ref={receiptRef}
+                  type="file"
+                  accept="image/*,application/pdf"
+                  className="hidden"
+                  onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+                />
+                <button
+                  type="button"
+                  onClick={() => receiptRef.current?.click()}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg
+                  text-sm font-medium transition-all"
+                  style={{
+                    backgroundColor: 'hsl(var(--card))',
+                    color: 'hsl(var(--foreground))',
+                    border: '1px solid hsl(var(--border))',
+                  }}
+                >
+                  <Upload size={13} />
+                  {receiptFile ? receiptFile.name : 'Attach receipt (optional)'}
+                </button>
+              </div>
+            )}
           </div>
 
           <div>
@@ -441,7 +512,7 @@ Project Fee"
               className={labelClass}
               style={labelStyle}
             >
-              Stripe Payment URL
+              Card payment link (optional — for later)
             </label>
             <div className="relative">
               <input
@@ -478,8 +549,8 @@ Project Fee"
             </div>
             <p className="text-xs mt-1.5"
               style={{ color: 'hsl(var(--text-faint))' }}>
-              Create a payment link at
-              dashboard.stripe.com → Payment Links
+              Optional. Bank/wire details from your settings show on unpaid
+              invoices. Add a card link here once you connect a merchant.
             </p>
           </div>
         </div>

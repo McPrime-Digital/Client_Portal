@@ -8,6 +8,7 @@ export type FileCategory =
   | 'audio'
   | 'document'
   | 'archive'
+  | 'receipt'
   | 'other'
 
 const EXT: Record<string, FileCategory> = {
@@ -47,12 +48,29 @@ export function categorize(
   return EXT[ext] ?? 'other'
 }
 
+// Prefer an explicit stored category (e.g. invoices/receipts) when present,
+// otherwise fall back to deriving from the file name / mime. Used by both
+// File Vaults so receipts group into their own section.
+const STORED: Record<string, FileCategory> = {
+  receipt: 'receipt',
+  invoice: 'receipt',
+}
+export function resolveCategory(
+  stored: string | null | undefined,
+  name: string | null,
+  mime: string | null,
+): FileCategory {
+  if (stored && STORED[stored]) return STORED[stored]
+  return categorize(name, mime)
+}
+
 export const CATEGORY_LABEL: Record<FileCategory, string> = {
   image: 'Images',
   video: 'Videos',
   audio: 'Audio',
   document: 'Documents',
   archive: 'Archives',
+  receipt: 'Invoices & Receipts',
   other: 'Other',
 }
 
@@ -63,6 +81,7 @@ export const CATEGORY_COLOR: Record<FileCategory, string> = {
   audio: 'hsl(var(--status-violet))',
   document: 'hsl(var(--status-green))',
   archive: 'hsl(var(--destructive))',
+  receipt: 'hsl(var(--primary))',
   other: 'hsl(var(--muted-foreground))',
 }
 
@@ -73,3 +92,24 @@ export function formatBytes(bytes: number | null | undefined): string {
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
 }
+
+// The "source" of a file — used to group the vault into folders so client
+// uploads, admin deliverables and chat attachments stay distinguishable.
+export type FileSource = 'delivery' | 'client' | 'chat'
+
+export function fileSource(
+  category: string | null | undefined,
+  direction: string | null | undefined,
+): FileSource {
+  if (category === 'message') return 'chat'
+  return direction === 'delivery' ? 'delivery' : 'client'
+}
+
+export const SOURCE_COLOR: Record<FileSource, string> = {
+  delivery: 'hsl(var(--primary))',
+  client: 'hsl(var(--status-blue))',
+  chat: 'hsl(var(--status-violet))',
+}
+
+// Ordered for stable section rendering.
+export const SOURCE_ORDER: FileSource[] = ['delivery', 'client', 'chat']

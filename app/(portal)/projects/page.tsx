@@ -3,6 +3,9 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import StatusBadge from '@/components/portal/StatusBadge'
+import ProgressBar from '@/components/shared/ProgressBar'
+import RealtimeRefresh from '@/components/shared/RealtimeRefresh'
+import { applyCanonicalProgress } from '@/lib/projectProgress'
 import {
   FolderOpen,
   ArrowRight,
@@ -38,6 +41,14 @@ export default async function ProjectsPage() {
     .select('*')
     .eq('client_id', client.id)
     .order('created_at', { ascending: false })
+
+  const { data: phases } = projects && projects.length > 0
+    ? await supabaseAdmin
+        .from('project_phases')
+        .select('project_id, progress')
+        .in('project_id', projects.map((p) => p.id))
+    : { data: [] as any[] }
+  applyCanonicalProgress(projects, phases)
 
   const active = projects?.filter(
     (p) => p.status !== 'Completed' && p.status !== 'On Hold'
@@ -101,18 +112,7 @@ export default async function ProjectsPage() {
                 {project.progress}%
               </span>
             </div>
-            <div
-              className="h-1.5 rounded-full overflow-hidden"
-              style={{ backgroundColor: 'hsl(var(--border))' }}
-            >
-              <div
-                className="h-full rounded-full"
-                style={{
-                  width: `${project.progress}%`,
-                  backgroundColor: 'hsl(var(--primary))',
-                }}
-              />
-            </div>
+            <ProgressBar value={project.progress} size="sm" />
           </div>
 
           {/* Meta row */}
@@ -149,6 +149,7 @@ export default async function ProjectsPage() {
 
   return (
     <div className="space-y-8 w-full">
+      <RealtimeRefresh tables={['projects', 'project_phases']} />
       {/* Header */}
       <div>
         <h1

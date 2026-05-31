@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { createClient } from '@/lib/supabase/client'
 
 export type Notification = {
   id: string
@@ -51,8 +52,21 @@ export function useNotifications(clientId: string | null) {
       return
     }
     loadNotifications()
+    // Poll as a safety net; Supabase Realtime gives instant delivery.
     const interval = setInterval(loadNotifications, POLL_INTERVAL)
-    return () => clearInterval(interval)
+    const supabase = createClient()
+    const channel = supabase
+      .channel(`notifications:${clientId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'notifications', filter: `client_id=eq.${clientId}` },
+        () => loadNotifications()
+      )
+      .subscribe()
+    return () => {
+      clearInterval(interval)
+      supabase.removeChannel(channel)
+    }
   }, [clientId, loadNotifications])
 
   const markRead = useCallback(

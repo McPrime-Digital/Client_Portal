@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import AdminInvoicesList from
   '@/components/admin/AdminInvoicesList'
+import RealtimeRefresh from '@/components/shared/RealtimeRefresh'
 
 export default async function AdminInvoicesPage() {
   const supabase = await createClient()
@@ -40,9 +41,12 @@ export default async function AdminInvoicesPage() {
     .reduce((acc, i) => acc + Number(i.amount), 0)
 
   return (
-    <AdminInvoicesList
-      invoices={invoices ?? []}
-      summary={{ paid, outstanding, overdue }}
-    />
+    <>
+      <RealtimeRefresh tables={['invoices']} pollMs={45000} />
+      <AdminInvoicesList
+        invoices={invoices ?? []}
+        summary={{ paid, outstanding, overdue }}
+      />
+    </>
   )
 }

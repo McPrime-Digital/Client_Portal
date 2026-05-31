@@ -13,22 +13,28 @@ import {
   Star,
   Loader2,
   FolderOpen,
+  Receipt,
 } from 'lucide-react'
 import FileViewer, { type ViewerFile } from '@/components/shared/FileViewer'
 import {
-  categorize,
+  resolveCategory,
   CATEGORY_COLOR,
   formatBytes,
+  fileSource,
+  SOURCE_COLOR,
+  SOURCE_ORDER,
   type FileCategory,
+  type FileSource,
 } from '@/lib/fileCategories'
 
 type FileRow = {
   id: string
-  project_id: string
+  project_id: string | null
   file_name: string
   file_size: number | null
   file_type: string | null
   mime_type: string | null
+  category: string | null
   is_final: boolean
   direction: 'delivery' | 'client-upload'
   created_at: string
@@ -45,6 +51,7 @@ const CAT_ICON: Record<FileCategory, typeof FileIcon> = {
   audio: Music,
   document: FileText,
   archive: Archive,
+  receipt: Receipt,
   other: FileIcon,
 }
 
@@ -67,14 +74,26 @@ export default function AllFilesVault({ files, projects }: Props) {
 
   const projectName = useMemo(() => {
     const m = new Map(projects.map((p) => [p.id, p.title]))
-    return (id: string) => m.get(id) ?? 'Project'
+    return (id: string | null) => (id ? m.get(id) ?? 'Project' : 'No project')
   }, [projects])
 
-  // Annotate once with category for filtering + counts.
+  // Annotate once with type category (for filtering/counts) and source
+  // (for grouping into folders). Compute source from the raw stored
+  // category before it's overwritten with the resolved type.
   const annotated = useMemo(
-    () => files.map((f) => ({ ...f, category: categorize(f.file_name, f.mime_type || f.file_type) })),
+    () => files.map((f) => ({
+      ...f,
+      source: fileSource(f.category, f.direction),
+      category: resolveCategory(f.category, f.file_name, f.mime_type || f.file_type),
+    })),
     [files]
   )
+
+  const SOURCE_LABEL: Record<FileSource, string> = {
+    delivery: 'From McPrime Digital',
+    client: 'Your Uploads',
+    chat: 'Chat Files',
+  }
 
   const visible = annotated.filter((f) => {
     if (projectId !== 'all' && f.project_id !== projectId) return false
@@ -130,6 +149,7 @@ export default function AllFilesVault({ files, projects }: Props) {
     { key: 'audio', label: 'Audio' },
     { key: 'document', label: 'Documents' },
     { key: 'archive', label: 'Archives' },
+    { key: 'receipt', label: 'Invoices & Receipts' },
     { key: 'other', label: 'Other' },
   ]
 
@@ -208,60 +228,75 @@ export default function AllFilesVault({ files, projects }: Props) {
           <p className="text-sm text-muted-foreground">No files match this view.</p>
         </div>
       ) : (
-        <>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {visible.map((file) => {
-              const Icon = CAT_ICON[file.category]
-              const color = CATEGORY_COLOR[file.category]
-              return (
-                <div
-                  key={file.id}
-                  className="group relative flex items-center gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:border-ring/40"
-                >
-                  <button
-                    onClick={() => setPreview(file)}
-                    className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                    title="Open preview"
-                  >
-                    <span
-                      className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-lg"
-                      style={{ backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)` }}
-                    >
-                      <Icon size={18} style={{ color }} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-1.5">
-                        <span className="truncate text-sm font-medium text-foreground">
-                          {file.file_name}
-                        </span>
-                        {file.is_final && (
-                          <Star size={11} className="flex-shrink-0 fill-primary text-primary" />
-                        )}
-                      </span>
-                      <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                        {formatBytes(file.file_size)} · {projectName(file.project_id)} ·{' '}
-                        {formatDate(file.created_at)}
-                      </span>
-                    </span>
-                  </button>
-                  <button
-                    onClick={() => handleDownload(file)}
-                    disabled={downloadingId === file.id}
-                    className="flex-shrink-0 rounded-lg p-2 text-faint opacity-0 transition-all hover:bg-secondary hover:text-foreground group-hover:opacity-100 disabled:opacity-50"
-                    title="Download"
-                  >
-                    {downloadingId === file.id ? (
-                      <Loader2 size={15} className="animate-spin" />
-                    ) : (
-                      <Download size={15} />
-                    )}
-                  </button>
+        <div className="space-y-6">
+          {SOURCE_ORDER.map((src) => {
+            const group = visible.filter((f) => f.source === src)
+            if (group.length === 0) return null
+            return (
+              <div key={src}>
+                <div className="flex items-center gap-2 mb-2.5">
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: SOURCE_COLOR[src] }} />
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-faint">
+                    {SOURCE_LABEL[src]}
+                  </h3>
+                  <span className="text-[11px] text-faint">({group.length})</span>
                 </div>
-              )
-            })}
-          </div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {group.map((file) => {
+                    const Icon = CAT_ICON[file.category]
+                    const color = CATEGORY_COLOR[file.category]
+                    return (
+                      <div
+                        key={file.id}
+                        className="group relative flex items-center gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:border-ring/40"
+                      >
+                        <button
+                          onClick={() => setPreview(file)}
+                          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                          title="Open preview"
+                        >
+                          <span
+                            className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-lg"
+                            style={{ backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)` }}
+                          >
+                            <Icon size={18} style={{ color }} />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center gap-1.5">
+                              <span className="truncate text-sm font-medium text-foreground">
+                                {file.file_name}
+                              </span>
+                              {file.is_final && (
+                                <Star size={11} className="flex-shrink-0 fill-primary text-primary" />
+                              )}
+                            </span>
+                            <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                              {formatBytes(file.file_size)} · {projectName(file.project_id)} ·{' '}
+                              {formatDate(file.created_at)}
+                            </span>
+                          </span>
+                        </button>
+                        <button
+                          onClick={() => handleDownload(file)}
+                          disabled={downloadingId === file.id}
+                          className="flex-shrink-0 rounded-lg p-2 text-faint opacity-0 transition-all hover:bg-secondary hover:text-foreground group-hover:opacity-100 disabled:opacity-50"
+                          title="Download"
+                        >
+                          {downloadingId === file.id ? (
+                            <Loader2 size={15} className="animate-spin" />
+                          ) : (
+                            <Download size={15} />
+                          )}
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
           <p className="text-xs text-faint">{formatBytes(totalSize)} shown</p>
-        </>
+        </div>
       )}
 
       {preview && (

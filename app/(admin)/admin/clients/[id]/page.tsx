@@ -5,6 +5,7 @@ import { supabaseAdmin } from
 import { redirect, notFound }
   from 'next/navigation'
 import Link from 'next/link'
+import RealtimeRefresh from '@/components/shared/RealtimeRefresh'
 import {
   ArrowLeft,
   Mail,
@@ -47,6 +48,7 @@ export default async function ClientDetailPage({
       is_active,
       invited_at,
       onboarded_at,
+      invite_count,
       created_at,
       projects (
         id,
@@ -60,21 +62,37 @@ export default async function ClientDetailPage({
 
   if (!client) notFound()
 
-  const { data: recentActivity } =
-    await supabaseAdmin
+  let recentActivity: { id: string; event_type: string; title: string; created_at: string }[] = []
+  try {
+    const { data } = await supabaseAdmin
       .from('activity_log')
-      .select(
-        'id, event_type, title, created_at'
-      )
+      .select('id, event_type, title, created_at')
       .eq('client_id', id)
       .order('created_at', { ascending: false })
       .limit(10)
+    recentActivity = data ?? []
+  } catch {
+    recentActivity = []
+  }
 
-  const isOnboarded = !!client.onboarded_at
-  const statusColor = isOnboarded
-    ? 'hsl(var(--status-green))' : 'hsl(var(--primary))'
-  const statusLabel = isOnboarded
-    ? 'Active' : 'Pending Onboarding'
+  const inviteCount = (client as { invite_count?: number }).invite_count ?? 0
+  let statusLabel = 'Active'
+  let statusColor = 'hsl(var(--status-green))'
+  if (!client.is_active) {
+    statusLabel = 'Inactive'
+    statusColor = 'hsl(var(--muted-foreground))'
+  } else if (!client.onboarded_at) {
+    if (inviteCount > 1) {
+      statusLabel = 'Invite Resent'
+      statusColor = 'hsl(var(--primary))'
+    } else if (inviteCount === 1 || client.invited_at) {
+      statusLabel = 'Invite Sent'
+      statusColor = 'hsl(var(--status-blue))'
+    } else {
+      statusLabel = 'Pending'
+      statusColor = 'hsl(var(--primary))'
+    }
+  }
 
   function fmt(iso: string | null) {
     if (!iso) return '—'
@@ -120,6 +138,8 @@ export default async function ClientDetailPage({
   return (
     <div className="space-y-6
       max-w-[900px]">
+      {/* Live: projects + activity update without refresh */}
+      <RealtimeRefresh tables={['projects', 'activity_log', 'invoices', 'clients']} />
 
       {/* Back */}
       <Link
@@ -341,21 +361,11 @@ export default async function ClientDetailPage({
                     }
                     className="flex items-center
                     justify-between p-3.5
-                    rounded-lg transition-colors
-                    group"
+                    rounded-lg transition-colors group
+                    border border-[hsl(var(--border))]
+                    hover:border-[hsl(var(--primary))]"
                     style={{
                       backgroundColor: 'hsl(var(--primary-foreground))',
-                      border: '1px solid hsl(var(--border))',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget
-                        .style.borderColor =
-                        'hsl(var(--primary))'
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget
-                        .style.borderColor =
-                        'hsl(var(--border))'
                     }}
                   >
                     <div className="flex

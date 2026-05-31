@@ -2,6 +2,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import AdminDashboard from '@/components/admin/AdminDashboard'
+import RealtimeRefresh from '@/components/shared/RealtimeRefresh'
 
 export default async function AdminPage() {
   const supabase = await createClient()
@@ -61,13 +62,20 @@ export default async function AdminPage() {
     .eq('sender_role', 'client')
 
   return (
-    <AdminDashboard
-      projects={(projects ?? []) as any}
-      clients={(clients ?? []) as any}
-      activity={activity}
-      revenue={revenue}
-      unreadMessages={unreadMessages ?? 0}
-      adminName={user.user_metadata?.name ?? 'Admin'}
-    />
+    <>
+      {/* Live: refresh KPIs/pipeline/revenue when data changes */}
+      <RealtimeRefresh
+        tables={['projects', 'invoices', 'tasks', 'activity_log', 'messages', 'clients']}
+        pollMs={45000}
+      />
+      <AdminDashboard
+        projects={(projects ?? []) as any}
+        clients={(clients ?? []) as any}
+        activity={activity}
+        revenue={revenue}
+        unreadMessages={unreadMessages ?? 0}
+        adminName={user.user_metadata?.name ?? 'Admin'}
+      />
+    </>
   )
 }

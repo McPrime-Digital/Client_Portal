@@ -86,28 +86,35 @@ export default function AdminInvoicesTab({
     setLoading(false)
   }
 
+  // All writes go through the admin server route (service role) — the
+  // browser client is blocked by RLS on invoices.
+  async function invoiceAction(payload: Record<string, unknown>) {
+    const res = await fetch('/api/admin/invoice-actions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    const json = await res.json()
+    if (!res.ok) throw new Error(json.error ?? 'Action failed.')
+    return json
+  }
+
   async function createInvoice(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
-
-    const { data } = await supabase
-      .from('invoices')
-      .insert({
+    try {
+      const { invoice } = await invoiceAction({
+        action: 'create_invoice',
         project_id: projectId,
         client_id: clientId,
         title: form.title,
         amount: parseFloat(form.amount),
         status: form.status,
         due_date: form.due_date || null,
-        stripe_payment_url: form.stripe_payment_url || null,
-        invoice_number: form.invoice_number || null,
+        stripe_payment_link: form.stripe_payment_url || null,
         notes: form.notes || null,
       })
-      .select()
-      .single()
-
-    if (data) {
-      setInvoices((prev) => [data, ...prev])
+      setInvoices((prev) => [invoice, ...prev])
       setShowModal(false)
       setForm({
         title: `${projectTitle} — Project Fee`,
@@ -118,62 +125,48 @@ export default function AdminInvoicesTab({
         invoice_number: '',
         notes: '',
       })
+    } catch (err: any) {
+      alert(err.message ?? 'Failed to create invoice.')
+    } finally {
+      setSaving(false)
     }
-    setSaving(false)
   }
 
   async function markAsPaid(invoiceId: string) {
     setUpdatingId(invoiceId)
-    const { data } = await supabase
-      .from('invoices')
-      .update({
-        status: 'paid',
-        paid_at: new Date().toISOString(),
+    try {
+      const { invoice } = await invoiceAction({
+        action: 'set_status', invoice_id: invoiceId, status: 'paid',
       })
-      .eq('id', invoiceId)
-      .select()
-      .single()
-
-    if (data) {
-      setInvoices((prev) =>
-        prev.map((i) => (i.id === invoiceId ? data : i))
-      )
+      setInvoices((prev) => prev.map((i) => (i.id === invoiceId ? invoice : i)))
+    } catch (err: any) {
+      alert(err.message ?? 'Failed to update invoice.')
+    } finally {
+      setUpdatingId(null)
     }
-    setUpdatingId(null)
   }
 
-  async function updateStatus(
-    invoiceId: string,
-    status: string
-  ) {
+  async function updateStatus(invoiceId: string, status: string) {
     setUpdatingId(invoiceId)
-    const updates: any = { status }
-    if (status === 'paid') {
-      updates.paid_at = new Date().toISOString()
+    try {
+      const { invoice } = await invoiceAction({
+        action: 'set_status', invoice_id: invoiceId, status,
+      })
+      setInvoices((prev) => prev.map((i) => (i.id === invoiceId ? invoice : i)))
+    } catch (err: any) {
+      alert(err.message ?? 'Failed to update invoice.')
+    } finally {
+      setUpdatingId(null)
     }
-    const { data } = await supabase
-      .from('invoices')
-      .update(updates)
-      .eq('id', invoiceId)
-      .select()
-      .single()
-
-    if (data) {
-      setInvoices((prev) =>
-        prev.map((i) => (i.id === invoiceId ? data : i))
-      )
-    }
-    setUpdatingId(null)
   }
 
   async function deleteInvoice(invoiceId: string) {
-    await supabase
-      .from('invoices')
-      .delete()
-      .eq('id', invoiceId)
-    setInvoices((prev) =>
-      prev.filter((i) => i.id !== invoiceId)
-    )
+    try {
+      await invoiceAction({ action: 'delete_invoice', invoice_id: invoiceId })
+      setInvoices((prev) => prev.filter((i) => i.id !== invoiceId))
+    } catch (err: any) {
+      alert(err.message ?? 'Failed to delete invoice.')
+    }
   }
 
   const statusColors: Record<string, any> = {
@@ -517,7 +510,7 @@ export default function AdminInvoicesTab({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label
                     className="block text-xs font-semibold 
@@ -577,7 +570,7 @@ export default function AdminInvoicesTab({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label
                     className="block text-xs font-semibold 

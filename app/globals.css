@@ -133,4 +133,45 @@
     background: hsl(var(--border));
     border-radius: 9999px;
   }
+
+  /* Hidden scrollbar — used for horizontally-scrollable tab strips on
+     touch/mobile so the row scrolls without a visible bar. */
+  .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+
+  /* Premium draggable progress control (ProgressSlider). The track fill
+     is set inline via background gradient; this styles the thumb. */
+  .progress-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 6px;
+    border-radius: 9999px;
+    cursor: pointer;
+    outline: none;
+  }
+  .progress-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    background: var(--thumb, hsl(var(--primary)));
+    border: 2px solid hsl(var(--card));
+    box-shadow: 0 1px 4px hsl(var(--foreground) / 0.25);
+    transition: transform 0.12s ease;
+  }
+  .progress-slider::-webkit-slider-thumb:hover { transform: scale(1.15); }
+  .progress-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border: 2px solid hsl(var(--card));
+    border-radius: 9999px;
+    background: var(--thumb, hsl(var(--primary)));
+    box-shadow: 0 1px 4px hsl(var(--foreground) / 0.25);
+  }
+  .progress-slider:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 4px;
+  }
+  .progress-slider:disabled { opacity: 0.5; cursor: not-allowed; }
 }

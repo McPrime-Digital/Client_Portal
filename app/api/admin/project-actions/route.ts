@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { computeProjectProgress } from '@/lib/projectProgress'
+import { createNotification, clientIdForProject } from '@/lib/notify'
 
 // Verify the calling user is an admin
 async function verifyAdmin() {
@@ -34,6 +36,15 @@ export async function POST(req: NextRequest) {
           .select()
           .single()
         if (error) throw error
+        if (updates && updates.status) {
+          await createNotification({
+            clientId: data.client_id,
+            projectId: project_id,
+            type: 'status_change',
+            title: `Project status updated: ${updates.status}`,
+            body: data.title ?? null,
+          })
+        }
         return NextResponse.json({ project: data })
       }
 
@@ -61,6 +72,13 @@ export async function POST(req: NextRequest) {
           .select()
           .single()
         if (error) throw error
+        await createNotification({
+          clientId: await clientIdForProject(project_id),
+          projectId: project_id,
+          type: 'message',
+          title: 'New message from McPrime Digital',
+          body: typeof msgBody === 'string' ? msgBody.slice(0, 120) : null,
+        })
         return NextResponse.json({ message: data })
       }
 
@@ -109,7 +127,24 @@ export async function POST(req: NextRequest) {
           .select()
           .single()
         if (error) throw error
-        return NextResponse.json({ phase: data })
+
+        // Keep projects.progress (what every list/overview reads) in
+        // sync with the average of this project's phases, so the number
+        // is identical across admin, client, detail and overview.
+        let overall: number | null = null
+        if (data?.project_id) {
+          const { data: phases } = await supabaseAdmin
+            .from('project_phases')
+            .select('progress')
+            .eq('project_id', data.project_id)
+          overall = computeProjectProgress(phases, 0)
+          await supabaseAdmin
+            .from('projects')
+            .update({ progress: overall })
+            .eq('id', data.project_id)
+        }
+
+        return NextResponse.json({ phase: data, overall })
       }
 
       // ── Add task ────────────────────────────────────────
@@ -121,6 +156,15 @@ export async function POST(req: NextRequest) {
           .select()
           .single()
         if (error) throw error
+        if (data?.visible_to_client !== false) {
+          await createNotification({
+            clientId: await clientIdForProject(project_id),
+            projectId: project_id,
+            type: 'task_updated',
+            title: 'A new task was added to your project',
+            body: title ?? null,
+          })
+        }
         return NextResponse.json({ task: data })
       }
 

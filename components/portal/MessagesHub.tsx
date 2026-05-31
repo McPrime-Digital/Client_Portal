@@ -373,6 +373,7 @@ export default function MessagesHub({
       file,
       projectId: activeThread.id,
       direction: 'client-upload',
+      category: 'message',
     })
 
     return {

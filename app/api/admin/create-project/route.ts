@@ -4,12 +4,13 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { seedDefaultTasks } from '@/lib/defaultTasks'
 
 const DEFAULT_PHASES = [
-  { name: 'Discovery & Brief', sort_order: 0 },
-  { name: 'Pre-Production', sort_order: 1 },
-  { name: 'Production', sort_order: 2 },
-  { name: 'Post-Production', sort_order: 3 },
-  { name: 'Review & Revisions', sort_order: 4 },
-  { name: 'Final Delivery', sort_order: 5 },
+  { name: 'Discovery & Brief', description: 'Concept development and narrative architecture', sort_order: 0 },
+  { name: 'Pre-Production', description: 'Script design and creative alignment with brand', sort_order: 1 },
+  { name: 'Production G1', description: 'AI-powered scene generation and environment design', sort_order: 2 },
+  { name: 'Production G2', description: 'Cinematic visual composition and motion design', sort_order: 3 },
+  { name: 'Post-Production', description: 'Visual refinement, editing, sound design, voiceover, and audio mastering', sort_order: 4 },
+  { name: 'Revisions', description: 'Commercial campaign formatting for distribution platforms', sort_order: 5 },
+  { name: 'Final Delivery', description: 'Final masters delivered across agreed formats', sort_order: 6 },
 ]
 
 export async function POST(request: NextRequest) {
@@ -79,6 +80,7 @@ export async function POST(request: NextRequest) {
       ? phases.map((p: any, i: number) => ({
           project_id: project.id,
           name: p.name,
+          description: p.description ?? null,
           sort_order: i,
           progress: 0,
           is_complete: false,
@@ -86,6 +88,7 @@ export async function POST(request: NextRequest) {
       : DEFAULT_PHASES.map((phase) => ({
           project_id: project.id,
           name: phase.name,
+          description: phase.description,
           sort_order: phase.sort_order,
           progress: 0,
           is_complete: false,

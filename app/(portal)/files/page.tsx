@@ -31,7 +31,7 @@ export default async function FilesPage() {
   const [{ data: files }, { data: projects }] = await Promise.all([
     supabaseAdmin
       .from('files')
-      .select('id, project_id, file_name, file_size, file_type, mime_type, is_final, direction, created_at')
+      .select('*')
       .eq('client_id', client.id)
       .order('created_at', { ascending: false }),
     supabaseAdmin

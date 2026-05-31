@@ -31,6 +31,16 @@ export default async function PortalLayout({
     console.error('Error fetching client data:', clientError.message)
   }
 
+  // Enforce self-serve onboarding for brand-new clients (no onboarding
+  // completed AND never onboarded). Existing/active clients are unaffected.
+  if (
+    clientData &&
+    !(clientData as any).onboarding_completed_at &&
+    !(clientData as any).onboarded_at
+  ) {
+    redirect('/onboarding')
+  }
+
   // Note: if clientData is null, it might be an admin testing the portal 
   // or a newly created user that doesn't have a clients record yet.
   const fallbackClient = {
@@ -51,7 +61,7 @@ export default async function PortalLayout({
       />
       <div className="flex flex-col flex-1 overflow-hidden">
         <Topbar clientName={activeClient.name} clientId={(activeClient as any).id} />
-        <main className="flex-1 overflow-y-auto p-6 lg:p-8">
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
           {children}
         </main>
       </div>

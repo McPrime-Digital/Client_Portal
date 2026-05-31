@@ -1,8 +1,7 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import {
   Plus,
   DollarSign,
@@ -101,12 +100,13 @@ export default function AdminInvoicesList({
   invoices: Invoice[]
   summary: Summary
 }) {
-  const supabase = createClient()
   const [filter, setFilter] = useState('all')
   const [updating, setUpdating] =
     useState<string | null>(null)
   const [localInvoices, setLocalInvoices] =
     useState(invoices)
+  // Keep in sync when a realtime refresh re-runs the server query.
+  useEffect(() => { setLocalInvoices(invoices) }, [invoices])
   const [showNewForm, setShowNewForm] = useState(false)
 
   const filtered = useMemo(() => {
@@ -129,53 +129,29 @@ export default function AdminInvoicesList({
     }, {} as Record<string, number>)
   }, [localInvoices])
 
-  async function markPaid(invoiceId: string) {
+  // Status changes go through the admin server route (service role); the
+  // browser client is blocked by RLS on invoices.
+  async function setStatus(invoiceId: string, status: 'paid' | 'unpaid') {
     setUpdating(invoiceId)
-    const { error } = await supabase
-      .from('invoices')
-      .update({
-        status: 'paid',
-        paid_at: new Date().toISOString(),
+    try {
+      const res = await fetch('/api/admin/invoice-actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set_status', invoice_id: invoiceId, status }),
       })
-      .eq('id', invoiceId)
-
-    if (!error) {
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to update invoice.')
       setLocalInvoices((prev) =>
-        prev.map((i) =>
-          i.id === invoiceId
-            ? {
-                ...i,
-                status: 'paid',
-                paid_at: new Date().toISOString(),
-              }
-            : i
-        )
+        prev.map((i) => (i.id === invoiceId ? { ...i, ...json.invoice } : i))
       )
+    } catch (err: any) {
+      alert(err.message ?? 'Failed to update invoice.')
+    } finally {
+      setUpdating(null)
     }
-    setUpdating(null)
   }
-
-  async function markUnpaid(invoiceId: string) {
-    setUpdating(invoiceId)
-    const { error } = await supabase
-      .from('invoices')
-      .update({
-        status: 'unpaid',
-        paid_at: null,
-      })
-      .eq('id', invoiceId)
-
-    if (!error) {
-      setLocalInvoices((prev) =>
-        prev.map((i) =>
-          i.id === invoiceId
-            ? { ...i, status: 'unpaid', paid_at: null }
-            : i
-        )
-      )
-    }
-    setUpdating(null)
-  }
+  const markPaid = (id: string) => setStatus(id, 'paid')
+  const markUnpaid = (id: string) => setStatus(id, 'unpaid')
 
   return (
     <div className="space-y-6 w-full">
@@ -219,7 +195,7 @@ export default function AdminInvoicesList({
       </div>
 
       {/* Revenue summary cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {[
           {
             label: 'Collected',

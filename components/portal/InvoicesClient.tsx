@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useRef } from 'react'
 import {
   CreditCard,
   CheckCircle,
@@ -8,7 +9,12 @@ import {
   ExternalLink,
   Receipt,
   DollarSign,
+  Upload,
+  Loader2,
+  Check,
 } from 'lucide-react'
+import { uploadFileToR2 } from '@/lib/uploadClient'
+import type { BusinessSettings } from '@/lib/types/database'
 
 type Invoice = {
   id: string
@@ -33,6 +39,112 @@ type Invoice = {
 type Props = {
   invoices: Invoice[]
   clientName: string
+  clientId: string
+  paymentSettings: BusinessSettings | null
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span style={{ color: 'hsl(var(--muted-foreground))' }}>{label}</span>
+      <span className="font-medium tabular-nums break-all text-right"
+        style={{ color: 'hsl(var(--foreground))' }}>{value}</span>
+    </div>
+  )
+}
+
+// Payment details (from global settings) + client receipt upload for an
+// unpaid invoice. The receipt lands in the Files Vault (Invoices &
+// Receipts) and is linked to the invoice for the admin to verify.
+function InvoicePaymentPanel({
+  invoice, settings, clientId,
+}: { invoice: Invoice; settings: BusinessSettings | null; clientId: string }) {
+  const [uploading, setUploading] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
+  const [err, setErr] = useState('')
+  const ref = useRef<HTMLInputElement>(null)
+
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true); setErr('')
+    try {
+      await uploadFileToR2({
+        file,
+        projectId: invoice.project_id || undefined,
+        clientId,
+        category: 'receipt',
+        invoiceId: invoice.id,
+        direction: 'client-upload',
+      })
+      setSubmitted(true)
+    } catch (e: any) {
+      setErr(e.message ?? 'Upload failed.')
+    } finally {
+      setUploading(false)
+      if (ref.current) ref.current.value = ''
+    }
+  }
+
+  const hasBank = settings && (settings.account_number || settings.bank_name || settings.payment_instructions)
+
+  return (
+    <div className="mt-4 pt-4" style={{ borderTop: '1px solid hsl(var(--border))' }}>
+      {hasBank ? (
+        <div className="rounded-lg p-4" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+          <p className="text-xs font-semibold uppercase tracking-wider mb-2"
+            style={{ color: 'hsl(var(--text-faint))' }}>
+            Pay by bank / wire transfer
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+            {settings?.bank_name && <Detail label="Bank" value={settings.bank_name} />}
+            {settings?.account_name && <Detail label="Account name" value={settings.account_name} />}
+            {settings?.account_number && <Detail label="Account number" value={settings.account_number} />}
+            {settings?.routing_number && <Detail label="Routing" value={settings.routing_number} />}
+            {settings?.swift && <Detail label="SWIFT/BIC" value={settings.swift} />}
+          </div>
+          {settings?.payment_instructions && (
+            <p className="text-xs mt-3 leading-relaxed whitespace-pre-line"
+              style={{ color: 'hsl(var(--muted-foreground))' }}>
+              {settings.payment_instructions}
+            </p>
+          )}
+          {invoice.invoice_number && (
+            <p className="text-xs mt-3" style={{ color: 'hsl(var(--text-faint))' }}>
+              Please reference invoice #{invoice.invoice_number} with your transfer.
+            </p>
+          )}
+        </div>
+      ) : (
+        <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>
+          Contact McPrime Digital for payment details.
+        </p>
+      )}
+
+      <div className="mt-3">
+        <input ref={ref} type="file" accept="image/*,application/pdf"
+          className="hidden" onChange={onFile} />
+        {submitted ? (
+          <div className="flex items-center gap-2 text-sm"
+            style={{ color: 'hsl(var(--status-green))' }}>
+            <Check size={14} /> Receipt submitted — we&apos;ll confirm your payment shortly.
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => ref.current?.click()}
+            disabled={uploading}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-60"
+            style={{ backgroundColor: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
+          >
+            {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+            Upload payment receipt
+          </button>
+        )}
+        {err && <p className="text-xs mt-1.5" style={{ color: 'hsl(var(--destructive))' }}>{err}</p>}
+      </div>
+    </div>
+  )
 }
 
 function StatusChip({ status }: { status: Invoice['status'] }) {
@@ -89,6 +201,8 @@ function formatCurrency(amount: number) {
 
 export default function InvoicesClient({
   invoices,
+  clientId,
+  paymentSettings,
   clientName,
 }: Props) {
   const unpaid = invoices.filter(
@@ -325,16 +439,13 @@ export default function InvoicesClient({
                         <ExternalLink size={12} />
                       </a>
                     )}
-                    {!invoice.stripe_payment_url && (
-                      <p
-                        className="text-xs"
-                        style={{ color: 'hsl(var(--text-faint))' }}
-                      >
-                        Contact us to pay
-                      </p>
-                    )}
                   </div>
                 </div>
+                <InvoicePaymentPanel
+                  invoice={invoice}
+                  settings={paymentSettings}
+                  clientId={clientId}
+                />
               </div>
             ))}
           </div>

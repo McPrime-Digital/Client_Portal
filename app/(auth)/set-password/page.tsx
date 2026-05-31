@@ -114,7 +114,8 @@ export default function SetPasswordPage() {
     }
 
     setSuccess(true)
-    setTimeout(() => router.push('/dashboard'), 2000)
+    // New clients land in the self-serve onboarding wizard first.
+    setTimeout(() => router.push('/onboarding'), 1500)
   }
 
   const inputStyle = {
@@ -218,7 +219,7 @@ export default function SetPasswordPage() {
               }}
             >
               <Loader2 size={14} className="animate-spin flex-shrink-0" />
-              Redirecting to your dashboard...
+              Setting up your workspace...
             </div>
           </div>
         )}

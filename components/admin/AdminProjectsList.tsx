@@ -3,11 +3,11 @@
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import StatusBadge from '@/components/portal/StatusBadge'
+import ProgressBar from '@/components/shared/ProgressBar'
 import {
   Plus,
   Search,
   FolderOpen,
-  ChevronRight,
   Files,
   CheckSquare,
   MessageSquare,
@@ -56,7 +56,6 @@ export default function AdminProjectsList({
 }) {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
-  const [view, setView] = useState<'grid' | 'list'>('list')
 
   const filtered = useMemo(() => {
     return projects.filter((p) => {
@@ -266,7 +265,7 @@ export default function AdminProjectsList({
 
       {/* Projects list */}
       {filtered.length > 0 && (
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {filtered.map((project) => {
             const unread = getUnreadCount(project)
             const taskProgress = getTaskProgress(project)
@@ -275,80 +274,13 @@ export default function AdminProjectsList({
               <Link
                 key={project.id}
                 href={`/admin/projects/${project.id}`}
-                className="card-interactive flex items-center gap-5 p-4
-                rounded-xl block group"
+                className="card-interactive flex flex-col gap-3 p-5
+                rounded-xl block group h-full"
                 style={{
                   backgroundColor: 'hsl(var(--card))',
                   border: '1px solid hsl(var(--border))',
                 }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor =
-                    'hsl(var(--border))'
-                  e.currentTarget.style.backgroundColor =
-                    'hsl(var(--secondary))'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor =
-                    'hsl(var(--border))'
-                  e.currentTarget.style.backgroundColor =
-                    'hsl(var(--card))'
-                }}
               >
-                {/* Progress ring */}
-                <div className="relative w-12 h-12 
-                  flex-shrink-0">
-                  <svg
-                    width="48"
-                    height="48"
-                    viewBox="0 0 48 48"
-                    className="rotate-[-90deg]"
-                  >
-                    <circle
-                      cx="24"
-                      cy="24"
-                      r="20"
-                      fill="none"
-                      stroke="hsl(var(--secondary))"
-                      strokeWidth="3.5"
-                    />
-                    <circle
-                      cx="24"
-                      cy="24"
-                      r="20"
-                      fill="none"
-                      stroke={
-                        project.status === 'Completed'
-                          ? 'hsl(var(--status-green))'
-                          : 'hsl(var(--primary))'
-                      }
-                      strokeWidth="3.5"
-                      strokeLinecap="round"
-                      strokeDasharray={`${
-                        2 * Math.PI * 20
-                      }`}
-                      strokeDashoffset={`${
-                        2 *
-                        Math.PI *
-                        20 *
-                        (1 - project.progress / 100)
-                      }`}
-                    />
-                  </svg>
-                  <span
-                    className="absolute inset-0 flex 
-                    items-center justify-center text-[10px] 
-                    font-bold tabular-nums"
-                    style={{
-                      color:
-                        project.status === 'Completed'
-                          ? 'hsl(var(--status-green))'
-                          : 'hsl(var(--primary))',
-                    }}
-                  >
-                    {project.progress}%
-                  </span>
-                </div>
-
                 {/* Main content */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center 
@@ -451,13 +383,8 @@ export default function AdminProjectsList({
                   </div>
                 </div>
 
-                {/* Arrow */}
-                <ChevronRight
-                  size={16}
-                  style={{ color: 'hsl(var(--text-faint))' }}
-                  className="flex-shrink-0 transition-transform 
-                  group-hover:translate-x-0.5"
-                />
+                {/* Synced overall progress (live) */}
+                <ProgressBar value={project.progress} size="sm" showLabel className="mt-1" />
               </Link>
             )
           })}
