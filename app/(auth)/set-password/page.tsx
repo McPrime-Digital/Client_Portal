@@ -19,9 +19,12 @@ export default function SetPasswordPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const [sessionReady, setSessionReady] = useState(false)
+  // One client instance for the whole page, so the session established
+  // here from the invite link is the same one used at submit. Creating
+  // a second client in handleSubmit is what caused "Auth session missing".
+  const [supabase] = useState(() => createClient())
 
   useEffect(() => {
-    const supabase = createClient()
     let active = true
 
     // Invite/recovery links carry the session in the URL. The browser
@@ -71,7 +74,7 @@ export default function SetPasswordPage() {
       active = false
       subscription.unsubscribe()
     }
-  }, [])
+  }, [supabase])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -87,7 +90,6 @@ export default function SetPasswordPage() {
     }
 
     setLoading(true)
-    const supabase = createClient()
 
     const { error: updateError } = await supabase.auth.updateUser({
       password,
