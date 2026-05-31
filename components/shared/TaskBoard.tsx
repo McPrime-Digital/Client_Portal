@@ -325,7 +325,6 @@ export default function TaskBoard({
   const flatCompleted = filteredTasks.filter((t) => t.status === 'completed')
 
   const rowProps = (task: Task) => ({
-    key: task.id,
     task,
     userRole,
     isUpdating: updating === task.id,
@@ -479,7 +478,7 @@ export default function TaskBoard({
             </button>
             {!isCollapsed && (
               <div className="space-y-2 pl-1">
-                {section.items.map((task) => <TaskRow {...rowProps(task)} />)}
+                {section.items.map((task) => <TaskRow key={task.id} {...rowProps(task)} />)}
               </div>
             )}
           </div>
@@ -489,7 +488,7 @@ export default function TaskBoard({
       {/* Flat view (no phases) */}
       {!usePhases && (
         <>
-          {flatActive.length > 0 && <div className="space-y-2">{flatActive.map((task) => <TaskRow {...rowProps(task)} />)}</div>}
+          {flatActive.length > 0 && <div className="space-y-2">{flatActive.map((task) => <TaskRow key={task.id} {...rowProps(task)} />)}</div>}
           {flatCompleted.length > 0 && (
             <CompletedGroup tasks={flatCompleted} rowProps={rowProps} />
           )}
@@ -646,7 +645,7 @@ function CompletedGroup({ tasks, rowProps }: { tasks: Task[]; rowProps: (t: Task
         <span className="flex-shrink-0 flex items-center gap-1.5">{open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}{tasks.length} completed</span>
         <div className="flex-1 h-px" style={{ backgroundColor: 'hsl(var(--secondary))' }} />
       </button>
-      {open && <div className="space-y-2 mt-2">{tasks.map((task) => <TaskRow {...rowProps(task)} />)}</div>}
+      {open && <div className="space-y-2 mt-2">{tasks.map((task) => <TaskRow key={task.id} {...rowProps(task)} />)}</div>}
     </div>
   )
 }

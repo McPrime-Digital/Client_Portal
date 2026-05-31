@@ -51,6 +51,10 @@ export default function AdminNotificationBell() {
   }, [])
 
   useEffect(() => {
+    // Raise any approaching-deadline alerts once on load, then refresh.
+    fetch('/api/admin/deadline-check', { method: 'POST' })
+      .then(() => load())
+      .catch(() => {})
     load()
     const interval = setInterval(load, 20000)
     const supabase = createClient()

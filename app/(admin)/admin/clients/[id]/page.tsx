@@ -75,6 +75,27 @@ export default async function ClientDetailPage({
     recentActivity = []
   }
 
+  // Client invoices + linked receipts (for the billing summary card).
+  let invoices: {
+    id: string; invoice_number: string | null; title: string | null
+    amount: number | null; status: string | null; due_date: string | null
+    created_at: string; receipt_file_id: string | null
+  }[] = []
+  try {
+    const { data } = await supabaseAdmin
+      .from('invoices')
+      .select('id, invoice_number, title, amount, status, due_date, created_at, receipt_file_id')
+      .eq('client_id', id)
+      .order('created_at', { ascending: false })
+    invoices = data ?? []
+  } catch {
+    invoices = []
+  }
+  const billed = invoices.reduce((a, i) => a + (i.amount ?? 0), 0)
+  const paidTotal = invoices.filter((i) => i.status === 'paid').reduce((a, i) => a + (i.amount ?? 0), 0)
+  const outstanding = billed - paidTotal
+  const fmtUsd = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
   const inviteCount = (client as { invite_count?: number }).invite_count ?? 0
   let statusLabel = 'Active'
   let statusColor = 'hsl(var(--status-green))'
@@ -407,6 +428,55 @@ export default async function ClientDetailPage({
                 style={{ color: 'hsl(var(--text-faint))' }}>
                 No projects linked yet
               </p>
+            )}
+          </div>
+
+          {/* Billing summary */}
+          <div className="p-5 rounded-xl" style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}>
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'hsl(var(--text-faint))' }}>
+                Billing
+              </p>
+              <Link href="/admin/invoices" className="text-xs transition-colors" style={{ color: 'hsl(var(--primary))' }}>
+                Manage invoices →
+              </Link>
+            </div>
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              {[
+                { label: 'Billed', value: fmtUsd(billed), color: 'hsl(var(--foreground))' },
+                { label: 'Paid', value: fmtUsd(paidTotal), color: 'hsl(var(--status-green))' },
+                { label: 'Outstanding', value: fmtUsd(outstanding), color: outstanding > 0 ? 'hsl(var(--primary))' : 'hsl(var(--text-faint))' },
+              ].map((s) => (
+                <div key={s.label} className="rounded-lg p-3" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                  <p className="text-[10px] uppercase tracking-wider" style={{ color: 'hsl(var(--text-faint))' }}>{s.label}</p>
+                  <p className="text-sm font-bold tabular-nums mt-0.5" style={{ color: s.color }}>{s.value}</p>
+                </div>
+              ))}
+            </div>
+            {invoices.length > 0 ? (
+              <div className="space-y-2">
+                {invoices.slice(0, 5).map((inv) => {
+                  const isPaid = inv.status === 'paid'
+                  return (
+                    <div key={inv.id} className="flex items-center justify-between p-3 rounded-lg" style={{ backgroundColor: 'hsl(var(--primary-foreground))', border: '1px solid hsl(var(--border))' }}>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate" style={{ color: 'hsl(var(--foreground))' }}>
+                          {inv.invoice_number ?? inv.title ?? 'Invoice'}
+                        </p>
+                        <p className="text-xs" style={{ color: 'hsl(var(--text-faint))' }}>
+                          {fmtUsd(inv.amount ?? 0)}{inv.receipt_file_id ? ' · receipt on file' : ''}
+                        </p>
+                      </div>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize flex-shrink-0"
+                        style={{ backgroundColor: isPaid ? 'hsl(var(--status-green) / 0.12)' : 'hsl(var(--primary) / 0.12)', color: isPaid ? 'hsl(var(--status-green))' : 'hsl(var(--primary))' }}>
+                        {inv.status ?? 'unpaid'}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <p className="text-sm py-2 text-center" style={{ color: 'hsl(var(--text-faint))' }}>No invoices yet</p>
             )}
           </div>
 
