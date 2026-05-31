@@ -58,8 +58,69 @@ export async function POST(req: NextRequest) {
           projectId: data.project_id,
           type: 'task_updated',
           title: `${client.name} approved a task`,
-          body: null,
+          body: data.title ?? null,
         })
+        try {
+          await supabaseAdmin.rpc('log_activity', {
+            p_project_id: data.project_id, p_client_id: client.id, p_actor_id: user.id,
+            p_actor_name: client.name, p_actor_role: 'client',
+            p_event_type: 'task_approved', p_title: `${client.name} approved “${data.title}”`,
+            p_body: null, p_meta: { task_id: data.id },
+          })
+        } catch { /* non-critical */ }
+        return NextResponse.json({ task: data })
+      }
+
+      // Client requests changes on an approval-gate task. A note is required
+      // and is auto-posted into the project chat for further discussion.
+      case 'request_changes': {
+        const { task_id, note } = body
+        if (!note || !String(note).trim()) {
+          return NextResponse.json({ error: 'A note is required to request changes.' }, { status: 400 })
+        }
+        const { data: task } = await supabaseAdmin
+          .from('tasks')
+          .select('id, title, project_id, visible_to_client, projects(client_id)')
+          .eq('id', task_id)
+          .single()
+        const rel = (task as { projects?: { client_id?: string } | { client_id?: string }[] } | null)?.projects
+        const ownerClientId = Array.isArray(rel) ? rel[0]?.client_id : rel?.client_id
+        if (!task || ownerClientId !== client.id || !task.visible_to_client) {
+          return NextResponse.json({ error: 'Task not found.' }, { status: 404 })
+        }
+        const trimmed = String(note).trim()
+        const { data, error } = await supabaseAdmin
+          .from('tasks')
+          .update({ approval_status: 'changes_requested', approval_note: trimmed, status: 'in_progress' })
+          .eq('id', task_id)
+          .select()
+          .single()
+        if (error) throw error
+
+        // Auto-post the change request into the project chat.
+        await supabaseAdmin.from('messages').insert({
+          project_id: task.project_id,
+          sender_id: user.id,
+          sender_role: 'client',
+          sender_name: client.name,
+          body: `🔄 Changes requested on "${task.title}":\n${trimmed}`,
+        })
+
+        await createAdminNotification({
+          clientId: client.id,
+          projectId: task.project_id,
+          type: 'task_updated',
+          title: `${client.name} requested changes`,
+          body: task.title,
+        })
+        try {
+          await supabaseAdmin.rpc('log_activity', {
+            p_project_id: task.project_id, p_client_id: client.id, p_actor_id: user.id,
+            p_actor_name: client.name, p_actor_role: 'client',
+            p_event_type: 'changes_requested', p_title: `${client.name} requested changes on “${task.title}”`,
+            p_body: trimmed.slice(0, 140), p_meta: { task_id: task.id },
+          })
+        } catch { /* non-critical */ }
         return NextResponse.json({ task: data })
       }
 

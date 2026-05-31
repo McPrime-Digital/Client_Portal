@@ -204,6 +204,7 @@ export async function POST(req: NextRequest) {
         const {
           project_id, title, sort_order,
           priority, category, due_date, description, visible_to_client,
+          requires_approval, phase_id,
         } = body
         const { data, error } = await supabaseAdmin
           .from('tasks')
@@ -217,6 +218,9 @@ export async function POST(req: NextRequest) {
             due_date: due_date || null,
             description: description || null,
             visible_to_client: visible_to_client ?? true,
+            requires_approval: requires_approval ?? false,
+            approval_status: requires_approval ? 'pending' : null,
+            phase_id: phase_id || null,
           })
           .select()
           .single()
@@ -244,15 +248,27 @@ export async function POST(req: NextRequest) {
           .select()
           .single()
         if (error) throw error
-        // Notify the client when a task they can see is completed.
-        if (status === 'completed' && data?.visible_to_client !== false) {
-          await createNotification({
-            clientId: await clientIdForProject(data.project_id),
-            projectId: data.project_id,
-            type: 'task_updated',
-            title: 'A task was completed',
-            body: data.title ?? null,
-          })
+        // Notify the client when a task they can see needs review/approval or
+        // is completed.
+        if (data?.visible_to_client !== false) {
+          if (status === 'review') {
+            const isGate = data.requires_approval || data.category === 'approval'
+            await createNotification({
+              clientId: await clientIdForProject(data.project_id),
+              projectId: data.project_id,
+              type: 'task_updated',
+              title: isGate ? 'A task needs your approval' : 'A task is ready for review',
+              body: data.title ?? null,
+            })
+          } else if (status === 'completed') {
+            await createNotification({
+              clientId: await clientIdForProject(data.project_id),
+              projectId: data.project_id,
+              type: 'task_updated',
+              title: 'A task was completed',
+              body: data.title ?? null,
+            })
+          }
         }
         return NextResponse.json({ task: data })
       }

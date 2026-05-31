@@ -543,11 +543,21 @@ export default function ProjectDetail({
         {tabs.map((tab) => {
           const Icon = tab.icon
           const isActive = activeTab === tab.id
+          const badge =
+            tab.id === 'tasks'
+              ? (tasks ?? []).filter(
+                  (t: any) =>
+                    t.visible_to_client &&
+                    t.status === 'review' &&
+                    t.approval_status !== 'approved' &&
+                    !t.approved_at
+                ).length
+              : 0
           return (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className="flex flex-shrink-0 whitespace-nowrap items-center gap-2 px-4 py-2
+              className="relative flex flex-shrink-0 whitespace-nowrap items-center gap-2 px-4 py-2
               rounded-lg text-sm font-medium transition-all"
               style={{
                 backgroundColor: isActive
@@ -558,6 +568,14 @@ export default function ProjectDetail({
             >
               <Icon size={14} />
               {tab.label}
+              {badge > 0 && (
+                <span
+                  className="ml-0.5 min-w-[16px] h-4 px-1 rounded-full text-[10px] font-bold flex items-center justify-center"
+                  style={{ backgroundColor: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
+                >
+                  {badge}
+                </span>
+              )}
             </button>
           )
         })}
@@ -840,11 +858,10 @@ export default function ProjectDetail({
       {activeTab === 'tasks' && (
         <TaskBoard
           projectId={project.id}
-          initialTasks={tasks ?? []}
+          clientId={client.id}
+          initialTasks={(tasks ?? []) as any}
+          phases={phases}
           userRole="client"
-          onProgressUpdate={(pct) => {
-            console.log('Progress:', pct + '%')
-          }}
         />
       )}
     </div>

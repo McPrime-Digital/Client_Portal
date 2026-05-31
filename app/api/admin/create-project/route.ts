@@ -94,16 +94,18 @@ export async function POST(request: NextRequest) {
           is_complete: false,
         }))
 
-    const { error: phasesError } = await supabaseAdmin
+    const { data: insertedPhases, error: phasesError } = await supabaseAdmin
       .from('project_phases')
       .insert(phasesToInsert)
+      .select('id, name, sort_order')
 
     if (phasesError) {
       console.error('[create-project] Phases insert error:', phasesError)
     }
 
-    // 3. Create tasks. Use admin-provided tasks if given,
-    //    otherwise seed the standard 9-step production checklist.
+    // 3. Create tasks. Use admin-provided tasks if given, otherwise seed the
+    //    per-phase production process (with client approval gates), attaching
+    //    each task to its phase.
     if (tasks && Array.isArray(tasks) && tasks.length > 0) {
       const { error: tasksError } = await supabaseAdmin
         .from('tasks')
@@ -120,7 +122,11 @@ export async function POST(request: NextRequest) {
         console.error('[create-project] Tasks insert error:', tasksError)
       }
     } else {
-      const seedError = await seedDefaultTasks(supabaseAdmin, project.id)
+      const seedError = await seedDefaultTasks(
+        supabaseAdmin,
+        project.id,
+        insertedPhases ?? undefined
+      )
       if (seedError) {
         console.error('[create-project] Default tasks seed error:', seedError)
       }

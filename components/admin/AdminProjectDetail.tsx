@@ -683,11 +683,15 @@ export default function AdminProjectDetail({
         {tabs.map((tab) => {
           const Icon = tab.icon
           const isActive = activeTab === tab.id
+          const badge =
+            tab.id === 'tasks'
+              ? (tasks ?? []).filter((t: any) => t.approval_status === 'changes_requested' && !t.approved_at).length
+              : 0
           return (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className="flex flex-shrink-0 items-center gap-2 px-4 py-2
+              className="relative flex flex-shrink-0 items-center gap-2 px-4 py-2
               rounded-lg text-sm font-medium transition-all
               whitespace-nowrap"
               style={{
@@ -699,6 +703,14 @@ export default function AdminProjectDetail({
             >
               <Icon size={14} />
               {tab.label}
+              {badge > 0 && (
+                <span
+                  className="ml-0.5 min-w-[16px] h-4 px-1 rounded-full text-[10px] font-bold flex items-center justify-center"
+                  style={{ backgroundColor: 'hsl(var(--status-amber))', color: 'hsl(var(--primary-foreground))' }}
+                >
+                  {badge}
+                </span>
+              )}
             </button>
           )
         })}
@@ -972,11 +984,10 @@ export default function AdminProjectDetail({
       {activeTab === 'tasks' && (
         <TaskBoard
           projectId={project.id}
-          initialTasks={tasks ?? []}
+          clientId={client.id}
+          initialTasks={(tasks ?? []) as any}
+          phases={phases}
           userRole="admin"
-          onProgressUpdate={(pct) => {
-            console.log('Progress:', pct + '%')
-          }}
         />
       )}
 
