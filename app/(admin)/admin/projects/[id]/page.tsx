@@ -55,17 +55,26 @@ export default async function AdminProjectDetailPage({
       .order('created_at', { ascending: true }),
   ])
 
-  // Mark client messages as read
-  const unreadIds = messages
-    ?.filter((m) => !m.read_at && m.sender_role === 'client')
-    .map((m) => m.id) ?? []
+  // Approvals & Records ledger — ONLY task-approval activity (client approvals,
+  // change-requests, and auto-proceeded gates) with any file shared during the
+  // decision. Chat messages and other activity are deliberately excluded.
+  let involvement: any[] = []
+  try {
+    const { data } = await supabaseAdmin
+      .from('activity_log')
+      .select('id, actor_name, actor_role, event_type, title, body, meta, created_at')
+      .eq('project_id', project.id)
+      .in('event_type', ['approval_requested', 'task_approved', 'changes_requested', 'task_auto_approved'])
+      .order('created_at', { ascending: false })
+      .limit(500)
+    involvement = data ?? []
+  } catch { involvement = [] }
 
-  if (unreadIds.length > 0) {
-    await supabaseAdmin
-      .from('messages')
-      .update({ read_at: new Date().toISOString() })
-      .in('id', unreadIds)
-  }
+  // NOTE: we deliberately do NOT mark client messages as read here. Opening a
+  // project (any tab) must not clear the unread/message signal — that only
+  // happens when the admin actually opens the Messages tab (handled live in
+  // AdminProjectDetail). This keeps message notifications sticking until the
+  // chat itself is opened.
 
   const client = (project as any).clients
 
@@ -116,6 +125,7 @@ export default async function AdminProjectDetailPage({
       tasks={tasks ?? []}
       files={files ?? []}
       initialMessages={messages ?? []}
+      involvement={involvement}
     />
   )
 }

@@ -183,7 +183,7 @@ export default function ClientSettings({
   const inputClass =
     'w-full px-4 py-3 rounded-lg text-sm outline-none transition-all'
   const inputStyle = {
-    backgroundColor: 'hsl(var(--primary-foreground))',
+    backgroundColor: 'hsl(var(--background))',
     border: '1px solid hsl(var(--border))',
     color: 'hsl(var(--foreground))',
   }
@@ -255,34 +255,35 @@ export default function ClientSettings({
           </div>
         </div>
 
-        {/* Logo / avatar */}
+        {/* Logo / avatar — liquid-glass tile; object-cover fills it cleanly
+            (square recommended so it never looks uneven). */}
         <div className="flex items-center gap-4">
-          <div
-            className="w-16 h-16 rounded-xl overflow-hidden flex
-            items-center justify-center flex-shrink-0 p-1.5"
-            style={{
-              backgroundColor: 'hsl(var(--primary-foreground))',
-              border: '1px solid hsl(var(--border))',
-            }}
-          >
-            {avatarUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={avatarUrl}
-                alt="Logo"
-                // object-contain (not cover) so wide brand lockups
-                // are letterboxed inside the tile, never cropped.
-                className="w-full h-full object-contain"
-              />
-            ) : (
-              <span
-                className="text-xl font-bold"
-                style={{ color: 'hsl(var(--primary))' }}
-              >
-                {profileForm.name?.[0]?.toUpperCase() ?? 'C'}
-              </span>
-            )}
-          </div>
+        <div
+          className="w-20 h-20 rounded-2xl overflow-hidden grid place-items-center flex-shrink-0 relative"
+          style={{
+            backgroundColor: 'hsl(var(--card) / 0.55)',
+            backdropFilter: 'blur(12px) saturate(140%)',
+            WebkitBackdropFilter: 'blur(12px) saturate(140%)',
+            border: '1px solid hsl(var(--border) / 0.8)',
+            boxShadow: '0 1px 0 hsl(0 0% 100% / 0.08) inset, 0 8px 22px -12px rgba(0,0,0,0.45)',
+          }}
+        >
+          {avatarUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={avatarUrl}
+              alt="Logo"
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <span
+              className="font-display text-2xl font-bold"
+              style={{ color: 'hsl(var(--primary))' }}
+            >
+              {profileForm.name?.[0]?.toUpperCase() ?? 'C'}
+            </span>
+          )}
+        </div>
           <div>
             <input
               ref={avatarInputRef}
@@ -332,7 +333,7 @@ export default function ClientSettings({
             </div>
             <p className="text-xs mt-1.5"
               style={{ color: 'hsl(var(--muted-foreground))' }}>
-              PNG, JPG or SVG · max 4&nbsp;MB
+              Square image recommended · PNG, JPG or SVG · max 4&nbsp;MB
             </p>
             {avatarError && (
               <p className="text-xs mt-1"

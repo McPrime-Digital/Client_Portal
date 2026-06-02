@@ -16,9 +16,10 @@ export default async function AdminPage() {
   const { data: projects } = await supabaseAdmin
     .from('projects')
     .select(`
-      id, title, status, created_at, updated_at,
+      id, title, status, progress, created_at, updated_at,
       clients(id, name, company, avatar_url),
-      tasks(id, status, visible_to_client),
+      project_phases(id, name, progress, sort_order, is_complete),
+      tasks(id, status, visible_to_client, requires_approval, approval_status, approved_at),
       files(id),
       messages(id),
       invoices(id, amount, status)
@@ -26,18 +27,22 @@ export default async function AdminPage() {
     .order('updated_at', { ascending: false })
     .limit(50)
 
-  // All clients
+  // All clients — projects carry updated_at so the overview can surface the
+  // most recently worked-on clients first.
   const { data: clients } = await supabaseAdmin
     .from('clients')
-    .select('id, name, company, email, avatar_url, created_at, projects(id, status)')
+    .select('id, name, company, email, avatar_url, created_at, projects(id, status, updated_at)')
     .order('created_at', { ascending: false })
 
-  // Activity feed (graceful fallback)
+  // Recent Activity — sourced from the admin notification stream so it reflects
+  // EVERY alert type (messages, deliveries, status changes, invoices, task
+  // approvals/changes), not just messages. Graceful fallback if unavailable.
   let activity: any[] = []
   try {
     const { data } = await supabaseAdmin
-      .from('activity_log')
-      .select('*, projects(id, title), clients(id, name)')
+      .from('notifications')
+      .select('id, type, title, body, created_at, project_id, client_id')
+      .eq('for_admin', true)
       .order('created_at', { ascending: false })
       .limit(40)
     activity = data ?? []
@@ -65,8 +70,8 @@ export default async function AdminPage() {
     <>
       {/* Live: refresh KPIs/pipeline/revenue when data changes */}
       <RealtimeRefresh
-        tables={['projects', 'invoices', 'tasks', 'activity_log', 'messages', 'clients']}
-        pollMs={45000}
+        tables={['projects', 'project_phases', 'invoices', 'tasks', 'activity_log', 'messages', 'clients', 'notifications']}
+        pollMs={30000}
       />
       <AdminDashboard
         projects={(projects ?? []) as any}

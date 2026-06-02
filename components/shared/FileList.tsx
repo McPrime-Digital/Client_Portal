@@ -147,7 +147,7 @@ export default function FileList({
         className="py-10 text-center
         rounded-xl"
         style={{
-          backgroundColor: 'hsl(var(--primary-foreground))',
+          backgroundColor: 'hsl(var(--background))',
           border: '1px solid hsl(var(--border))',
         }}
       >

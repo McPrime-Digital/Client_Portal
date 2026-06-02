@@ -14,6 +14,7 @@ import {
   Check,
 } from 'lucide-react'
 import { uploadFileToR2 } from '@/lib/uploadClient'
+import FileViewer, { type ViewerFile } from '@/components/shared/FileViewer'
 import type { BusinessSettings } from '@/lib/types/database'
 
 type Invoice = {
@@ -28,6 +29,9 @@ type Invoice = {
   stripe_payment_url: string | null
   invoice_number: string | null
   notes: string | null
+  receipt_file_id: string | null
+  receipt_status: string | null
+  receipt_uploaded_by: string | null
   created_at: string
   projects: {
     id: string
@@ -57,8 +61,8 @@ function Detail({ label, value }: { label: string; value: string }) {
 // unpaid invoice. The receipt lands in the Files Vault (Invoices &
 // Receipts) and is linked to the invoice for the admin to verify.
 function InvoicePaymentPanel({
-  invoice, settings, clientId,
-}: { invoice: Invoice; settings: BusinessSettings | null; clientId: string }) {
+  invoice, settings, clientId, onViewReceipt,
+}: { invoice: Invoice; settings: BusinessSettings | null; clientId: string; onViewReceipt: (fileId: string, name: string) => void }) {
   const [uploading, setUploading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [err, setErr] = useState('')
@@ -102,6 +106,8 @@ function InvoicePaymentPanel({
             {settings?.account_number && <Detail label="Account number" value={settings.account_number} />}
             {settings?.routing_number && <Detail label="Routing" value={settings.routing_number} />}
             {settings?.swift && <Detail label="SWIFT/BIC" value={settings.swift} />}
+            {settings?.bank_address && <Detail label="Bank address" value={settings.bank_address} />}
+            {settings?.business_address && <Detail label="Business address" value={settings.business_address} />}
           </div>
           {settings?.payment_instructions && (
             <p className="text-xs mt-3 leading-relaxed whitespace-pre-line"
@@ -121,10 +127,10 @@ function InvoicePaymentPanel({
         </p>
       )}
 
-      <div className="mt-3">
+      <div className="mt-3 flex items-center gap-3 flex-wrap">
         <input ref={ref} type="file" accept="image/*,application/pdf"
           className="hidden" onChange={onFile} />
-        {submitted ? (
+        {submitted || invoice.receipt_status === 'submitted' ? (
           <div className="flex items-center gap-2 text-sm"
             style={{ color: 'hsl(var(--status-green))' }}>
             <Check size={14} /> Receipt submitted — we&apos;ll confirm your payment shortly.
@@ -141,7 +147,18 @@ function InvoicePaymentPanel({
             Upload payment receipt
           </button>
         )}
-        {err && <p className="text-xs mt-1.5" style={{ color: 'hsl(var(--destructive))' }}>{err}</p>}
+        {invoice.receipt_file_id && (
+          <button
+            type="button"
+            onClick={() => onViewReceipt(invoice.receipt_file_id!, invoice.receipt_uploaded_by === 'admin' ? 'Proof of payment' : 'Receipt')}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all"
+            style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))', border: '1px solid hsl(var(--border))' }}
+          >
+            <Receipt size={13} />
+            {invoice.receipt_uploaded_by === 'admin' ? 'View proof of payment' : 'View your receipt'}
+          </button>
+        )}
+        {err && <p className="text-xs w-full" style={{ color: 'hsl(var(--destructive))' }}>{err}</p>}
       </div>
     </div>
   )
@@ -216,6 +233,10 @@ export default function InvoicesClient({
     0
   )
   const totalPaid = paid.reduce((acc, i) => acc + i.amount, 0)
+
+  // Receipts / proof open in the in-app viewer (never a new browser tab).
+  const [previewFile, setPreviewFile] = useState<ViewerFile | null>(null)
+  const openReceipt = (fileId: string, name: string) => setPreviewFile({ id: fileId, file_name: name })
 
   return (
     <div className="space-y-8 max-w-[860px]">
@@ -445,6 +466,7 @@ export default function InvoicesClient({
                   invoice={invoice}
                   settings={paymentSettings}
                   clientId={clientId}
+                  onViewReceipt={openReceipt}
                 />
               </div>
             ))}
@@ -513,9 +535,20 @@ export default function InvoicesClient({
                       : 'Paid'}
                   </p>
                 </div>
+                {invoice.receipt_file_id && (
+                  <button
+                    type="button"
+                    onClick={() => openReceipt(invoice.receipt_file_id!, invoice.receipt_uploaded_by === 'admin' ? 'Proof of payment' : 'Receipt')}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium flex-shrink-0 transition-all"
+                    style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))', border: '1px solid hsl(var(--border))' }}
+                    title={invoice.receipt_uploaded_by === 'admin' ? 'Proof of payment' : 'Your receipt'}
+                  >
+                    <Receipt size={11} /> Receipt
+                  </button>
+                )}
                 <div className="text-right flex-shrink-0">
                   <p
-                    className="text-sm font-semibold 
+                    className="text-sm font-semibold
                     tabular-nums"
                     style={{ color: 'hsl(var(--status-green))' }}
                   >
@@ -527,6 +560,11 @@ export default function InvoicesClient({
             ))}
           </div>
         </div>
+      )}
+
+      {/* In-app viewer for receipts / proof of payment (no new tab). */}
+      {previewFile && (
+        <FileViewer key={previewFile.id} file={previewFile} onClose={() => setPreviewFile(null)} />
       )}
     </div>
   )

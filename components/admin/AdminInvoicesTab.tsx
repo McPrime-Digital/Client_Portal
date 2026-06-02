@@ -72,19 +72,34 @@ export default function AdminInvoicesTab({
     notes: '',
   })
 
+  // Reads go through the admin server route (service role) so they're never
+  // blocked by RLS on the browser client. Realtime + a poll keep it live.
+  async function loadInvoices() {
+    try {
+      const res = await fetch('/api/admin/invoice-actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'list_invoices', project_id: projectId }),
+      })
+      const json = await res.json()
+      if (res.ok && Array.isArray(json.invoices)) setInvoices(json.invoices)
+    } catch {
+      /* keep current */
+    } finally {
+      setLoading(false)
+    }
+  }
+
   useEffect(() => {
     loadInvoices()
+    const channel = supabase
+      .channel(`invoices:${projectId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'invoices', filter: `project_id=eq.${projectId}` }, () => loadInvoices())
+      .subscribe()
+    const interval = setInterval(loadInvoices, 30_000)
+    return () => { supabase.removeChannel(channel); clearInterval(interval) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
-
-  async function loadInvoices() {
-    const { data } = await supabase
-      .from('invoices')
-      .select('*')
-      .eq('project_id', projectId)
-      .order('created_at', { ascending: false })
-    setInvoices(data ?? [])
-    setLoading(false)
-  }
 
   // All writes go through the admin server route (service role) — the
   // browser client is blocked by RLS on invoices.
@@ -111,7 +126,7 @@ export default function AdminInvoicesTab({
         amount: parseFloat(form.amount),
         status: form.status,
         due_date: form.due_date || null,
-        stripe_payment_link: form.stripe_payment_url || null,
+        stripe_payment_url: form.stripe_payment_url || null,
         notes: form.notes || null,
       })
       setInvoices((prev) => [invoice, ...prev])
@@ -248,7 +263,7 @@ export default function AdminInvoicesTab({
           className="flex flex-col items-center justify-center 
           py-16 rounded-xl"
           style={{
-            backgroundColor: 'hsl(var(--border))',
+            backgroundColor: 'hsl(var(--secondary))',
             border: '1px solid hsl(var(--border))',
           }}
         >
@@ -287,7 +302,7 @@ export default function AdminInvoicesTab({
                 key={invoice.id}
                 className="p-5 rounded-xl"
                 style={{
-                  backgroundColor: 'hsl(var(--border))',
+                  backgroundColor: 'hsl(var(--secondary))',
                   border: '1px solid hsl(var(--border))',
                 }}
               >
@@ -614,7 +629,6 @@ export default function AdminInvoicesTab({
                     className={inputClass}
                     style={{
                       ...inputStyle,
-                      colorScheme: 'dark',
                     }}
                     {...focusHandlers}
                   />
@@ -677,7 +691,7 @@ export default function AdminInvoicesTab({
                   className="flex-1 py-3 rounded-lg text-sm 
                   font-medium"
                   style={{
-                    backgroundColor: 'hsl(var(--border))',
+                    backgroundColor: 'hsl(var(--secondary))',
                     color: 'hsl(var(--muted-foreground))',
                     border: '1px solid hsl(var(--border))',
                   }}

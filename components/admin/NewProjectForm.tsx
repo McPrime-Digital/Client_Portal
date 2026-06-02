@@ -10,6 +10,8 @@ import {
   X,
   Check,
   FolderOpen,
+  Film,
+  ImagePlus,
 } from 'lucide-react'
 
 type Client = {
@@ -76,7 +78,28 @@ export default function NewProjectForm({
     due_date: '',
     stripe_payment_url: '',
     invoice_amount: '',
+    image_url: '',
   })
+  const [imageUploading, setImageUploading] = useState(false)
+  async function uploadProjectImage(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImageUploading(true)
+    setError('')
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/admin/project-image', { method: 'POST', body: fd })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Image upload failed.')
+      setForm((prev) => ({ ...prev, image_url: json.image_url }))
+    } catch (err: any) {
+      setError(err.message ?? 'Image upload failed.')
+    } finally {
+      setImageUploading(false)
+      e.target.value = ''
+    }
+  }
 
   const [phases, setPhases] = useState(
     DEFAULT_PHASES.map((p) => ({ ...p, enabled: true }))
@@ -150,6 +173,7 @@ export default function NewProjectForm({
           invoice_amount: form.invoice_amount
             ? parseFloat(form.invoice_amount)
             : null,
+          image_url: form.image_url || null,
           phases: enabledPhases,
           tasks: customTasks,
         }),
@@ -171,7 +195,7 @@ export default function NewProjectForm({
   const inputClass =
     'w-full px-4 py-3 rounded-lg text-sm outline-none transition-all'
   const inputStyle = {
-    backgroundColor: 'hsl(var(--primary-foreground))',
+    backgroundColor: 'hsl(var(--background))',
     border: '1px solid hsl(var(--border))',
     color: 'hsl(var(--foreground))',
   }
@@ -301,7 +325,7 @@ export default function NewProjectForm({
                 className="p-4 rounded-lg text-sm 
                 text-center"
                 style={{
-                  backgroundColor: 'hsl(var(--primary-foreground))',
+                  backgroundColor: 'hsl(var(--background))',
                   border: '1px solid hsl(var(--border))',
                   color: 'hsl(var(--muted-foreground))',
                 }}
@@ -368,6 +392,39 @@ export default function NewProjectForm({
               style={inputStyle}
               {...focusHandlers}
             />
+          </div>
+
+          {/* Project image — small thumbnail of the product/service */}
+          <div>
+            <label className={labelClass} style={labelStyle}>Project Image</label>
+            <div className="flex items-center gap-4">
+              <div
+                className="w-16 h-16 rounded-xl overflow-hidden grid place-items-center flex-shrink-0"
+                style={{
+                  backgroundColor: 'hsl(var(--card) / 0.55)',
+                  backdropFilter: 'blur(10px) saturate(140%)',
+                  WebkitBackdropFilter: 'blur(10px) saturate(140%)',
+                  border: '1px solid hsl(var(--border) / 0.8)',
+                  boxShadow: '0 1px 0 hsl(0 0% 100% / 0.08) inset',
+                }}
+              >
+                {form.image_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={form.image_url} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <Film size={20} style={{ color: 'hsl(var(--text-faint))' }} />
+                )}
+              </div>
+              <div>
+                <label className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-all"
+                  style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))', border: '1px solid hsl(var(--border))' }}>
+                  {imageUploading ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} />}
+                  {form.image_url ? 'Change image' : 'Upload image'}
+                  <input type="file" accept="image/*" className="hidden" onChange={uploadProjectImage} disabled={imageUploading} />
+                </label>
+                <p className="text-xs mt-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Square recommended · small · max 6&nbsp;MB</p>
+              </div>
+            </div>
           </div>
 
           {/* Type + Status */}
@@ -446,7 +503,6 @@ export default function NewProjectForm({
                 className={inputClass}
                 style={{
                   ...inputStyle,
-                  colorScheme: 'dark',
                 }}
                 {...focusHandlers}
               />
@@ -467,7 +523,6 @@ export default function NewProjectForm({
                 className={inputClass}
                 style={{
                   ...inputStyle,
-                  colorScheme: 'dark',
                 }}
                 {...focusHandlers}
               />
@@ -664,7 +719,7 @@ goals, and deliverables..."
                     className="flex items-center 
                     gap-3 px-4 py-3 rounded-lg"
                     style={{
-                      backgroundColor: 'hsl(var(--primary-foreground))',
+                      backgroundColor: 'hsl(var(--background))',
                       border: '1px solid hsl(var(--border))',
                     }}
                   >

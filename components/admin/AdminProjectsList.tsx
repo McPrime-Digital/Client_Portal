@@ -12,6 +12,7 @@ import {
   CheckSquare,
   MessageSquare,
   Clock,
+  Film,
 } from 'lucide-react'
 
 const ALL_STATUSES = [
@@ -35,13 +36,14 @@ type Project = {
   due_date: string | null
   kickoff_date: string | null
   updated_at: string
+  image_url?: string | null
   clients: {
     id: string
     name: string
     company: string | null
   } | null
-  tasks: { id: string; status: string }[]
-  files: { id: string }[]
+  tasks: { id: string; status: string; approved_at?: string | null }[]
+  files: { id: string; direction?: string }[]
   messages: {
     id: string
     sender_role: string
@@ -102,9 +104,14 @@ export default function AdminProjectsList({
   function getTaskProgress(project: Project) {
     if (project.tasks.length === 0) return null
     const done = project.tasks.filter(
-      (t) => t.status === 'complete'
+      (t) => ['complete', 'completed', 'done'].includes((t.status ?? '').toLowerCase()) || !!t.approved_at
     ).length
     return { done, total: project.tasks.length }
+  }
+
+  // Delivered files only (matches the client overview's "deliverables").
+  function getDeliverables(project: Project) {
+    return project.files.filter((f) => f.direction === 'delivery').length
   }
 
   return (
@@ -269,6 +276,7 @@ export default function AdminProjectsList({
           {filtered.map((project) => {
             const unread = getUnreadCount(project)
             const taskProgress = getTaskProgress(project)
+            const deliverables = getDeliverables(project)
 
             return (
               <Link
@@ -281,9 +289,26 @@ export default function AdminProjectsList({
                   border: '1px solid hsl(var(--border))',
                 }}
               >
-                {/* Main content */}
+                {/* Main content with the project image (always shows a glass
+                    placeholder so every project has an image slot). */}
+                <div className="flex items-start gap-3">
+                  <div className="w-12 h-12 rounded-xl overflow-hidden grid place-items-center flex-shrink-0"
+                    style={{
+                      backgroundColor: 'hsl(var(--card) / 0.55)',
+                      backdropFilter: 'blur(8px) saturate(140%)',
+                      WebkitBackdropFilter: 'blur(8px) saturate(140%)',
+                      border: '1px solid hsl(var(--border) / 0.8)',
+                      boxShadow: '0 1px 0 hsl(0 0% 100% / 0.06) inset',
+                    }}>
+                    {project.image_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={project.image_url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <Film size={18} style={{ color: 'hsl(var(--text-faint))' }} />
+                    )}
+                  </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center 
+                  <div className="flex items-center
                     gap-3 flex-wrap">
                     <p
                       className="text-sm font-semibold"
@@ -325,62 +350,44 @@ export default function AdminProjectsList({
                     </span>
                   </div>
 
-                  {/* Meta row */}
-                  <div className="flex items-center 
-                    gap-4 mt-2">
-                    {/* Files */}
-                    <div className="flex items-center gap-1">
-                      <Files size={11}
-                        style={{ color: 'hsl(var(--text-faint))' }} />
-                      <span className="text-[10px]"
-                        style={{ color: 'hsl(var(--text-faint))' }}>
-                        {project.files.length}
+                  {/* Meta row — a little overview, matching the client cards:
+                      tasks done/total + deliverables, then messages + due. */}
+                  <div className="flex items-center gap-4 mt-2 flex-wrap">
+                    {/* Tasks */}
+                    <div className="flex items-center gap-1.5">
+                      <CheckSquare size={12} style={{ color: 'hsl(var(--text-faint))' }} />
+                      <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                        {taskProgress ? `${taskProgress.done}/${taskProgress.total}` : '0'} task{(taskProgress?.total ?? 0) === 1 ? '' : 's'}
                       </span>
                     </div>
 
-                    {/* Tasks */}
-                    {taskProgress && (
-                      <div className="flex items-center 
-                        gap-1">
-                        <CheckSquare size={11}
-                          style={{ color: 'hsl(var(--text-faint))' }} />
-                        <span className="text-[10px]"
-                          style={{ color: 'hsl(var(--text-faint))' }}>
-                          {taskProgress.done}/
-                          {taskProgress.total}
-                        </span>
-                      </div>
-                    )}
+                    {/* Deliverables */}
+                    <div className="flex items-center gap-1.5">
+                      <Files size={12} style={{ color: 'hsl(var(--text-faint))' }} />
+                      <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                        {deliverables} deliverable{deliverables === 1 ? '' : 's'}
+                      </span>
+                    </div>
 
                     {/* Messages */}
-                    <div className="flex items-center 
-                      gap-1">
-                      <MessageSquare size={11}
-                        style={{ color: 'hsl(var(--text-faint))' }} />
-                      <span className="text-[10px]"
-                        style={{ color: 'hsl(var(--text-faint))' }}>
-                        {project.messages.length}
+                    <div className="flex items-center gap-1.5">
+                      <MessageSquare size={12} style={{ color: 'hsl(var(--text-faint))' }} />
+                      <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                        {project.messages.length} msg{project.messages.length === 1 ? '' : 's'}
                       </span>
                     </div>
 
                     {/* Due date */}
                     {project.due_date && (
-                      <div className="flex items-center 
-                        gap-1">
-                        <Clock size={11}
-                          style={{ color: 'hsl(var(--text-faint))' }} />
-                        <span className="text-[10px]"
-                          style={{ color: 'hsl(var(--text-faint))' }}>
-                          {new Date(
-                            project.due_date
-                          ).toLocaleDateString('en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                          })}
+                      <div className="flex items-center gap-1.5">
+                        <Clock size={12} style={{ color: 'hsl(var(--text-faint))' }} />
+                        <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                          {new Date(project.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                         </span>
                       </div>
                     )}
                   </div>
+                </div>
                 </div>
 
                 {/* Synced overall progress (live) */}

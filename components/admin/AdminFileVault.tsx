@@ -16,6 +16,7 @@ import {
   Users,
   FolderOpen,
   Receipt,
+  Trash2,
 } from 'lucide-react'
 import FileViewer, { type ViewerFile } from '@/components/shared/FileViewer'
 import {
@@ -84,14 +85,16 @@ export default function AdminFileVault({ files }: { files: AdminFileRow[] }) {
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set())
   const [preview, setPreview] = useState<ViewerFile | null>(null)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set())
 
   const annotated = useMemo(
-    () => files.map((f) => ({
+    () => files.filter((f) => !deletedIds.has(f.id)).map((f) => ({
       ...f,
       vaultFolder: resolveFolder({ folder: f.folder, category: f.category, direction: f.direction, taskId: f.task_id }),
       category: resolveCategory(f.category, f.file_name, f.mime_type || f.file_type),
     })),
-    [files]
+    [files, deletedIds]
   )
 
   const filtered = annotated.filter((f) => {
@@ -172,6 +175,24 @@ export default function AdminFileVault({ files }: { files: AdminFileRow[] }) {
       console.error('Download error:', err)
     } finally {
       setDownloadingId(null)
+    }
+  }
+
+  async function handleDelete(file: { id: string; file_name: string }) {
+    if (!confirm(`Delete “${file.file_name}”? This cannot be undone.`)) return
+    setDeletingId(file.id)
+    try {
+      const res = await fetch(`/api/files/${file.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error ?? 'Delete failed')
+      }
+      setDeletedIds((prev) => new Set(prev).add(file.id))
+    } catch (err: any) {
+      console.error('Delete error:', err)
+      alert(`Failed to delete file: ${err.message ?? 'unknown error'}`)
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -381,6 +402,18 @@ export default function AdminFileVault({ files }: { files: AdminFileRow[] }) {
                                         <Loader2 size={15} className="animate-spin" />
                                       ) : (
                                         <Download size={15} />
+                                      )}
+                                    </button>
+                                    <button
+                                      onClick={() => handleDelete(file)}
+                                      disabled={deletingId === file.id}
+                                      className="flex-shrink-0 rounded-lg p-2 text-faint opacity-0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 disabled:opacity-50"
+                                      title="Delete"
+                                    >
+                                      {deletingId === file.id ? (
+                                        <Loader2 size={15} className="animate-spin" />
+                                      ) : (
+                                        <Trash2 size={15} />
                                       )}
                                     </button>
                                   </div>

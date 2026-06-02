@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { computeProjectProgress, phaseColor } from '@/lib/projectProgress'
 import {
   Folder,
   Users,
@@ -24,10 +25,13 @@ import {
 
 // ── Types ───────────────────────────────────────
 
+type Phase = { id: string; name: string; progress: number; sort_order: number; is_complete: boolean }
+
 type Project = {
   id: string
   title: string
   status: string
+  progress: number | null
   created_at: string
   updated_at: string
   clients: {
@@ -36,7 +40,15 @@ type Project = {
     company: string | null
     avatar_url: string | null
   } | null
-  tasks: { id: string; status: string; visible_to_client: boolean }[]
+  project_phases: Phase[]
+  tasks: {
+    id: string
+    status: string
+    visible_to_client: boolean
+    requires_approval?: boolean | null
+    approval_status?: string | null
+    approved_at?: string | null
+  }[]
   files: { id: string }[]
   messages: { id: string }[]
   invoices: { id: string; amount: number; status: string }[]
@@ -49,19 +61,29 @@ type Client = {
   email: string
   avatar_url: string | null
   created_at: string
-  projects: { id: string; status: string }[]
+  projects: { id: string; status: string; updated_at?: string | null }[]
 }
 
+// Most recent timestamp we know about for a client — their newest project
+// activity, falling back to when the client was created.
+function clientRecency(c: Client): number {
+  const times = [
+    ...c.projects.map((p) => (p.updated_at ? new Date(p.updated_at).getTime() : 0)),
+    new Date(c.created_at).getTime(),
+  ]
+  return Math.max(...times)
+}
+
+// Recent Activity is sourced from the admin notification stream, so it reflects
+// every alert type — not just messages.
 type ActivityEvent = {
   id: string
-  event_type: string
+  type: string
   title: string
   body: string | null
-  actor_name: string
-  actor_role: string
   created_at: string
-  projects: { id: string; title: string } | null
-  clients: { id: string; name: string } | null
+  project_id: string | null
+  client_id: string | null
 }
 
 type Revenue = {
@@ -84,17 +106,14 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
   'On Hold': { label: 'On Hold', color: 'hsl(var(--muted-foreground))', bg: 'hsl(var(--status-gray) / 0.08)', dot: 'hsl(var(--muted-foreground))' },
 }
 
+// Keyed by notification type — a distinct glyph + accent per alert kind so the
+// feed reads at a glance (not one repeated icon).
 const EVENT_ICONS: Record<string, { icon: any; color: string }> = {
-  file_uploaded: { icon: Upload, color: 'hsl(var(--status-blue))' },
-  message_sent: { icon: MessageSquare, color: 'hsl(var(--status-violet))' },
-  task_completed: { icon: CheckSquare, color: 'hsl(var(--status-green))' },
-  task_created: { icon: CheckSquare, color: 'hsl(var(--muted-foreground))' },
-  invoice_paid: { icon: DollarSign, color: 'hsl(var(--status-green))' },
-  invoice_created: { icon: DollarSign, color: 'hsl(var(--primary))' },
-  project_created: { icon: Folder, color: 'hsl(var(--primary))' },
-  project_status_changed: { icon: Zap, color: 'hsl(var(--primary))' },
-  client_created: { icon: User, color: 'hsl(var(--status-blue))' },
-  note_added: { icon: MessageSquare, color: 'hsl(var(--muted-foreground))' },
+  message: { icon: MessageSquare, color: 'hsl(var(--status-violet))' },
+  file_delivered: { icon: Upload, color: 'hsl(var(--status-blue))' },
+  status_change: { icon: Zap, color: 'hsl(var(--status-amber))' },
+  invoice_created: { icon: DollarSign, color: 'hsl(var(--status-green))' },
+  task_updated: { icon: CheckSquare, color: 'hsl(var(--primary))' },
 }
 
 function formatCurrency(n: number): string {
@@ -116,15 +135,23 @@ function timeAgo(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-function getProjectCompletion(tasks: Project['tasks']): number {
-  const visible = tasks.filter((t) => t.visible_to_client)
-  if (visible.length === 0) return 0
-  const done = visible.filter((t) => t.status === 'completed').length
-  return Math.round((done / visible.length) * 100)
-}
-
 function getInitials(name: string): string {
   return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
+}
+
+const isTaskDone = (s: string | null | undefined) =>
+  ['complete', 'completed', 'done'].includes((s ?? '').toLowerCase())
+
+// Per-project task rollup — shared by the Tasks tab and the summary band.
+function taskStats(project: Project) {
+  const tasks = project.tasks ?? []
+  const total = tasks.length
+  const done = tasks.filter((t) => isTaskDone(t.status) || !!t.approved_at).length
+  const awaitingApproval = tasks.filter(
+    (t) => !t.approved_at && (t.status === 'review' || t.approval_status === 'changes_requested'),
+  ).length
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0
+  return { total, done, awaitingApproval, pct }
 }
 
 // ── Main Component ──────────────────────────────
@@ -146,28 +173,30 @@ export default function AdminDashboard({
 }) {
   const supabase = createClient()
   const [activity, setActivity] = useState(initialActivity)
-  const [activeTab, setActiveTab] = useState<'pipeline' | 'clients'>('pipeline')
+  const [activeTab, setActiveTab] = useState<'pipeline' | 'clients' | 'tasks'>('pipeline')
   const [statusFilter, setStatusFilter] = useState('all')
 
-  // Realtime activity feed
+  // Realtime activity feed — live admin notifications (any alert type). The
+  // payload carries the full row, so no follow-up read is needed.
   useEffect(() => {
     let channel: any
     try {
       channel = supabase
-        .channel('admin-activity-feed')
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'activity_log' },
-          async (payload) => {
-            const { data } = await supabase
-              .from('activity_log')
-              .select('*, projects(id, title), clients(id, name)')
-              .eq('id', payload.new.id)
-              .single()
-            if (data) setActivity((prev) => [data, ...prev].slice(0, 40))
+        .channel('admin-activity-notifs')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' },
+          (payload) => {
+            const n = payload.new as ActivityEvent & { for_admin?: boolean }
+            if (!n || (n as any).for_admin !== true) return
+            setActivity((prev) =>
+              prev.some((x) => x.id === n.id)
+                ? prev.map((x) => (x.id === n.id ? { ...x, ...n } : x))
+                : [n, ...prev].slice(0, 40)
+            )
           }
         )
         .subscribe()
     } catch {
-      // activity_log table may not exist yet — silently ignore
+      // silently ignore
     }
     return () => { if (channel) supabase.removeChannel(channel) }
   }, [])
@@ -180,6 +209,18 @@ export default function AdminDashboard({
   ).length
   const pipelineProjects = statusFilter === 'all' ? projects : projects.filter((p) => p.status === statusFilter)
   const presentStatuses = Array.from(new Set(projects.map((p) => p.status)))
+  // Task rollups across the workspace — power the Tasks tab + summary band.
+  const totalTasks = projects.reduce((a, p) => a + (p.tasks?.length ?? 0), 0)
+  const doneTasks = projects.reduce((a, p) => a + taskStats(p).done, 0)
+  const awaitingApprovalTotal = projects.reduce((a, p) => a + taskStats(p).awaitingApproval, 0)
+  const taskPct = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0
+  // Projects that actually carry tasks, most active first (already sorted by updated_at).
+  const taskProjects = projects.filter((p) => (p.tasks?.length ?? 0) > 0)
+  // Recently worked-on clients first (newest project activity), then capped.
+  const recentClients = [...clients].sort((a, b) => clientRecency(b) - clientRecency(a))
+  // Strict overview caps — at most 3 projects and 5 clients shown at a time.
+  const MAX_PIPELINE = 3
+  const MAX_CLIENTS = 5
 
   return (
     <div className="space-y-6 w-full">
@@ -235,7 +276,7 @@ export default function AdminDashboard({
         {[
           { label: 'Active Projects', value: activeProjects.length, sub: projectsInReview.length > 0 ? `${projectsInReview.length} in review` : 'On track', icon: Film, color: 'hsl(var(--primary))', bg: 'hsl(var(--primary) / 0.07)', href: '/admin/projects' },
           { label: 'Clients', value: totalClients, sub: `${clientsWithActive} with active work`, icon: Users, color: 'hsl(var(--status-blue))', bg: 'hsl(var(--status-blue) / 0.07)', href: '/admin/clients' },
-          { label: 'Collected', value: formatCurrency(revenue.collected), sub: revenue.outstanding > 0 ? `${formatCurrency(revenue.outstanding)} outstanding` : 'Up to date', icon: TrendingUp, color: 'hsl(var(--status-green))', bg: 'hsl(var(--status-green) / 0.07)', href: '/admin/invoices' },
+          { label: 'Tasks', value: `${doneTasks}/${totalTasks}`, sub: awaitingApprovalTotal > 0 ? `${awaitingApprovalTotal} awaiting approval` : (totalTasks > 0 ? `${taskPct}% complete` : 'No tasks yet'), icon: CheckSquare, color: 'hsl(var(--status-green))', bg: 'hsl(var(--status-green) / 0.07)', href: '/admin/projects' },
           {
             label: unreadMessages > 0 ? `${unreadMessages} Unread` : 'Messages',
             value: unreadMessages > 0 ? `${unreadMessages} new` : 'All read',
@@ -268,30 +309,8 @@ export default function AdminDashboard({
         })}
       </div>
 
-      {/* Outstanding / overdue alert */}
-      {(revenue.outstanding > 0 || revenue.overdue > 0) && (
-        <div className="flex items-center justify-between gap-4 p-4 rounded-xl flex-wrap"
-          style={{
-            backgroundColor: revenue.overdue > 0 ? 'hsl(var(--destructive) / 0.06)' : 'hsl(var(--primary) / 0.06)',
-            border: revenue.overdue > 0 ? '1px solid hsl(var(--destructive) / 0.2)' : '1px solid hsl(var(--primary) / 0.2)',
-          }}
-        >
-          <div className="flex items-center gap-3">
-            <AlertCircle size={16} style={{ color: revenue.overdue > 0 ? 'hsl(var(--destructive))' : 'hsl(var(--primary))' }} />
-            <div>
-              <p className="text-sm font-semibold" style={{ color: revenue.overdue > 0 ? 'hsl(var(--destructive))' : 'hsl(var(--primary))' }}>
-                {revenue.overdue > 0 ? `${formatCurrency(revenue.overdue)} overdue` : `${formatCurrency(revenue.outstanding)} outstanding`}
-              </p>
-              <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                {revenue.overdue > 0 ? 'Past-due invoices need attention' : 'Unpaid invoices pending'}
-              </p>
-            </div>
-          </div>
-          <Link href="/admin/invoices" className="text-xs font-semibold transition-colors flex items-center gap-1" style={{ color: 'hsl(var(--primary))' }}>
-            View invoices <ArrowRight size={12} />
-          </Link>
-        </div>
-      )}
+      {/* Billing Summary — enterprise revenue snapshot across all clients */}
+      <BillingSummary revenue={revenue} />
 
       {/* Main 2-column layout */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5">
@@ -299,23 +318,33 @@ export default function AdminDashboard({
         {/* Left: Pipeline + Clients tabs */}
         <div className="space-y-4">
           {/* Tabs */}
-          <div className="flex gap-1" style={{ borderBottom: '1px solid hsl(var(--border))' }}>
-            {[
-              { key: 'pipeline', label: 'Project Pipeline', count: projects.length },
-              { key: 'clients', label: 'Clients', count: clients.length },
-            ].map(({ key, label, count }) => (
-              <button key={key}
-                onClick={() => setActiveTab(key as 'pipeline' | 'clients')}
-                className="px-4 py-3 text-sm font-semibold transition-all relative"
-                style={{ color: activeTab === key ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))' }}
-              >
-                {label}
-                <span className="ml-2 text-xs" style={{ color: activeTab === key ? 'hsl(var(--primary))' : 'hsl(var(--text-faint))' }}>{count}</span>
-                {activeTab === key && (
-                  <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-t" style={{ backgroundColor: 'hsl(var(--primary))' }} />
-                )}
-              </button>
-            ))}
+          <div className="flex items-center justify-between gap-2" style={{ borderBottom: '1px solid hsl(var(--border))' }}>
+            <div className="flex gap-1">
+              {[
+                { key: 'pipeline', label: 'Project Pipeline', count: projects.length },
+                { key: 'clients', label: 'Clients', count: clients.length },
+                { key: 'tasks', label: 'Tasks', count: totalTasks },
+              ].map(({ key, label, count }) => (
+                <button key={key}
+                  onClick={() => setActiveTab(key as 'pipeline' | 'clients' | 'tasks')}
+                  className="px-4 py-3 text-sm font-semibold transition-all relative"
+                  style={{ color: activeTab === key ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))' }}
+                >
+                  {label}
+                  <span className="ml-2 text-xs" style={{ color: activeTab === key ? 'hsl(var(--primary))' : 'hsl(var(--text-faint))' }}>{count}</span>
+                  {activeTab === key && (
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-t" style={{ backgroundColor: 'hsl(var(--primary))' }} />
+                  )}
+                </button>
+              ))}
+            </div>
+            <Link
+              href={activeTab === 'clients' ? '/admin/clients' : '/admin/projects'}
+              className="flex items-center gap-1 text-xs font-semibold pr-1 flex-shrink-0"
+              style={{ color: 'hsl(var(--primary))' }}
+            >
+              View all <ArrowRight size={12} />
+            </Link>
           </div>
 
           {/* Pipeline tab */}
@@ -355,7 +384,13 @@ export default function AdminDashboard({
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {pipelineProjects.map((project) => <ProjectCard key={project.id} project={project} />)}
+                  {pipelineProjects.slice(0, MAX_PIPELINE).map((project) => <ProjectCard key={project.id} project={project} />)}
+                  {pipelineProjects.length > MAX_PIPELINE && (
+                    <Link href="/admin/projects" className="flex items-center justify-center gap-1.5 py-3 rounded-xl text-xs font-semibold transition-all"
+                      style={{ color: 'hsl(var(--primary))', border: '1px dashed hsl(var(--border))' }}>
+                      View all {pipelineProjects.length} projects <ArrowRight size={12} />
+                    </Link>
+                  )}
                 </div>
               )}
             </div>
@@ -371,7 +406,52 @@ export default function AdminDashboard({
                   <p className="text-sm mt-3" style={{ color: 'hsl(var(--muted-foreground))' }}>No clients yet</p>
                 </div>
               ) : (
-                clients.map((client) => <ClientRow key={client.id} client={client} />)
+                <>
+                  {recentClients.slice(0, MAX_CLIENTS).map((client) => <ClientRow key={client.id} client={client} />)}
+                  {recentClients.length > MAX_CLIENTS && (
+                    <Link href="/admin/clients" className="flex items-center justify-center gap-1.5 py-3 rounded-xl text-xs font-semibold transition-all"
+                      style={{ color: 'hsl(var(--primary))', border: '1px dashed hsl(var(--border))' }}>
+                      View all {recentClients.length} clients <ArrowRight size={12} />
+                    </Link>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Tasks tab — medium overview summary + per-project task progress */}
+          {activeTab === 'tasks' && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { label: 'Total Tasks', value: totalTasks, color: 'hsl(var(--muted-foreground))' },
+                  { label: 'Completed', value: doneTasks, color: 'hsl(var(--status-green))' },
+                  { label: 'Awaiting Approval', value: awaitingApprovalTotal, color: awaitingApprovalTotal > 0 ? 'hsl(var(--status-amber))' : 'hsl(var(--text-faint))' },
+                  { label: 'Overall', value: `${taskPct}%`, color: 'hsl(var(--primary))' },
+                ].map((s) => (
+                  <div key={s.label} className="rounded-xl p-4" style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}>
+                    <p className="font-display text-2xl font-bold tabular-nums" style={{ color: s.color }}>{s.value}</p>
+                    <p className="text-[11px] mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>{s.label}</p>
+                  </div>
+                ))}
+              </div>
+
+              {taskProjects.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 rounded-xl"
+                  style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}>
+                  <CheckSquare size={28} style={{ color: 'hsl(var(--text-faint))' }} />
+                  <p className="text-sm mt-3" style={{ color: 'hsl(var(--muted-foreground))' }}>No tasks yet</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {taskProjects.slice(0, MAX_PIPELINE).map((project) => <TaskProjectRow key={project.id} project={project} />)}
+                  {taskProjects.length > MAX_PIPELINE && (
+                    <Link href="/admin/projects" className="flex items-center justify-center gap-1.5 py-3 rounded-xl text-xs font-semibold transition-all"
+                      style={{ color: 'hsl(var(--primary))', border: '1px dashed hsl(var(--border))' }}>
+                      View all {taskProjects.length} projects with tasks <ArrowRight size={12} />
+                    </Link>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -406,45 +486,207 @@ export default function AdminDashboard({
   )
 }
 
+// ── BillingSummary ──────────────────────────────
+
+function BillingSummary({ revenue }: { revenue: Revenue }) {
+  const total = revenue.collected + revenue.outstanding
+  const collectedPct = total > 0 ? Math.round((revenue.collected / total) * 100) : 100
+  const stats = [
+    { label: 'Collected', value: revenue.collected, color: 'hsl(var(--status-green))' },
+    { label: 'Outstanding', value: revenue.outstanding, color: 'hsl(var(--primary))' },
+    { label: 'Overdue', value: revenue.overdue, color: 'hsl(var(--destructive))' },
+  ]
+  return (
+    <section
+      className="relative rounded-2xl p-6 overflow-hidden"
+      style={{
+        // Liquid glass: translucent surface + blur + layered sheen.
+        backgroundColor: 'hsl(var(--card) / 0.55)',
+        backdropFilter: 'blur(20px) saturate(140%)',
+        WebkitBackdropFilter: 'blur(20px) saturate(140%)',
+        border: '1px solid hsl(var(--border) / 0.7)',
+        boxShadow: '0 1px 0 hsl(0 0% 100% / 0.06) inset, 0 18px 40px -24px rgba(0,0,0,0.5)',
+      }}
+    >
+      {/* Ambient gradient glow */}
+      <div className="pointer-events-none absolute inset-0" style={{
+        background: 'radial-gradient(120% 80% at 100% 0%, hsl(var(--primary) / 0.10), transparent 55%), radial-gradient(120% 90% at 0% 100%, hsl(var(--status-green) / 0.08), transparent 50%)',
+      }} />
+      <div className="relative">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'hsl(var(--primary) / 0.12)', border: '1px solid hsl(var(--primary) / 0.2)' }}>
+              <DollarSign size={16} style={{ color: 'hsl(var(--primary))' }} />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Billing Summary</h2>
+              <p className="text-[11px]" style={{ color: 'hsl(var(--text-faint))' }}>Across all clients</p>
+            </div>
+          </div>
+          <Link href="/admin/invoices" className="flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all"
+            style={{ color: 'hsl(var(--primary))', backgroundColor: 'hsl(var(--primary) / 0.08)', border: '1px solid hsl(var(--primary) / 0.15)' }}>
+            View invoices <ArrowRight size={12} />
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          {stats.map((s) => (
+            <div key={s.label} className="rounded-xl p-4" style={{ backgroundColor: 'hsl(var(--background) / 0.4)', border: '1px solid hsl(var(--border) / 0.6)' }}>
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: s.value > 0 ? s.color : 'hsl(var(--text-faint))' }} />
+                <p className="text-[11px] font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>{s.label}</p>
+              </div>
+              <p className="font-display text-2xl font-bold tabular-nums" style={{ color: s.value > 0 ? s.color : 'hsl(var(--text-faint))' }}>
+                {formatCurrency(s.value)}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {total > 0 && (() => {
+          // 3-segment bar that always fills 100%: Collected (green) ·
+          // Outstanding (primary, in the middle) · Overdue (red).
+          const overduePct = Math.round((revenue.overdue / total) * 100)
+          const outstandingMidPct = Math.max(0, 100 - collectedPct - overduePct)
+          return (
+            <div className="mt-5">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-medium" style={{ color: 'hsl(var(--muted-foreground))' }}>{collectedPct}% collected</span>
+                {revenue.overdue > 0 && (
+                  <span className="flex items-center gap-1 text-[11px] font-semibold" style={{ color: 'hsl(var(--destructive))' }}>
+                    <AlertCircle size={11} /> {formatCurrency(revenue.overdue)} past due
+                  </span>
+                )}
+              </div>
+              <div className="h-2.5 rounded-full overflow-hidden flex" style={{ backgroundColor: 'hsl(var(--secondary) / 0.7)' }}>
+                <div className="h-full" title="Collected" style={{ width: `${collectedPct}%`, background: 'linear-gradient(90deg, color-mix(in srgb, hsl(var(--status-green)) 72%, #000), hsl(var(--status-green)))' }} />
+                <div className="h-full" title="Outstanding" style={{ width: `${outstandingMidPct}%`, backgroundColor: 'hsl(var(--primary))' }} />
+                <div className="h-full" title="Overdue" style={{ width: `${overduePct}%`, backgroundColor: 'hsl(var(--destructive))' }} />
+              </div>
+              {/* Legend */}
+              <div className="flex items-center gap-4 mt-2 flex-wrap">
+                {[
+                  { label: 'Collected', color: 'hsl(var(--status-green))' },
+                  { label: 'Outstanding', color: 'hsl(var(--primary))' },
+                  { label: 'Overdue', color: 'hsl(var(--destructive))' },
+                ].map((l) => (
+                  <span key={l.label} className="flex items-center gap-1.5 text-[10px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: l.color }} /> {l.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )
+        })()}
+      </div>
+    </section>
+  )
+}
+
 // ── ProjectCard ─────────────────────────────────
 
 function ProjectCard({ project }: { project: Project }) {
   const cfg = STATUS_CONFIG[project.status] ?? { label: project.status, color: 'hsl(var(--muted-foreground))', bg: 'hsl(var(--status-gray) / 0.08)', dot: 'hsl(var(--muted-foreground))' }
-  const completion = getProjectCompletion(project.tasks)
+  // Canonical (phase-based) completion — matches the project detail / client.
+  const phases = [...(project.project_phases ?? [])].sort((a, b) => a.sort_order - b.sort_order)
+  const completion = computeProjectProgress(phases, project.progress)
   const unpaidRevenue = project.invoices.filter((i) => ['unpaid', 'overdue'].includes(i.status)).reduce((a, i) => a + Number(i.amount), 0)
 
   return (
     <Link href={`/admin/projects/${project.id}`}
-      className="card-interactive flex items-center gap-4 p-4 rounded-xl group block"
+      className="card-interactive block p-4 rounded-xl group"
       style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
-      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'hsl(var(--secondary))'; e.currentTarget.style.borderColor = 'hsl(var(--border))' }}
-      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'hsl(var(--card))'; e.currentTarget.style.borderColor = 'hsl(var(--border))' }}
     >
-      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: cfg.dot }} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="text-sm font-semibold truncate" style={{ color: 'hsl(var(--foreground))' }}>{project.title}</p>
-          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: cfg.bg, color: cfg.color }}>{cfg.label}</span>
-        </div>
-        {project.clients && (
-          <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-            {project.clients.name}{project.clients.company ? ` · ${project.clients.company}` : ''}
-          </p>
-        )}
-        {project.tasks.length > 0 && (
-          <div className="flex items-center gap-2 mt-2">
-            <div className="flex-1 h-1 rounded-full overflow-hidden" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
-              <div className="h-full rounded-full transition-all" style={{ width: `${completion}%`, backgroundColor: completion === 100 ? 'hsl(var(--status-green))' : cfg.color }} />
-            </div>
-            <span className="text-[10px] tabular-nums flex-shrink-0" style={{ color: 'hsl(var(--text-faint))' }}>{completion}%</span>
+      <div className="flex items-center gap-4">
+        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: cfg.dot }} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold truncate" style={{ color: 'hsl(var(--foreground))' }}>{project.title}</p>
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: cfg.bg, color: cfg.color }}>{cfg.label}</span>
           </div>
-        )}
+          {project.clients && (
+            <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              {project.clients.name}{project.clients.company ? ` · ${project.clients.company}` : ''}
+            </p>
+          )}
+          <div className="flex items-center gap-2 mt-2">
+            <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+              <div className="h-full rounded-full transition-all" style={{ width: `${completion}%`, background: completion === 100 ? 'hsl(var(--status-green))' : `linear-gradient(90deg, color-mix(in srgb, ${cfg.color} 72%, #000), ${cfg.color})` }} />
+            </div>
+            <span className="text-[10px] tabular-nums flex-shrink-0 font-semibold" style={{ color: completion === 100 ? 'hsl(var(--status-green))' : 'hsl(var(--text-faint))' }}>{completion}%</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {project.files.length > 0 && <span className="text-xs hidden sm:inline" style={{ color: 'hsl(var(--text-faint))' }}>{project.files.length} files</span>}
+          {project.messages.length > 0 && <span className="text-xs hidden sm:inline" style={{ color: 'hsl(var(--text-faint))' }}>{project.messages.length} msgs</span>}
+          {unpaidRevenue > 0 && <span className="text-xs font-semibold" style={{ color: 'hsl(var(--primary))' }}>{formatCurrency(unpaidRevenue)}</span>}
+          <ArrowRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'hsl(var(--primary))' }} />
+        </div>
       </div>
-      <div className="flex items-center gap-3 flex-shrink-0">
-        {project.files.length > 0 && <span className="text-xs" style={{ color: 'hsl(var(--text-faint))' }}>{project.files.length} files</span>}
-        {project.messages.length > 0 && <span className="text-xs" style={{ color: 'hsl(var(--text-faint))' }}>{project.messages.length} msgs</span>}
-        {unpaidRevenue > 0 && <span className="text-xs font-semibold" style={{ color: 'hsl(var(--primary))' }}>{formatCurrency(unpaidRevenue)}</span>}
-        <ArrowRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'hsl(var(--primary))' }} />
+
+      {/* Vertical phase overview — live per-phase progress (realtime-refreshed) */}
+      {phases.length > 0 && (
+        <div className="mt-3 pl-6 space-y-1.5" style={{ borderTop: '1px solid hsl(var(--border))', paddingTop: 12 }}>
+          {phases.map((ph, i) => (
+            <div key={ph.id} className="flex items-center gap-2.5">
+              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: ph.is_complete ? 'hsl(var(--status-green))' : phaseColor(i) }} />
+              <span className="text-[11px] flex-shrink-0 w-28 truncate" style={{ color: ph.is_complete ? 'hsl(var(--status-green))' : 'hsl(var(--muted-foreground))' }}>{ph.name}</span>
+              <div className="flex-1 h-1 rounded-full overflow-hidden" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                <div className="h-full rounded-full transition-all duration-500" style={{ width: `${ph.progress}%`, backgroundColor: ph.is_complete ? 'hsl(var(--status-green))' : phaseColor(i) }} />
+              </div>
+              <span className="text-[10px] tabular-nums flex-shrink-0 w-8 text-right" style={{ color: 'hsl(var(--text-faint))' }}>{ph.progress}%</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Link>
+  )
+}
+
+// ── TaskProjectRow ──────────────────────────────
+
+function TaskProjectRow({ project }: { project: Project }) {
+  const { total, done, awaitingApproval, pct } = taskStats(project)
+  return (
+    <Link href={`/admin/projects/${project.id}?tab=tasks`}
+      className="card-interactive block p-4 rounded-xl group"
+      style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
+      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'hsl(var(--secondary))' }}
+      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'hsl(var(--card))' }}
+    >
+      <div className="flex items-center gap-4">
+        <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+          style={{ backgroundColor: 'hsl(var(--primary) / 0.08)' }}>
+          <CheckSquare size={15} style={{ color: 'hsl(var(--primary))' }} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold truncate" style={{ color: 'hsl(var(--foreground))' }}>{project.title}</p>
+            {awaitingApproval > 0 && (
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
+                style={{ backgroundColor: 'hsl(var(--status-amber) / 0.12)', color: 'hsl(var(--status-amber))' }}>
+                {awaitingApproval} awaiting approval
+              </span>
+            )}
+          </div>
+          {project.clients && (
+            <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              {project.clients.name}{project.clients.company ? ` · ${project.clients.company}` : ''}
+            </p>
+          )}
+          <div className="flex items-center gap-2 mt-2">
+            <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+              <div className="h-full rounded-full transition-all duration-500"
+                style={{ width: `${pct}%`, background: pct === 100 ? 'hsl(var(--status-green))' : 'linear-gradient(90deg, color-mix(in srgb, hsl(var(--primary)) 72%, #000), hsl(var(--primary)))' }} />
+            </div>
+            <span className="text-[10px] tabular-nums flex-shrink-0 font-semibold"
+              style={{ color: pct === 100 ? 'hsl(var(--status-green))' : 'hsl(var(--text-faint))' }}>{done}/{total}</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span className="font-display text-sm font-bold tabular-nums" style={{ color: 'hsl(var(--primary))' }}>{pct}%</span>
+          <ArrowRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'hsl(var(--primary))' }} />
+        </div>
       </div>
     </Link>
   )
@@ -489,28 +731,32 @@ function ClientRow({ client }: { client: Client }) {
 // ── ActivityItem ────────────────────────────────
 
 function ActivityItem({ event, isFirst }: { event: ActivityEvent; isFirst: boolean }) {
-  const cfg = EVENT_ICONS[event.event_type] ?? { icon: Circle, color: 'hsl(var(--muted-foreground))' }
+  const cfg = EVENT_ICONS[event.type] ?? { icon: Circle, color: 'hsl(var(--muted-foreground))' }
   const Icon = cfg.icon
   return (
     <div className="flex items-start gap-3 p-3 rounded-xl transition-all"
       style={{ backgroundColor: isFirst ? 'hsl(var(--primary) / 0.04)' : 'transparent', border: isFirst ? '1px solid hsl(var(--primary) / 0.08)' : '1px solid transparent' }}
     >
-      <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{ backgroundColor: `color-mix(in srgb, ${cfg.color} 8%, transparent)` }}>
-        <Icon size={13} style={{ color: cfg.color }} />
+      <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
+        style={{ backgroundColor: `color-mix(in srgb, ${cfg.color} 12%, transparent)`, border: `1px solid color-mix(in srgb, ${cfg.color} 22%, transparent)` }}>
+        <Icon size={14} style={{ color: cfg.color }} />
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-xs font-medium leading-snug" style={{ color: 'hsl(var(--foreground))' }}>{event.title}</p>
+        {event.body && (
+          <p className="text-[11px] mt-0.5 truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>{event.body}</p>
+        )}
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-          {event.projects && (
-            <Link href={`/admin/projects/${event.projects.id}`}
+          {event.project_id && (
+            <Link href={`/admin/projects/${event.project_id}`}
               className="text-[10px] transition-colors" style={{ color: 'hsl(var(--muted-foreground))' }}
               onMouseEnter={(e) => { e.currentTarget.style.color = 'hsl(var(--primary))' }}
               onMouseLeave={(e) => { e.currentTarget.style.color = 'hsl(var(--muted-foreground))' }}
             >
-              {event.projects.title}
+              View project
             </Link>
           )}
-          {event.projects && <span style={{ color: 'hsl(var(--border))' }}>·</span>}
+          {event.project_id && <span style={{ color: 'hsl(var(--border))' }}>·</span>}
           <span className="text-[10px]" style={{ color: 'hsl(var(--text-faint))' }}>{timeAgo(event.created_at)}</span>
         </div>
       </div>

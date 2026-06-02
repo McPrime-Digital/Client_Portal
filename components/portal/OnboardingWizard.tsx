@@ -142,7 +142,7 @@ export default function OnboardingWizard({ initial }: { initial: Initial }) {
                 style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}>
                 {avatarUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={avatarUrl} alt="" className="w-full h-full object-contain" />
+                  <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
                 ) : (
                   <span className="text-xl font-bold" style={{ color: 'hsl(var(--primary))' }}>
                     {(form.company || form.name)[0]?.toUpperCase() ?? 'C'}

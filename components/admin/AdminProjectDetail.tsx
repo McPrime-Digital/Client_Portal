@@ -84,11 +84,17 @@ export default function AdminProjectDetail({
   tasks: initialTasks,
   files: initialFiles,
   initialMessages,
+  involvement,
 }: any) {
   const router = useRouter()
   const supabase = createClient()
 
   const [activeTab, setActiveTab] = useState('overview')
+  // Honour a ?tab= deep-link (e.g. from a notification → opens the chat).
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get('tab')
+    if (t && tabs.some((tab) => tab.id === t)) setActiveTab(t)
+  }, [])
   const [project, setProject] = useState(initialProject)
   const [phases, setPhases] = useState(initialPhases)
   const [tasks, setTasks] = useState(initialTasks)
@@ -156,6 +162,30 @@ export default function AdminProjectDetail({
   // truth shared with the client portal, lists and overview).
   const computedProgress = computeProjectProgress(phases, project.progress)
 
+  // Live per-tab notification badges — this project's unread admin
+  // notifications by type, kept live (realtime + poll). Each badge persists
+  // until its tab is opened.
+  const [adminNotifs, setAdminNotifs] = useState<any[]>([])
+  const loadAdminNotifs = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/notifications')
+      if (!res.ok) return
+      const json = await res.json()
+      setAdminNotifs(json.notifications ?? [])
+    } catch { /* ignore */ }
+  }, [])
+  useEffect(() => {
+    loadAdminNotifs()
+    const channel = supabase
+      .channel(`admin-proj-notifs:${project.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => loadAdminNotifs())
+      .subscribe()
+    const poll = setInterval(loadAdminNotifs, 20000)
+    return () => { clearInterval(poll); supabase.removeChannel(channel) }
+  }, [loadAdminNotifs])
+  const tabBadge = (type: string) =>
+    adminNotifs.filter((n: any) => n.project_id === project.id && n.type === type && !n.read_at && !n.dismissed_at).length
+
   // Mark client messages as read when messages tab opens
   useEffect(() => {
     if (activeTab === 'messages') {
@@ -163,6 +193,13 @@ export default function AdminProjectDetail({
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ project_id: project.id }),
+      }).catch(() => {})
+      // Clear this project's message notifications from the admin bell — they
+      // persist until the chat is actually opened.
+      fetch('/api/admin/notifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: project.id, type: 'message' }),
       }).catch(() => {})
       setMessages((prev: any[]) =>
         prev.map((m: any) =>
@@ -172,6 +209,24 @@ export default function AdminProjectDetail({
         )
       )
     }
+  }, [activeTab, project.id])
+
+  // Clear this project's admin notifications for the opened tab (files/tasks/
+  // invoices) — they persist in the admin bell until the relevant tab is
+  // opened. (Messages is handled in the effect above, which also marks read.)
+  useEffect(() => {
+    const typeForTab: Record<string, string | undefined> = {
+      files: 'file_delivered',
+      tasks: 'task_updated',
+      invoices: 'invoice_created',
+    }
+    const type = typeForTab[activeTab]
+    if (!type) return
+    fetch('/api/admin/notifications', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project_id: project.id, type }),
+    }).catch(() => {})
   }, [activeTab, project.id])
 
   // Realtime messages — INSERT + UPDATE (read receipts)
@@ -312,14 +367,25 @@ export default function AdminProjectDetail({
     progress: number
   ) {
     setSavingPhase(phaseId)
+    // Optimistic — reflect the new value instantly (overall % is derived from
+    // phases), then reconcile with the persisted row.
+    setPhases((prev: any[]) =>
+      prev.map((p) => (p.id === phaseId ? { ...p, progress, is_complete: progress >= 100 } : p))
+    )
     try {
-      const { phase } = await adminAction('update_phase', {
+      const { phase, status } = await adminAction('update_phase', {
         phase_id: phaseId,
         progress,
       })
       setPhases((prev: any[]) =>
         prev.map((p) => (p.id === phaseId ? phase : p))
       )
+      // The pipeline status is auto-derived from phase progress — reflect any
+      // change in the header badge + settings without a reload.
+      if (status) {
+        setProject((prev: any) => ({ ...prev, status }))
+        setSettings((prev) => ({ ...prev, status }))
+      }
     } catch (err: any) {
       console.error('Failed to update phase:', err)
       alert(`Failed to update phase: ${err.message}`)
@@ -354,7 +420,11 @@ export default function AdminProjectDetail({
     if (!confirm('Remove this phase? Its progress will be discarded.')) return
     setPhases((prev: any[]) => prev.filter((p) => p.id !== phaseId))
     try {
-      await adminAction('delete_phase', { phase_id: phaseId })
+      const { status } = await adminAction('delete_phase', { phase_id: phaseId })
+      if (status) {
+        setProject((prev: any) => ({ ...prev, status }))
+        setSettings((prev) => ({ ...prev, status }))
+      }
     } catch (err: any) {
       alert(`Failed to delete phase: ${err.message}`)
     }
@@ -683,9 +753,16 @@ export default function AdminProjectDetail({
         {tabs.map((tab) => {
           const Icon = tab.icon
           const isActive = activeTab === tab.id
+          // Live unread-notification count for this tab (clears when opened).
           const badge =
-            tab.id === 'tasks'
-              ? (tasks ?? []).filter((t: any) => t.approval_status === 'changes_requested' && !t.approved_at).length
+            tab.id === 'files'
+              ? tabBadge('file_delivered')
+              : tab.id === 'messages'
+              ? tabBadge('message')
+              : tab.id === 'tasks'
+              ? tabBadge('task_updated')
+              : tab.id === 'invoices'
+              ? tabBadge('invoice_created')
               : 0
           return (
             <button
@@ -988,6 +1065,7 @@ export default function AdminProjectDetail({
           initialTasks={(tasks ?? []) as any}
           phases={phases}
           userRole="admin"
+          involvement={involvement}
         />
       )}
 
@@ -1123,7 +1201,6 @@ export default function AdminProjectDetail({
                   className={inputClass}
                   style={{
                     ...inputStyle,
-                    colorScheme: 'dark',
                   }}
                   {...focusHandlers}
                 />
@@ -1148,7 +1225,6 @@ export default function AdminProjectDetail({
                   className={inputClass}
                   style={{
                     ...inputStyle,
-                    colorScheme: 'dark',
                   }}
                   {...focusHandlers}
                 />

@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import NewInvoiceForm from
   '@/components/admin/NewInvoiceForm'
@@ -12,12 +13,15 @@ export default async function NewInvoicePage() {
     redirect('/login')
   }
 
-  const { data: clients } = await supabase
+  // Service role (admin-gated above) — the clients/projects tables are not
+  // readable by the admin under RLS, so the RLS-scoped client returns nothing
+  // and the dropdowns come up empty. Every other admin page reads this way.
+  const { data: clients } = await supabaseAdmin
     .from('clients')
     .select('id, name, company')
     .order('name')
 
-  const { data: projects } = await supabase
+  const { data: projects } = await supabaseAdmin
     .from('projects')
     .select('id, title, client_id')
     .not('status', 'eq', 'Completed')

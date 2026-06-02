@@ -31,7 +31,7 @@ export default function AdminSettings({ user }: Props) {
   // Business + payment settings (global — shown on client invoices).
   const emptyPay = {
     business_name: '', business_email: '', business_address: '',
-    bank_name: '', account_name: '', account_number: '',
+    bank_name: '', bank_address: '', account_name: '', account_number: '',
     routing_number: '', swift: '', payment_instructions: '',
   }
   const [pay, setPay] = useState(emptyPay)
@@ -145,12 +145,12 @@ export default function AdminSettings({ user }: Props) {
     )
   }
 
-  const navItems: { key: SectionKey; label: string; icon: any }[] = [
-    { key: 'business', label: 'Business Profile', icon: Building2 },
-    { key: 'payments', label: 'Payment Details', icon: CreditCard },
-    { key: 'profile', label: 'Admin Profile', icon: Shield },
-    { key: 'security', label: 'Security', icon: Lock },
-    { key: 'team', label: 'Team & Roles', icon: Users },
+  const navItems: { key: SectionKey; label: string; icon: any; desc: string; tint: string }[] = [
+    { key: 'business', label: 'Business Profile', icon: Building2, desc: 'Identity on invoices', tint: 'primary' },
+    { key: 'payments', label: 'Payment Details', icon: CreditCard, desc: 'Bank & wire info', tint: 'status-green' },
+    { key: 'profile', label: 'Admin Profile', icon: Shield, desc: 'Your account', tint: 'status-blue' },
+    { key: 'security', label: 'Security', icon: Lock, desc: 'Password & access', tint: 'status-violet' },
+    { key: 'team', label: 'Team & Roles', icon: Users, desc: 'Seats & permissions', tint: 'status-amber' },
   ]
 
   return (
@@ -162,23 +162,39 @@ export default function AdminSettings({ user }: Props) {
         </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[220px_1fr]">
-        {/* Section nav */}
-        <nav className="flex lg:flex-col gap-1.5 overflow-x-auto lg:overflow-visible">
-          {navItems.map(({ key, label, icon: Icon }) => {
+      <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
+        {/* Section nav — premium, adaptive (scrolls on mobile, rail on desktop) */}
+        <nav className="flex lg:flex-col gap-2 overflow-x-auto lg:overflow-visible scrollbar-none -mx-1 px-1 lg:mx-0 lg:px-0">
+          {navItems.map(({ key, label, icon: Icon, desc, tint }) => {
             const active = section === key
             return (
               <button key={key} onClick={() => setSection(key)}
-                className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all flex-shrink-0 whitespace-nowrap"
-                style={{ backgroundColor: active ? 'hsl(var(--primary) / 0.1)' : 'transparent', color: active ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))', border: active ? '1px solid hsl(var(--primary) / 0.2)' : '1px solid transparent' }}>
-                <Icon size={15} /> {label}
+                className="group flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all flex-shrink-0 lg:w-full"
+                style={{
+                  backgroundColor: active ? 'hsl(var(--card))' : 'transparent',
+                  border: active ? '1px solid hsl(var(--border))' : '1px solid transparent',
+                  boxShadow: active ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+                }}
+              >
+                <span className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 transition-all"
+                  style={{
+                    backgroundColor: active ? `hsl(var(--${tint}) / 0.14)` : 'hsl(var(--secondary))',
+                    border: active ? `1px solid hsl(var(--${tint}) / 0.25)` : '1px solid transparent',
+                  }}>
+                  <Icon size={15} style={{ color: active ? `hsl(var(--${tint}))` : 'hsl(var(--muted-foreground))' }} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold whitespace-nowrap lg:whitespace-normal"
+                    style={{ color: active ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))' }}>{label}</span>
+                  <span className="hidden lg:block text-[11px] truncate" style={{ color: 'hsl(var(--text-faint))' }}>{desc}</span>
+                </span>
               </button>
             )
           })}
         </nav>
 
         {/* Panel */}
-        <div className="max-w-[600px]">
+        <div className="max-w-[880px]">
           {/* Business Profile */}
           {section === 'business' && (
             <form onSubmit={savePayment} className="p-6 rounded-xl space-y-5" style={card}>
@@ -203,6 +219,8 @@ export default function AdminSettings({ user }: Props) {
                 {payField('Account number', 'account_number')}
                 {payField('Routing number', 'routing_number')}
                 {payField('SWIFT / BIC', 'swift')}
+                {payField('Bank address', 'bank_address', true)}
+                {payField('Business address', 'business_address', true)}
               </div>
               <div>
                 <label className={labelClass} style={labelStyle}>Payment instructions</label>

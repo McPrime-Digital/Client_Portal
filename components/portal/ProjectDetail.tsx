@@ -15,6 +15,7 @@ import type {
 } from '@/lib/types/database'
 import MessageThread from '@/components/shared/MessageThread'
 import TaskBoard from '@/components/shared/TaskBoard'
+import { useNotifications } from '@/lib/hooks/useNotifications'
 import { logActivity } from '@/lib/logActivity'
 import { uploadFileToR2 } from '@/lib/uploadClient'
 import ProgressBar from '@/components/shared/ProgressBar'
@@ -48,6 +49,7 @@ type Props = {
   files: FileRecord[]
   initialMessages: Message[]
   client: Client
+  involvement?: any[]
 }
 
 function getFileIcon(fileType: string | null) {
@@ -93,9 +95,18 @@ export default function ProjectDetail({
   files,
   initialMessages,
   client,
+  involvement,
 }: Props) {
   const [activeTab, setActiveTab] = useState('overview')
+  // Honour a ?tab= deep-link (e.g. notification → opens the chat directly).
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get('tab')
+    if (t && tabs.some((tab) => tab.id === t)) setActiveTab(t)
+  }, [])
   const [phases, setPhases] = useState<ProjectPhase[]>(initialPhases)
+  // The pipeline status is auto-derived from phase progress server-side; mirror
+  // any change here so the client sees it without a reload.
+  const [liveStatus, setLiveStatus] = useState(project.status)
   const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
@@ -110,6 +121,15 @@ export default function ProjectDetail({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const clientUploadRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
+
+  // Live per-tab notification badges — counts of THIS project's unread
+  // notifications by type, sourced from the same live hook the bell uses
+  // (realtime + poll). Each badge persists until its tab is opened.
+  const { notifications: bellNotifs } = useNotifications(client.id)
+  const tabBadge = (type: string) =>
+    bellNotifs.filter(
+      (n) => n.project_id === project.id && n.type === type && !n.read_at && !n.dismissed_at,
+    ).length
 
   const refreshMessages = useCallback(async () => {
     if (refreshing) return
@@ -137,6 +157,13 @@ export default function ProjectDetail({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ project_id: project.id }),
       }).catch(() => {})
+      // Clear this project's message notifications — they persist in the bell
+      // until the chat is actually opened.
+      fetch('/api/portal/notifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: project.id, type: 'message' }),
+      }).catch(() => {})
       // Update local state so read receipts show immediately
       setMessages((prev) =>
         prev.map((m) =>
@@ -146,6 +173,23 @@ export default function ProjectDetail({
         )
       )
     }
+  }, [activeTab, project.id])
+
+  // Clear this project's notifications for the opened tab (files/tasks) — they
+  // persist in the bell until the relevant tab is actually opened. (Messages is
+  // handled in the effect above, which also marks chat messages read.)
+  useEffect(() => {
+    const typeForTab: Record<string, string | undefined> = {
+      files: 'file_delivered',
+      tasks: 'task_updated',
+    }
+    const type = typeForTab[activeTab]
+    if (!type) return
+    fetch('/api/portal/notifications', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project_id: project.id, type }),
+    }).catch(() => {})
   }, [activeTab, project.id])
 
   // Single source of truth — same helper the admin + lists use.
@@ -298,6 +342,23 @@ export default function ProjectDetail({
                 : p
             )
           )
+        }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [project.id])
+
+  // Realtime project subscription — live status badge as the project advances.
+  useEffect(() => {
+    const channel = supabase
+      .channel(`project:${project.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'projects', filter: `id=eq.${project.id}` },
+        (payload) => {
+          const next = (payload.new as Project)?.status
+          if (next) setLiveStatus(next)
         }
       )
       .subscribe()
@@ -487,7 +548,7 @@ export default function ProjectDetail({
               {project.title}
             </h1>
             <div className="flex items-center gap-3 mt-2 flex-wrap">
-              <StatusBadge status={project.status} />
+              <StatusBadge status={liveStatus} />
               <span
                 className="text-xs px-2 py-0.5 rounded-full"
                 style={{
@@ -543,15 +604,14 @@ export default function ProjectDetail({
         {tabs.map((tab) => {
           const Icon = tab.icon
           const isActive = activeTab === tab.id
+          // Live unread-notification count for this tab (clears when opened).
           const badge =
-            tab.id === 'tasks'
-              ? (tasks ?? []).filter(
-                  (t: any) =>
-                    t.visible_to_client &&
-                    t.status === 'review' &&
-                    t.approval_status !== 'approved' &&
-                    !t.approved_at
-                ).length
+            tab.id === 'files'
+              ? tabBadge('file_delivered')
+              : tab.id === 'messages'
+              ? tabBadge('message')
+              : tab.id === 'tasks'
+              ? tabBadge('task_updated')
               : 0
           return (
             <button
@@ -862,6 +922,7 @@ export default function ProjectDetail({
           initialTasks={(tasks ?? []) as any}
           phases={phases}
           userRole="client"
+          involvement={involvement}
         />
       )}
     </div>

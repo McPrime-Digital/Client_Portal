@@ -232,14 +232,14 @@ export default function ClientsTable({
                 style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}>
 
                 {/* Header: company logo + dominant company name + menu */}
-                <div className="flex items-start gap-4">
-                  <div className="w-[68px] h-[68px] rounded-2xl overflow-hidden flex items-center justify-center flex-shrink-0"
+                <div className="flex items-start gap-5">
+                  <div className="w-[88px] h-[88px] rounded-2xl overflow-hidden flex items-center justify-center flex-shrink-0"
                     style={{ backgroundColor: 'hsl(var(--primary) / 0.1)', border: '1px solid hsl(var(--border))' }}>
                     {client.avatar_url ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={client.avatar_url} alt="" className="w-full h-full object-contain p-2" />
+                      <img src={client.avatar_url} alt="" className="w-full h-full object-cover" />
                     ) : (
-                      <span className="text-2xl font-bold" style={{ color: 'hsl(var(--primary))' }}>
+                      <span className="text-3xl font-bold" style={{ color: 'hsl(var(--primary))' }}>
                         {displayName[0]?.toUpperCase() ?? 'C'}
                       </span>
                     )}
@@ -258,6 +258,19 @@ export default function ClientsTable({
                         {client.email}
                       </p>
                     )}
+
+                    {/* Status + invite/joined — sits under the company details,
+                        indented with them so the logo can read larger */}
+                    <div className="flex flex-wrap items-center gap-2 mt-3">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold"
+                        style={{ backgroundColor: s.bg, color: s.color }}>
+                        <Icon size={11} />
+                        {s.label}
+                      </span>
+                      <span className="text-[11px]" style={{ color: 'hsl(var(--text-faint))' }}>
+                        {client.onboarded_at ? `Joined ${formatDate(client.onboarded_at)}` : `Invited ${formatDate(client.invited_at)}`}
+                      </span>
+                    </div>
                   </div>
 
                   {/* 3-dot menu — anchored directly under the button */}
@@ -304,18 +317,6 @@ export default function ClientsTable({
                         </div>
                     )}
                   </div>
-                </div>
-
-                {/* Status chip */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold"
-                    style={{ backgroundColor: s.bg, color: s.color }}>
-                    <Icon size={11} />
-                    {s.label}
-                  </span>
-                  <span className="text-[11px]" style={{ color: 'hsl(var(--text-faint))' }}>
-                    {client.onboarded_at ? `Joined ${formatDate(client.onboarded_at)}` : `Invited ${formatDate(client.invited_at)}`}
-                  </span>
                 </div>
 
                 {/* Projects as clickable capsules */}

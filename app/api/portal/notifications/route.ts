@@ -24,12 +24,23 @@ export async function GET() {
     return NextResponse.json({ notifications: [] })
   }
 
-  const { data: notifications } = await supabaseAdmin
-    .from('notifications')
-    .select('id, project_id, type, title, body, read_at, created_at')
-    .eq('client_id', clientId)
-    .order('created_at', { ascending: false })
-    .limit(30)
+  // Exclude dismissed rows (the bell X). Falls back gracefully if the
+  // dismissed_at column hasn't been migrated yet, so the bell never breaks.
+  // (The select omits dismissed_at — the filter alone is enough, and identical
+  // selects keep both branches type-compatible.)
+  const base = () =>
+    supabaseAdmin
+      .from('notifications')
+      .select('id, project_id, type, title, body, read_at, created_at')
+      .eq('client_id', clientId)
+      .order('created_at', { ascending: false })
+      .limit(30)
+
+  let { data: notifications, error } = await base().is('dismissed_at', null)
+  if (error) {
+    // Most likely the dismissed_at column doesn't exist yet — retry unfiltered.
+    ;({ data: notifications } = await base())
+  }
 
   return NextResponse.json({ notifications: notifications ?? [] })
 }
@@ -43,22 +54,34 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ success: true })
   }
 
-  const { ids, all } = await req.json().catch(() => ({}))
+  const { ids, all, project_id, type, dismiss } = await req.json().catch(() => ({}))
   const now = new Date().toISOString()
 
-  // Always scope updates to the caller's client so one client can't
-  // mark another's notifications read.
-  let query = supabaseAdmin
-    .from('notifications')
-    .update({ read_at: now })
-    .eq('client_id', clientId)
-    .is('read_at', null)
+  // "dismiss" closes a row from the bell (sets dismissed_at); otherwise we mark
+  // it read (sets read_at). Always scoped to the caller's client so one client
+  // can't touch another's notifications.
+  let query = dismiss
+    ? supabaseAdmin
+        .from('notifications')
+        .update({ dismissed_at: now })
+        .eq('client_id', clientId)
+    : supabaseAdmin
+        .from('notifications')
+        .update({ read_at: now })
+        .eq('client_id', clientId)
+        .is('read_at', null)
 
-  if (!all) {
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return NextResponse.json({ success: true })
-    }
+  if (project_id || type) {
+    // Clear by context — e.g. opening a project chat clears its message
+    // notifications, without touching the rest.
+    if (project_id) query = query.eq('project_id', project_id)
+    if (type) query = query.eq('type', type)
+  } else if (all) {
+    // mark everything (explicit "All read")
+  } else if (Array.isArray(ids) && ids.length > 0) {
     query = query.in('id', ids)
+  } else {
+    return NextResponse.json({ success: true })
   }
 
   const { error } = await query

@@ -25,16 +25,62 @@ export function clampPct(value: number): number {
   return Math.max(0, Math.min(100, value))
 }
 
-// Distinct per-phase identifier colours (theme-token based) so each
-// production phase reads as its own step. Cycled by phase index.
+// ── Live project status, derived from phase progress ──────────────────────
+// The admin picks a starting status at creation, but the pipeline status must
+// then track real progress as phases advance. This maps the *current* phase
+// (the first one not yet complete) to a project status, so the overview, badges
+// and lists move on their own. 'On Hold' is a deliberate manual pause and is
+// never overridden; once every phase is done the project reads 'Completed'.
+
+export type StatusPhaseLike = {
+  name: string
+  progress?: number | null
+  is_complete?: boolean | null
+  sort_order?: number | null
+}
+
+function phaseNameToStatus(name: string): string {
+  const n = (name ?? '').toLowerCase()
+  if (n.includes('discovery') || n.includes('brief') || n.includes('onboard')) return 'Onboarding'
+  if (n.includes('pre')) return 'Pre-Production'
+  if (n.includes('post')) return 'Post-Production'
+  if (n.includes('revis')) return 'Revisions'
+  if (n.includes('review')) return 'In Review'
+  if (n.includes('final') || n.includes('deliver')) return 'In Review'
+  if (n.includes('g1') || n.includes('g2') || n.includes('production') || n.includes('generation')) return 'In Production'
+  return 'In Production'
+}
+
+export function deriveProjectStatus(
+  phases: StatusPhaseLike[] | null | undefined,
+  currentStatus: string | null | undefined,
+): string {
+  const current = currentStatus ?? 'Onboarding'
+  // Respect a deliberate manual pause.
+  if (current === 'On Hold') return current
+  if (!phases || phases.length === 0) return current
+
+  const ordered = [...phases].sort(
+    (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0),
+  )
+  const isDone = (p: StatusPhaseLike) => p.is_complete === true || (p.progress ?? 0) >= 100
+  if (ordered.every(isDone)) return 'Completed'
+
+  const currentPhase = ordered.find((p) => !isDone(p)) ?? ordered[0]
+  return phaseNameToStatus(currentPhase.name)
+}
+
+// Balanced per-phase identifier colours. Tuned so the 7-phase production
+// pipeline reads as a harmonious cool→warm progression that resolves to green
+// at delivery, with no two adjacent phases sharing a hue. Cycled by index.
 export const PHASE_COLORS = [
-  'hsl(var(--status-blue))',
-  'hsl(var(--status-violet))',
-  'hsl(var(--primary))',
-  'hsl(var(--status-green))',
-  'hsl(var(--status-blue))',
-  'hsl(var(--status-violet))',
-  'hsl(var(--primary))',
+  'hsl(var(--status-blue))',    // Discovery & Brief
+  'hsl(var(--status-violet))',  // Pre-Production
+  'hsl(var(--primary))',        // Production G1
+  'hsl(var(--status-amber))',   // Production G2
+  'hsl(var(--status-blue))',    // Post-Production
+  'hsl(var(--status-violet))',  // Revisions
+  'hsl(var(--status-green))',   // Final Delivery
 ]
 
 export function phaseColor(index: number): string {

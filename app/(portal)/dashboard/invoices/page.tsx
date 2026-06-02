@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import ClientInvoices from
   '@/components/portal/ClientInvoices'
@@ -10,7 +11,10 @@ export default async function ClientInvoicesPage() {
     await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: client } = await supabase
+  // Service role + explicit client-ownership scoping (matches the canonical
+  // /invoices page) — RLS doesn't grant a broad read on invoices, so the
+  // RLS-scoped client returns nothing.
+  const { data: client } = await supabaseAdmin
     .from('clients')
     .select('id')
     .eq('user_id', user.id)
@@ -19,9 +23,9 @@ export default async function ClientInvoicesPage() {
   if (!client) redirect('/login')
 
   // Mark overdue on client view too
-  await supabase.rpc('mark_overdue_invoices')
+  await supabaseAdmin.rpc('mark_overdue_invoices')
 
-  const { data: invoices } = await supabase
+  const { data: invoices } = await supabaseAdmin
     .from('invoices')
     .select(`
       *,

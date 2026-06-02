@@ -41,7 +41,6 @@ export default function NewInvoiceForm({
     client_id: '',
     project_id: '',
     title: '',
-    description: '',
     due_date: '',
     payment_method: 'bank_transfer' as 'bank_transfer' | 'wire',
     stripe_payment_url: '',
@@ -141,7 +140,6 @@ export default function NewInvoiceForm({
           client_id: form.client_id,
           project_id: form.project_id || null,
           title: form.title.trim(),
-          description: form.description.trim() || null,
           amount: subtotal,
           line_items: lineItems.map((item) => ({
             description: item.description,
@@ -153,7 +151,7 @@ export default function NewInvoiceForm({
           payment_method: form.payment_method,
           due_date: form.due_date || null,
           notes: form.notes.trim() || null,
-          stripe_payment_link: form.stripe_payment_url.trim() || null,
+          stripe_payment_url: form.stripe_payment_url.trim() || null,
         }),
       })
       const json = await res.json()
@@ -193,7 +191,7 @@ export default function NewInvoiceForm({
   const inputClass =
     'w-full px-4 py-3 rounded-lg text-sm outline-none transition-all'
   const inputStyle = {
-    backgroundColor: 'hsl(var(--primary-foreground))',
+    backgroundColor: 'hsl(var(--background))',
     border: '1px solid hsl(var(--border))',
     color: 'hsl(var(--foreground))',
   }
@@ -423,7 +421,6 @@ Project Fee"
                 className={inputClass}
                 style={{
                   ...inputStyle,
-                  colorScheme: 'dark',
                 }}
                 {...focusHandlers}
               />

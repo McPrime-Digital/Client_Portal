@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { createAdminNotification } from '@/lib/notify'
+import { recordActivity } from '@/lib/logActivity'
 
 // Verify the calling user is an authenticated client
 async function verifyClient() {
@@ -32,12 +33,25 @@ export async function POST(req: NextRequest) {
   try {
     switch (action) {
 
+      // ── Dismiss the welcome banner (persists until set) ─────
+      case 'dismiss_welcome': {
+        try {
+          await supabaseAdmin
+            .from('clients')
+            .update({ welcome_dismissed_at: new Date().toISOString() })
+            .eq('id', client.id)
+        } catch {
+          // Column may not exist yet — banner still closes client-side.
+        }
+        return NextResponse.json({ success: true })
+      }
+
       // ── Client approves a shared task ───────────────────────
       case 'approve_task': {
-        const { task_id } = body
+        const { task_id, note, attachment_url, attachment_name, attachment_file_id } = body
         const { data: task } = await supabaseAdmin
           .from('tasks')
-          .select('id, project_id, visible_to_client, projects(client_id)')
+          .select('id, title, project_id, visible_to_client, projects(client_id)')
           .eq('id', task_id)
           .single()
         const rel = (task as { projects?: { client_id?: string } | { client_id?: string }[] } | null)?.projects
@@ -46,6 +60,7 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: 'Task not found.' }, { status: 404 })
         }
         const now = new Date().toISOString()
+        const trimmedNote = typeof note === 'string' ? note.trim() : ''
         const { data, error } = await supabaseAdmin
           .from('tasks')
           .update({ approved_at: now, status: 'completed', completed_at: now, approval_status: 'approved' })
@@ -53,6 +68,25 @@ export async function POST(req: NextRequest) {
           .select()
           .single()
         if (error) throw error
+
+        // Register the approval in the project chat as proof. Framed as a task
+        // trigger carrying the process name, the action, any file, and the note.
+        const approvalBody = [
+          `✅ Task approval · "${task.title}"`,
+          `Action: Approved`,
+          trimmedNote ? `Note: ${trimmedNote}` : null,
+          attachment_name ? `📎 File: ${attachment_name}` : null,
+        ].filter(Boolean).join('\n')
+        await supabaseAdmin.from('messages').insert({
+          project_id: task.project_id,
+          sender_id: user.id,
+          sender_role: 'client',
+          sender_name: client.name,
+          body: approvalBody,
+          attachment_url: attachment_url || null,
+          attachment_name: attachment_name || null,
+        })
+
         await createAdminNotification({
           clientId: client.id,
           projectId: data.project_id,
@@ -60,21 +94,25 @@ export async function POST(req: NextRequest) {
           title: `${client.name} approved a task`,
           body: data.title ?? null,
         })
-        try {
-          await supabaseAdmin.rpc('log_activity', {
-            p_project_id: data.project_id, p_client_id: client.id, p_actor_id: user.id,
-            p_actor_name: client.name, p_actor_role: 'client',
-            p_event_type: 'task_approved', p_title: `${client.name} approved “${data.title}”`,
-            p_body: null, p_meta: { task_id: data.id },
-          })
-        } catch { /* non-critical */ }
+        // Persist to the Approvals & Records ledger — reliable direct insert.
+        await recordActivity({
+          projectId: data.project_id, clientId: client.id, actorId: user.id,
+          actorName: client.name, actorRole: 'client',
+          eventType: 'task_approved', title: `${client.name} approved “${data.title}”`,
+          body: trimmedNote || null,
+          meta: {
+            task_id: data.id,
+            attachment_name: attachment_name || null,
+            attachment_file_id: attachment_file_id || null,
+          },
+        })
         return NextResponse.json({ task: data })
       }
 
       // Client requests changes on an approval-gate task. A note is required
       // and is auto-posted into the project chat for further discussion.
       case 'request_changes': {
-        const { task_id, note } = body
+        const { task_id, note, attachment_url, attachment_name, attachment_file_id } = body
         if (!note || !String(note).trim()) {
           return NextResponse.json({ error: 'A note is required to request changes.' }, { status: 400 })
         }
@@ -97,13 +135,22 @@ export async function POST(req: NextRequest) {
           .single()
         if (error) throw error
 
-        // Auto-post the change request into the project chat.
+        // Auto-post the change request into the project chat (with any file).
+        // Framed as a task trigger carrying the process name, action, file, note.
+        const changesBody = [
+          `🔄 Task approval · "${task.title}"`,
+          `Action: Changes requested`,
+          `Note: ${trimmed}`,
+          attachment_name ? `📎 File: ${attachment_name}` : null,
+        ].filter(Boolean).join('\n')
         await supabaseAdmin.from('messages').insert({
           project_id: task.project_id,
           sender_id: user.id,
           sender_role: 'client',
           sender_name: client.name,
-          body: `🔄 Changes requested on "${task.title}":\n${trimmed}`,
+          body: changesBody,
+          attachment_url: attachment_url || null,
+          attachment_name: attachment_name || null,
         })
 
         await createAdminNotification({
@@ -113,14 +160,18 @@ export async function POST(req: NextRequest) {
           title: `${client.name} requested changes`,
           body: task.title,
         })
-        try {
-          await supabaseAdmin.rpc('log_activity', {
-            p_project_id: task.project_id, p_client_id: client.id, p_actor_id: user.id,
-            p_actor_name: client.name, p_actor_role: 'client',
-            p_event_type: 'changes_requested', p_title: `${client.name} requested changes on “${task.title}”`,
-            p_body: trimmed.slice(0, 140), p_meta: { task_id: task.id },
-          })
-        } catch { /* non-critical */ }
+        // Persist to the Approvals & Records ledger — reliable direct insert.
+        await recordActivity({
+          projectId: task.project_id, clientId: client.id, actorId: user.id,
+          actorName: client.name, actorRole: 'client',
+          eventType: 'changes_requested', title: `${client.name} requested changes on “${task.title}”`,
+          body: trimmed.slice(0, 140),
+          meta: {
+            task_id: task.id,
+            attachment_name: attachment_name || null,
+            attachment_file_id: attachment_file_id || null,
+          },
+        })
         return NextResponse.json({ task: data })
       }
 

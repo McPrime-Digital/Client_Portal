@@ -113,9 +113,7 @@ export type Invoice = {
   line_items: InvoiceLineItem[] | null
   notes: string | null
   receipt_file_id: string | null
-  stripe_payment_link: string | null
-  stripe_payment_intent: string | null
-  description: string | null
+  stripe_payment_url: string | null
   due_date: string | null
   paid_at: string | null
   updated_at: string | null
@@ -128,6 +126,7 @@ export type BusinessSettings = {
   business_email: string | null
   business_address: string | null
   bank_name: string | null
+  bank_address: string | null
   account_name: string | null
   account_number: string | null
   routing_number: string | null
@@ -138,12 +137,14 @@ export type BusinessSettings = {
 
 export type Notification = {
   id: string
-  user_id: string
-  type: 'new_message' | 'file_delivered' | 'task_updated' | 'invoice_issued'
+  client_id: string | null
+  project_id: string | null
+  // Free text in the DB; the bell maps these to icons/colours.
+  type: 'message' | 'file_delivered' | 'status_change' | 'invoice_created' | 'task_updated'
   title: string
   body: string | null
-  read: boolean
-  link: string | null
+  read_at: string | null
+  for_admin: boolean
   created_at: string
 }
 

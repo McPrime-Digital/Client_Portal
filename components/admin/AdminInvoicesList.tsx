@@ -1,7 +1,9 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import Link from 'next/link'
+import { uploadFileToR2 } from '@/lib/uploadClient'
+import FileViewer, { type ViewerFile } from '@/components/shared/FileViewer'
 import {
   Plus,
   DollarSign,
@@ -10,10 +12,12 @@ import {
   CheckCircle,
   Clock,
   ExternalLink,
-  MoreHorizontal,
   Check,
   X,
   FileText,
+  Receipt,
+  Upload,
+  Loader2,
 } from 'lucide-react'
 
 type Invoice = {
@@ -25,6 +29,9 @@ type Invoice = {
   due_date: string | null
   paid_at: string | null
   stripe_payment_url: string | null
+  receipt_status: string | null
+  receipt_file_id: string | null
+  receipt_uploaded_by: string | null
   created_at: string
   clients: {
     id: string
@@ -105,6 +112,8 @@ export default function AdminInvoicesList({
     useState<string | null>(null)
   const [localInvoices, setLocalInvoices] =
     useState(invoices)
+  // Receipts / proof open in the in-app viewer (never a new browser tab).
+  const [previewFile, setPreviewFile] = useState<ViewerFile | null>(null)
   // Keep in sync when a realtime refresh re-runs the server query.
   useEffect(() => { setLocalInvoices(invoices) }, [invoices])
   const [showNewForm, setShowNewForm] = useState(false)
@@ -152,6 +161,58 @@ export default function AdminInvoicesList({
   }
   const markPaid = (id: string) => setStatus(id, 'paid')
   const markUnpaid = (id: string) => setStatus(id, 'unpaid')
+
+  // Verify a client-submitted receipt → marks the invoice paid + notifies them.
+  async function verifyReceipt(invoiceId: string) {
+    setUpdating(invoiceId)
+    try {
+      const res = await fetch('/api/admin/invoice-actions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'verify_receipt', invoice_id: invoiceId }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to verify receipt.')
+      setLocalInvoices((prev) => prev.map((i) => (i.id === invoiceId ? { ...i, ...json.invoice } : i)))
+    } catch (err: any) {
+      alert(err.message ?? 'Failed to verify receipt.')
+    } finally {
+      setUpdating(null)
+    }
+  }
+
+  // Admin uploads proof of payment → linked to the invoice and visible to the
+  // client (commit marks it verified, uploaded_by = admin).
+  const proofRef = useRef<HTMLInputElement>(null)
+  const [proofFor, setProofFor] = useState<string | null>(null)
+  function pickProof(invoiceId: string) {
+    setProofFor(invoiceId)
+    proofRef.current?.click()
+  }
+  async function onProofFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !proofFor) return
+    const inv = localInvoices.find((i) => i.id === proofFor)
+    setUpdating(proofFor)
+    try {
+      const up = await uploadFileToR2({
+        file,
+        projectId: inv?.projects?.id,
+        clientId: inv?.clients?.id,
+        category: 'receipt',
+        invoiceId: proofFor,
+        direction: 'delivery',
+      })
+      setLocalInvoices((prev) => prev.map((i) => (i.id === proofFor
+        ? { ...i, receipt_file_id: up.id, receipt_status: 'verified', receipt_uploaded_by: 'admin' }
+        : i)))
+    } catch (err: any) {
+      alert(err.message ?? 'Failed to upload proof.')
+    } finally {
+      setUpdating(null)
+      setProofFor(null)
+      if (proofRef.current) proofRef.current.value = ''
+    }
+  }
 
   return (
     <div className="space-y-6 w-full">
@@ -458,7 +519,31 @@ export default function AdminInvoicesList({
 
                 {/* Actions */}
                 <div className="flex items-center
-                  gap-1.5 flex-shrink-0">
+                  gap-1.5 flex-shrink-0 flex-wrap justify-end">
+
+                  {/* Receipt: view + verify (client-submitted) */}
+                  {invoice.receipt_file_id && (
+                    <button
+                      type="button"
+                      onClick={() => setPreviewFile({ id: invoice.receipt_file_id!, file_name: invoice.receipt_uploaded_by === 'admin' ? 'Proof of payment' : 'Receipt' })}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                      style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))', border: '1px solid hsl(var(--border))' }}
+                      title={invoice.receipt_uploaded_by === 'admin' ? 'Proof of payment (uploaded by you)' : 'Receipt submitted by client'}
+                    >
+                      <Receipt size={11} /> View receipt
+                    </button>
+                  )}
+                  {invoice.receipt_status === 'submitted' && invoice.status !== 'paid' && (
+                    <button
+                      onClick={() => verifyReceipt(invoice.id)}
+                      disabled={updating === invoice.id}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all disabled:opacity-50"
+                      style={{ backgroundColor: 'hsl(var(--status-green))', color: 'hsl(var(--primary-foreground))' }}
+                    >
+                      {updating === invoice.id ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                      Verify &amp; mark paid
+                    </button>
+                  )}
 
                   {/* Stripe link */}
                   {invoice.stripe_payment_url &&
@@ -556,33 +641,54 @@ export default function AdminInvoicesList({
                     </button>
                   )}
 
-                  {/* Edit */}
-                  <Link
-                    href={
-                      `/admin/invoices/${invoice.id}`
-                    }
-                    className="p-2 rounded-lg transition-all"
-                    style={{ color: 'hsl(var(--text-faint))' }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor
-                        = 'hsl(var(--secondary))'
-                      e.currentTarget.style.color
-                        = 'hsl(var(--foreground))'
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor
-                        = 'transparent'
-                      e.currentTarget.style.color
-                        = 'hsl(var(--text-faint))'
-                    }}
+                  {/* Upload proof of payment (visible to the client) */}
+                  <button
+                    onClick={() => pickProof(invoice.id)}
+                    disabled={updating === invoice.id}
+                    title="Upload proof of payment — visible to the client"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-50"
+                    style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))', border: '1px solid hsl(var(--border))' }}
                   >
-                    <MoreHorizontal size={15} />
-                  </Link>
+                    <Upload size={11} /> Proof
+                  </button>
+
+                  {invoice.projects && (
+                    <Link
+                      href={`/admin/projects/${invoice.projects.id}?tab=invoices`}
+                      title="Open the project's invoices"
+                      className="p-2 rounded-lg transition-all"
+                      style={{ color: 'hsl(var(--text-faint))' }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = 'hsl(var(--secondary))'
+                        e.currentTarget.style.color = 'hsl(var(--foreground))'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'transparent'
+                        e.currentTarget.style.color = 'hsl(var(--text-faint))'
+                      }}
+                    >
+                      <ExternalLink size={14} />
+                    </Link>
+                  )}
                 </div>
               </div>
             )
           })}
         </div>
+      )}
+
+      {/* Shared hidden input for admin proof-of-payment uploads */}
+      <input
+        ref={proofRef}
+        type="file"
+        accept="image/*,application/pdf"
+        className="hidden"
+        onChange={onProofFile}
+      />
+
+      {/* In-app viewer for receipts / proof of payment (no new tab). */}
+      {previewFile && (
+        <FileViewer key={previewFile.id} file={previewFile} onClose={() => setPreviewFile(null)} />
       )}
     </div>
   )

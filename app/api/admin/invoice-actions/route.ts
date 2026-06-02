@@ -37,13 +37,28 @@ export async function POST(req: NextRequest) {
 
   try {
     switch (action) {
+      // ── List a project's invoices (service role; RLS-safe reads) ──
+      case 'list_invoices': {
+        const { project_id } = body
+        const { data, error } = await supabaseAdmin
+          .from('invoices')
+          .select('*')
+          .eq('project_id', project_id)
+          .order('created_at', { ascending: false })
+        if (error) throw error
+        return NextResponse.json({ invoices: data ?? [] })
+      }
+
       // ── Create an invoice ──────────────────────────────────
       case 'create_invoice': {
         const {
-          client_id, project_id, title, description, amount,
+          client_id, project_id, title, amount,
           line_items, status, payment_method, due_date, notes,
-          stripe_payment_link, receipt_file_id,
+          stripe_payment_url, stripe_payment_link, receipt_file_id,
         } = body
+        // Accept either field name from callers; the real column is
+        // `stripe_payment_url` (there is no `stripe_payment_link` column).
+        const payUrl = stripe_payment_url ?? stripe_payment_link ?? null
 
         if (!client_id || !title?.trim()) {
           return NextResponse.json(
@@ -68,14 +83,13 @@ export async function POST(req: NextRequest) {
             project_id: project_id || null,
             invoice_number,
             title: title.trim(),
-            description: description?.trim() || null,
             amount: Number(amount),
             status: finalStatus,
             payment_method: payment_method || 'bank_transfer',
             line_items: line_items ?? [],
             due_date: due_date || null,
             notes: notes?.trim() || null,
-            stripe_payment_link: stripe_payment_link?.trim() || null,
+            stripe_payment_url: typeof payUrl === 'string' ? payUrl.trim() || null : null,
             receipt_file_id: receipt_file_id || null,
             paid_at: finalStatus === 'paid' ? new Date().toISOString() : null,
           })
@@ -139,6 +153,29 @@ export async function POST(req: NextRequest) {
             body: 'Your payment has been confirmed. Thank you!',
           })
         }
+        return NextResponse.json({ invoice: data })
+      }
+
+      // ── Verify a client-submitted receipt → mark the invoice paid ──
+      case 'verify_receipt': {
+        const { invoice_id } = body
+        const now = new Date().toISOString()
+        const { data, error } = await supabaseAdmin
+          .from('invoices')
+          .update({ status: 'paid', paid_at: now, receipt_status: 'verified', updated_at: now })
+          .eq('id', invoice_id)
+          .select()
+          .single()
+        if (error) throw error
+        await logActivity(user, data.project_id, data.client_id,
+          'invoice_updated', `Receipt verified — ${data.invoice_number} marked paid`, null)
+        await createNotification({
+          clientId: data.client_id,
+          projectId: data.project_id,
+          type: 'invoice_created',
+          title: `Payment verified — ${data.invoice_number}`,
+          body: 'We confirmed your receipt. Thank you!',
+        })
         return NextResponse.json({ invoice: data })
       }
 

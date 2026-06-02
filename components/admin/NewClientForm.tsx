@@ -112,7 +112,7 @@ export default function NewClientForm() {
   const inputClass =
     'w-full px-4 py-3 rounded-lg text-sm outline-none transition-all'
   const inputStyle = {
-    backgroundColor: 'hsl(var(--primary-foreground))',
+    backgroundColor: 'hsl(var(--background))',
     border: '1px solid hsl(var(--border))',
     color: 'hsl(var(--foreground))',
   }
@@ -362,7 +362,7 @@ anything to remember..."
           {/* Toggle — invite link vs manual password */}
           <div
             className="p-1 rounded-xl flex gap-1"
-            style={{ backgroundColor: 'hsl(var(--primary-foreground))' }}
+            style={{ backgroundColor: 'hsl(var(--background))' }}
           >
             {/* Option A — Invite Link (DEFAULT) */}
             <button

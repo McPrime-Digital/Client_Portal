@@ -26,6 +26,16 @@ const ICON: Record<string, typeof Bell> = {
   task_updated: CheckSquare,
 }
 
+// Per-type accent — matches the Recent Activity scheme so colours align across
+// the bell + overview, theme-adaptive (all are CSS tokens).
+const COLOR: Record<string, string> = {
+  message: 'hsl(var(--status-violet))',
+  file_delivered: 'hsl(var(--status-blue))',
+  status_change: 'hsl(var(--status-amber))',
+  invoice_created: 'hsl(var(--status-green))',
+  task_updated: 'hsl(var(--primary))',
+}
+
 function timeAgo(d: string) {
   const s = Math.floor((Date.now() - new Date(d).getTime()) / 1000)
   if (s < 60) return 'just now'
@@ -82,14 +92,28 @@ export default function AdminNotificationBell() {
     }).catch(() => {})
   }
 
+  // Dismiss (the X) — closes this notification from the bell. The action stays
+  // recorded in activity_log, so the audit trail is untouched.
+  async function dismiss(id: string) {
+    setItems((prev) => prev.filter((n) => n.id !== id))
+    await fetch('/api/admin/notifications', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dismiss: true, ids: [id] }),
+    }).catch(() => {})
+  }
+
   function go(n: AdminNotif) {
     setOpen(false)
     fetch('/api/admin/notifications', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: [n.id] }),
     }).catch(() => {})
-    if (n.project_id) router.push(`/admin/projects/${n.project_id}`)
-    else if (n.client_id) router.push(`/admin/clients/${n.client_id}`)
+    if (n.project_id) {
+      const tab = n.type === 'message' ? '?tab=messages'
+        : n.type === 'file_delivered' ? '?tab=files'
+        : n.type === 'task_updated' ? '?tab=tasks' : ''
+      router.push(`/admin/projects/${n.project_id}${tab}`)
+    } else if (n.client_id) router.push(`/admin/clients/${n.client_id}`)
   }
 
   return (
@@ -113,12 +137,31 @@ export default function AdminNotificationBell() {
           style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', boxShadow: '0 10px 30px -8px rgba(0,0,0,0.45)' }}
         >
           <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid hsl(var(--border))' }}>
-            <span className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Notifications</span>
-            {unread > 0 && (
-              <button onClick={markAll} className="text-xs flex items-center gap-1" style={{ color: 'hsl(var(--primary))' }}>
-                <Check size={12} /> Mark all read
+            <div className="flex items-center gap-2">
+              <Bell size={14} style={{ color: 'hsl(var(--primary))' }} />
+              <span className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Notifications</span>
+              {unread > 0 && (
+                <span className="text-xs px-1.5 py-0.5 rounded-full font-semibold"
+                  style={{ backgroundColor: 'hsl(var(--destructive) / 0.15)', color: 'hsl(var(--destructive))' }}>
+                  {unread} new
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-1">
+              {unread > 0 && (
+                <button onClick={markAll} className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors hover:bg-[hsl(var(--secondary))]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  <Check size={11} /> All read
+                </button>
+              )}
+              <button
+                onClick={() => setOpen(false)}
+                aria-label="Close"
+                className="w-6 h-6 rounded flex items-center justify-center transition-colors hover:bg-[hsl(var(--secondary))]"
+                style={{ color: 'hsl(var(--text-faint))' }}
+              >
+                <X size={13} />
               </button>
-            )}
+            </div>
           </div>
           <div className="max-h-[400px] overflow-y-auto scrollbar-thin">
             {items.length === 0 ? (
@@ -129,24 +172,38 @@ export default function AdminNotificationBell() {
             ) : (
               items.map((n) => {
                 const Icon = ICON[n.type] ?? Bell
+                const color = COLOR[n.type] ?? 'hsl(var(--muted-foreground))'
                 return (
-                  <button
+                  <div
                     key={n.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => go(n)}
-                    className="w-full flex items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-[hsl(var(--secondary))]"
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') go(n) }}
+                    className="group w-full flex items-start gap-3 px-4 py-3 text-left transition-colors cursor-pointer hover:bg-[hsl(var(--secondary))]"
                     style={{ backgroundColor: n.read_at ? 'transparent' : 'hsl(var(--primary) / 0.04)' }}
                   >
-                    <span className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
-                      style={{ backgroundColor: 'hsl(var(--primary) / 0.1)' }}>
-                      <Icon size={13} style={{ color: 'hsl(var(--primary))' }} />
+                    <span className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
+                      style={{ backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)`, border: `1px solid color-mix(in srgb, ${color} 22%, transparent)` }}>
+                      <Icon size={14} style={{ color }} />
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block text-xs font-medium leading-snug" style={{ color: 'hsl(var(--foreground))' }}>{n.title}</span>
                       {n.body && <span className="block text-[11px] truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>{n.body}</span>}
                       <span className="block text-[10px] mt-0.5" style={{ color: 'hsl(var(--text-faint))' }}>{timeAgo(n.created_at)}</span>
                     </span>
-                    {!n.read_at && <span className="w-2 h-2 rounded-full flex-shrink-0 mt-1" style={{ backgroundColor: 'hsl(var(--primary))' }} />}
-                  </button>
+                    {!n.read_at && <span className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style={{ backgroundColor: 'hsl(var(--primary))' }} />}
+                    {/* Dismiss (X) — closes this notification from the bell */}
+                    <button
+                      type="button"
+                      aria-label="Dismiss notification"
+                      onClick={(e) => { e.stopPropagation(); dismiss(n.id) }}
+                      className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 transition-all opacity-60 hover:opacity-100 hover:bg-[hsl(var(--border))]"
+                      style={{ color: 'hsl(var(--text-faint))' }}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
                 )
               })
             )}

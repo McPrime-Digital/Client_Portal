@@ -127,20 +127,28 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
       >
       {/* Logo — client-branded; fixed 60px height so its bottom border aligns with the topbar's */}
       <div className="flex items-center gap-3 px-5 h-[60px] flex-shrink-0 border-b border-border">
-        {clientAvatar ? (
-          <div className="w-[30px] h-[30px] rounded-lg overflow-hidden flex-shrink-0 border border-border">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
+        {/* Liquid-glass brand tile — square, object-cover so any uploaded
+            ratio fills cleanly without distortion; soft curved glass edges. */}
+        <div
+          className="w-10 h-10 rounded-xl overflow-hidden flex-shrink-0 relative grid place-items-center"
+          style={{
+            backgroundColor: 'hsl(var(--card) / 0.55)',
+            backdropFilter: 'blur(10px) saturate(140%)',
+            WebkitBackdropFilter: 'blur(10px) saturate(140%)',
+            border: '1px solid hsl(var(--border) / 0.8)',
+            boxShadow: '0 1px 0 hsl(0 0% 100% / 0.08) inset, 0 6px 16px -10px rgba(0,0,0,0.45)',
+          }}
+          aria-label={`${brandName} Portal`}
+        >
+          {clientAvatar ? (
+            // eslint-disable-next-line @next/next/no-img-element
             <img src={clientAvatar} alt="" className="w-full h-full object-cover" />
-          </div>
-        ) : (
-          // No client logo uploaded — show their initial (never the McPrime mark).
-          <div
-            className="w-[30px] h-[30px] rounded-lg flex items-center justify-center flex-shrink-0 font-bold text-sm bg-primary text-primary-foreground"
-            aria-label={`${brandName} Portal`}
-          >
-            {brandName[0]?.toUpperCase() ?? 'C'}
-          </div>
-        )}
+          ) : (
+            <span className="font-display font-bold text-base" style={{ color: 'hsl(var(--primary))' }}>
+              {brandName[0]?.toUpperCase() ?? 'C'}
+            </span>
+          )}
+        </div>
         <div className="leading-tight min-w-0">
           <div className="font-display font-bold text-sm text-foreground truncate" title={brandName}>
             {brandName}

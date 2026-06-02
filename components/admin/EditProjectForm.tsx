@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Loader2, Check } from 'lucide-react'
+import { ArrowLeft, Loader2, Check, ImagePlus, Film } from 'lucide-react'
 
 type Project = {
   id: string
@@ -13,6 +13,7 @@ type Project = {
   kickoff_date: string | null
   brief: string | null
   client_id: string | null
+  image_url?: string | null
 }
 
 const STATUSES = [
@@ -35,10 +36,31 @@ export default function EditProjectForm({
     due_date: project.due_date ?? '',
     kickoff_date: project.kickoff_date ?? '',
     brief: project.brief ?? '',
+    image_url: project.image_url ?? '',
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+  const [imageUploading, setImageUploading] = useState(false)
+
+  async function uploadProjectImage(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImageUploading(true); setError('')
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/admin/project-image', { method: 'POST', body: fd })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Image upload failed.')
+      setForm((p) => ({ ...p, image_url: json.image_url }))
+    } catch (err: any) {
+      setError(err.message ?? 'Image upload failed.')
+    } finally {
+      setImageUploading(false)
+      e.target.value = ''
+    }
+  }
 
   async function save(e: React.FormEvent) {
     e.preventDefault()
@@ -57,6 +79,7 @@ export default function EditProjectForm({
             due_date: form.due_date || null,
             kickoff_date: form.kickoff_date || null,
             brief: form.brief.trim() || null,
+            image_url: form.image_url || null,
           },
         }),
       })
@@ -128,12 +151,41 @@ export default function EditProjectForm({
           <div>
             <label className={labelClass} style={labelStyle}>Kickoff date</label>
             <input type="date" value={form.kickoff_date} onChange={(e) => set('kickoff_date', e.target.value)}
-              className={inputClass} style={{ ...inputStyle, colorScheme: 'dark' }} />
+              className={inputClass} style={{ ...inputStyle }} />
           </div>
           <div>
             <label className={labelClass} style={labelStyle}>Due date</label>
             <input type="date" value={form.due_date} onChange={(e) => set('due_date', e.target.value)}
-              className={inputClass} style={{ ...inputStyle, colorScheme: 'dark' }} />
+              className={inputClass} style={{ ...inputStyle }} />
+          </div>
+        </div>
+
+        <div>
+          <label className={labelClass} style={labelStyle}>Project Image</label>
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 rounded-xl overflow-hidden grid place-items-center flex-shrink-0"
+              style={{
+                backgroundColor: 'hsl(var(--card) / 0.55)',
+                backdropFilter: 'blur(10px) saturate(140%)',
+                WebkitBackdropFilter: 'blur(10px) saturate(140%)',
+                border: '1px solid hsl(var(--border) / 0.8)',
+              }}>
+              {form.image_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={form.image_url} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <Film size={20} style={{ color: 'hsl(var(--text-faint))' }} />
+              )}
+            </div>
+            <div>
+              <label className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-all"
+                style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))', border: '1px solid hsl(var(--border))' }}>
+                {imageUploading ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} />}
+                {form.image_url ? 'Change image' : 'Upload image'}
+                <input type="file" accept="image/*" className="hidden" onChange={uploadProjectImage} disabled={imageUploading} />
+              </label>
+              <p className="text-xs mt-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>Square recommended · small · max 6&nbsp;MB</p>
+            </div>
           </div>
         </div>
 

@@ -73,6 +73,14 @@ const PROCESSES: Record<string, TaskTemplate[]> = {
   ],
 }
 
+// The tasks.category CHECK constraint only permits this set. 'task' is NOT
+// allowed by the DB, so generic steps map to 'deliverable'. Keep code aligned
+// to this set everywhere tasks are inserted.
+export const ALLOWED_TASK_CATEGORIES = ['milestone', 'deliverable', 'revision', 'approval', 'internal'] as const
+export function safeCategory(c: string | null | undefined): string {
+  return (ALLOWED_TASK_CATEGORIES as readonly string[]).includes(c ?? '') ? (c as string) : 'deliverable'
+}
+
 // Map a (possibly custom) phase name to a canonical process key.
 function phaseKey(name: string): keyof typeof PROCESSES | null {
   const n = name.toLowerCase()
@@ -91,6 +99,66 @@ export const DEFAULT_TASKS = Object.values(PROCESSES).flat()
 
 type SeedPhase = { id: string; name: string; sort_order?: number | null }
 
+// The process steps for a single phase — mapped from its (possibly custom)
+// name, with a sensible fallback for phases we don't recognise.
+export function templatesForPhase(name: string): TaskTemplate[] {
+  const key = phaseKey(name)
+  if (key) return PROCESSES[key]
+  return [{
+    title: `${name} — in progress`,
+    category: 'task',
+    priority: 'medium',
+    visible_to_client: true,
+    description: `Work for the ${name} phase.`,
+  }]
+}
+
+// Turn a TaskTemplate into an insertable tasks row for a given phase.
+function templateRow(
+  projectId: string,
+  phaseId: string | null,
+  t: TaskTemplate,
+  sortOrder: number,
+) {
+  return {
+    project_id: projectId,
+    phase_id: phaseId,
+    title: t.title,
+    category: safeCategory(t.category),
+    priority: t.priority,
+    // Generated tasks land INTERNAL (admin-only). The admin reveals each step
+    // to the client manually via the per-task visibility toggle — so a freshly
+    // generated process never auto-propagates to the client.
+    visible_to_client: false,
+    description: t.description ?? null,
+    requires_approval: t.requires_approval ?? false,
+    approval_status: t.requires_approval ? 'pending' : null,
+    status: 'pending',
+    sort_order: sortOrder,
+  }
+}
+
+// Build the phase-attached process rows for a set of phases. `skip` lets the
+// caller omit steps that already exist (used by the "merge" generation mode so
+// re-triggering never duplicates a step); `startSort` continues an existing
+// sort sequence (so merged steps land after current tasks).
+export function buildPhaseTaskRows(
+  projectId: string,
+  phases: SeedPhase[],
+  opts?: { skip?: (phaseId: string, title: string) => boolean; startSort?: number },
+): any[] {
+  const rows: any[] = []
+  const ordered = [...phases].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+  let sort = opts?.startSort ?? 0
+  for (const phase of ordered) {
+    for (const t of templatesForPhase(phase.name)) {
+      if (opts?.skip?.(phase.id, t.title)) continue
+      rows.push(templateRow(projectId, phase.id, t, sort++))
+    }
+  }
+  return rows
+}
+
 // Seed a new project's tasks. When `phases` are supplied, tasks are attached
 // to their phase (phase_id) following each phase's process; otherwise a flat
 // checklist is seeded as a fallback.
@@ -99,54 +167,9 @@ export async function seedDefaultTasks(
   projectId: string,
   phases?: SeedPhase[]
 ) {
-  let rows: any[] = []
-
-  if (phases && phases.length > 0) {
-    const ordered = [...phases].sort(
-      (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
-    )
-    let sort = 0
-    for (const phase of ordered) {
-      const key = phaseKey(phase.name)
-      const templates: TaskTemplate[] = key
-        ? PROCESSES[key]
-        : [{
-            title: `${phase.name} — in progress`,
-            category: 'task',
-            priority: 'medium',
-            visible_to_client: true,
-            description: `Work for the ${phase.name} phase.`,
-          }]
-      for (const t of templates) {
-        rows.push({
-          project_id: projectId,
-          phase_id: phase.id,
-          title: t.title,
-          category: t.category,
-          priority: t.priority,
-          visible_to_client: t.visible_to_client ?? true,
-          description: t.description ?? null,
-          requires_approval: t.requires_approval ?? false,
-          approval_status: t.requires_approval ? 'pending' : null,
-          status: 'pending',
-          sort_order: sort++,
-        })
-      }
-    }
-  } else {
-    rows = DEFAULT_TASKS.map((t, i) => ({
-      project_id: projectId,
-      title: t.title,
-      category: t.category,
-      priority: t.priority,
-      visible_to_client: t.visible_to_client ?? true,
-      description: t.description ?? null,
-      requires_approval: t.requires_approval ?? false,
-      approval_status: t.requires_approval ? 'pending' : null,
-      status: 'pending',
-      sort_order: i,
-    }))
-  }
+  const rows = phases && phases.length > 0
+    ? buildPhaseTaskRows(projectId, phases)
+    : DEFAULT_TASKS.map((t, i) => templateRow(projectId, null, t, i))
 
   const { error } = await supabase.from('tasks').insert(rows)
   return error

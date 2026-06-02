@@ -22,16 +22,21 @@ type EventType =
   | 'invoice_paid'
   | 'client_created'
   | 'note_added'
+  // Approvals & Records ledger events.
+  | 'approval_requested'
+  | 'task_approved'
+  | 'changes_requested'
+  | 'task_auto_approved'
 
 type ActivityParams = {
-  projectId?: string
-  clientId?: string
+  projectId?: string | null
+  clientId?: string | null
   actorId: string
   actorName: string
   actorRole: 'admin' | 'client'
   eventType: EventType
   title: string
-  body?: string
+  body?: string | null
   meta?: Record<string, any>
 }
 
@@ -54,6 +59,38 @@ export async function logActivity(params: ActivityParams): Promise<void> {
     })
   } catch {
     // Silently swallow — activity logging must never crash the app
+  }
+}
+
+/**
+ * recordActivity — the reliable, transparent writer for the Approvals & Records
+ * ledger. Inserts straight into `activity_log` with the service role (which
+ * bypasses RLS), so it does NOT depend on the `log_activity` RPC existing. A
+ * failed write is logged (not silently swallowed) so records can never vanish
+ * without a trace. Never throws into the caller.
+ *
+ * Use this for anything that must appear in Approvals & Records (approval-gate
+ * sends, client approvals, change requests, auto-proceeds).
+ */
+export async function recordActivity(params: ActivityParams): Promise<void> {
+  try {
+    const { supabaseAdmin } = await import('@/lib/supabase/admin')
+    const { error } = await supabaseAdmin.from('activity_log').insert({
+      project_id: params.projectId ?? null,
+      client_id: params.clientId ?? null,
+      actor_id: params.actorId,
+      actor_name: params.actorName,
+      actor_role: params.actorRole,
+      event_type: params.eventType,
+      title: params.title,
+      body: params.body ?? null,
+      meta: params.meta ?? {},
+    })
+    if (error) {
+      console.error('[recordActivity] insert failed:', params.eventType, error.message)
+    }
+  } catch (e) {
+    console.error('[recordActivity] threw:', e)
   }
 }
 

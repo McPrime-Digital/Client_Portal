@@ -16,7 +16,7 @@ export default async function EditProjectPage({
   const [{ data: project }, { data: clients }] = await Promise.all([
     supabaseAdmin
       .from('projects')
-      .select('id, title, status, due_date, kickoff_date, brief, client_id')
+      .select('id, title, status, due_date, kickoff_date, brief, client_id, image_url')
       .eq('id', id)
       .single(),
     supabaseAdmin

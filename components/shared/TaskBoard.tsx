@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { logActivity } from '@/lib/logActivity'
 import { uploadFileToR2 } from '@/lib/uploadClient'
 import { phaseColor } from '@/lib/projectProgress'
+import FileViewer, { type ViewerFile } from '@/components/shared/FileViewer'
 import {
   CheckCircle2,
   Circle,
@@ -19,6 +20,14 @@ import {
   Paperclip,
   ShieldCheck,
   MessageSquareWarning,
+  Sparkles,
+  Eye,
+  EyeOff,
+  Download,
+  FileText,
+  RefreshCw,
+  Layers,
+  Flag,
 } from 'lucide-react'
 
 export type Task = {
@@ -39,6 +48,7 @@ export type Task = {
   requires_approval: boolean
   approval_status: string | null
   approval_note: string | null
+  review_requested_at?: string | null
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any; next: string }> = {
@@ -56,18 +66,21 @@ const PRIORITY_CONFIG: Record<string, { label: string; color: string; dot: strin
   urgent: { label: 'Urgent', color: 'hsl(var(--destructive))', dot: 'hsl(var(--destructive))' },
 }
 
+// Only categories permitted by the tasks.category CHECK constraint.
 const CATEGORY_LABELS: Record<string, string> = {
   deliverable: 'Deliverable',
   milestone: 'Milestone',
   revision: 'Revision',
   approval: 'Approval',
-  task: 'Task',
   internal: 'Internal',
 }
 
 function isApprovalGate(t: Task): boolean {
   return t.requires_approval || t.category === 'approval'
 }
+
+// Activity-log event types that belong in the Approvals & Records ledger.
+const RECORD_EVENTS = ['approval_requested', 'task_approved', 'changes_requested', 'task_auto_approved']
 
 function isOverdue(dueDate: string | null, status: string): boolean {
   if (!dueDate || status === 'completed') return false
@@ -86,6 +99,40 @@ function formatDueDate(dateStr: string): string {
 
 type Phase = { id: string; name: string }
 
+export type InvolvementEntry = {
+  id: string
+  actor_name: string
+  actor_role: string
+  event_type: string
+  title: string
+  body: string | null
+  created_at: string
+  meta?: {
+    task_id?: string | null
+    attachment_name?: string | null
+    attachment_file_id?: string | null
+    resend?: boolean | null
+  } | null
+}
+
+// Icon / tint / label for a record event in the Approvals & Records timeline.
+function recordMeta(ev: InvolvementEntry): { Icon: any; tint: string; label: string } {
+  switch (ev.event_type) {
+    case 'task_approved':
+      return { Icon: ShieldCheck, tint: 'hsl(var(--status-green))', label: 'Approved' }
+    case 'changes_requested':
+      return { Icon: MessageSquareWarning, tint: 'hsl(var(--status-amber))', label: 'Changes requested' }
+    case 'task_auto_approved':
+      return { Icon: Clock, tint: 'hsl(var(--muted-foreground))', label: 'Auto-approved' }
+    case 'approval_requested':
+      return ev.meta?.resend
+        ? { Icon: RefreshCw, tint: 'hsl(var(--status-blue))', label: 'Re-sent for approval' }
+        : { Icon: Flag, tint: 'hsl(var(--status-blue))', label: 'Approval requested' }
+    default:
+      return { Icon: ShieldCheck, tint: 'hsl(var(--muted-foreground))', label: ev.event_type }
+  }
+}
+
 type Props = {
   projectId: string
   clientId?: string
@@ -93,6 +140,7 @@ type Props = {
   phases?: Phase[]
   userRole: 'admin' | 'client'
   onProgressUpdate?: (pct: number) => void
+  involvement?: InvolvementEntry[]
 }
 
 export default function TaskBoard({
@@ -102,20 +150,78 @@ export default function TaskBoard({
   phases,
   userRole,
   onProgressUpdate,
+  involvement,
 }: Props) {
   const supabase = createClient()
   const [tasks, setTasks] = useState(initialTasks)
+  const [involvementLog, setInvolvementLog] = useState<InvolvementEntry[]>(involvement ?? [])
+
+  // Optimistically prepend a client action to the involvement ledger so it
+  // shows instantly; the server-logged copy is the source of truth on reload.
+  function appendInvolvement(
+    eventType: string,
+    title: string,
+    note?: string,
+    meta?: InvolvementEntry['meta'],
+  ) {
+    setInvolvementLog((prev) => [
+      {
+        id: `local-${Date.now()}`,
+        actor_name: 'You',
+        actor_role: 'client',
+        event_type: eventType,
+        title,
+        body: note?.trim() || null,
+        created_at: new Date().toISOString(),
+        meta: meta ?? null,
+      },
+      ...prev,
+    ])
+  }
   const [updating, setUpdating] = useState<string | null>(null)
   const [attaching, setAttaching] = useState<string | null>(null)
   const [showAddForm, setShowAddForm] = useState(false)
   const [filter, setFilter] = useState<string>('all')
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [collapsedPhases, setCollapsedPhases] = useState<Record<string, boolean>>({})
+  // Phase sections start MINIMIZED (collapsed) by default; only phases holding a
+  // task that needs attention (awaiting approval / changes requested / overdue)
+  // open automatically. Computed once on mount; the user can toggle after.
+  const [collapsedPhases, setCollapsedPhases] = useState<Record<string, boolean>>(() => {
+    const attention = new Set<string>()
+    for (const t of initialTasks) {
+      const needsAttn =
+        (isApprovalGate(t) && t.visible_to_client && t.status === 'review' && t.approval_status !== 'approved' && !t.approved_at) ||
+        (t.approval_status === 'changes_requested' && !t.approved_at) ||
+        isOverdue(t.due_date, t.status)
+      if (needsAttn && t.phase_id) attention.add(t.phase_id)
+    }
+    const init: Record<string, boolean> = { __none: true }
+    for (const p of phases ?? []) init[p.id] = !attention.has(p.id)
+    return init
+  })
   const [newTask, setNewTask] = useState({
+    // New tasks default to internal (admin-only); the admin toggles visibility
+    // on before the client ever sees the step.
     title: '', priority: 'medium', category: 'deliverable', due_date: '',
-    description: '', visible_to_client: true, requires_approval: false, phase_id: '',
+    description: '', visible_to_client: false, requires_approval: false, phase_id: '',
   })
   const [addingTask, setAddingTask] = useState(false)
+  const [seeding, setSeeding] = useState(false)
+  const [showActive, setShowActive] = useState(true)
+  // Records open by default so the full per-task history is visible at a glance.
+  const [showRecords, setShowRecords] = useState(true)
+  const [showGenMenu, setShowGenMenu] = useState(false)
+  // In-app file viewer (plays media / previews docs in place, never a new tab).
+  const [previewFile, setPreviewFile] = useState<ViewerFile | null>(null)
+  const openFile = (fileId?: string | null, name?: string | null) => {
+    if (!fileId) return
+    setPreviewFile({ id: fileId, file_name: name ?? 'File' })
+  }
+
+  // Tracks whether an action is mid-flight, so the live poll never clobbers an
+  // optimistic update. Updated every render (a ref, not state — no re-render).
+  const busyRef = useRef(false)
+  busyRef.current = !!updating || seeding || addingTask || attaching !== null
 
   // Task writes route through the admin server route (service role) so they're
   // RLS-safe and fire notifications. The realtime channel reconciles state.
@@ -159,6 +265,94 @@ export default function TaskBoard({
     }
   }, [projectId])
 
+  // Realtime Approvals & Records — new approval decisions (from either side)
+  // stream in live, no refresh. Reconciles against optimistic local entries.
+  useEffect(() => {
+    const channel = supabase
+      .channel(`records:${projectId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'activity_log', filter: `project_id=eq.${projectId}` }, (payload) => {
+        const row = payload.new as any
+        if (!RECORD_EVENTS.includes(row.event_type)) return
+        const entry: InvolvementEntry = {
+          id: row.id,
+          actor_name: row.actor_name,
+          actor_role: row.actor_role,
+          event_type: row.event_type,
+          title: row.title,
+          body: row.body ?? null,
+          created_at: row.created_at,
+          meta: row.meta ?? null,
+        }
+        setInvolvementLog((prev) => {
+          if (prev.some((e) => e.id === entry.id)) return prev
+          const taskId = entry.meta?.task_id ?? null
+          // Drop the matching optimistic placeholder, if any, then prepend.
+          const pruned = prev.filter(
+            (e) => !(e.id.startsWith('local-') && e.event_type === entry.event_type && (e.meta?.task_id ?? null) === taskId)
+          )
+          return [entry, ...pruned]
+        })
+      })
+      .subscribe()
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [projectId])
+
+  // Live safety net — poll the server (service role) so tasks + records stay
+  // live for BOTH portals even where a realtime subscription is blocked by RLS
+  // (admin reads have no RLS grant). Skips while an action is in flight, and
+  // only updates state when something actually changed (no flicker).
+  useEffect(() => {
+    let cancelled = false
+    const tick = async () => {
+      if (busyRef.current || document.hidden) return
+      try {
+        const res = await fetch(`/api/project-tasks?project_id=${projectId}`)
+        if (!res.ok || cancelled || busyRef.current) return
+        const json = await res.json()
+        if (cancelled || busyRef.current) return
+        if (Array.isArray(json.tasks)) {
+          setTasks((prev) => {
+            const next = json.tasks as Task[]
+            const changed =
+              next.length !== prev.length ||
+              next.some((t) => {
+                const p = prev.find((x) => x.id === t.id)
+                return !p || p.status !== t.status || p.approval_status !== t.approval_status ||
+                  p.approved_at !== t.approved_at || p.title !== t.title ||
+                  p.visible_to_client !== t.visible_to_client || p.phase_id !== t.phase_id ||
+                  p.priority !== t.priority || p.due_date !== t.due_date || p.sort_order !== t.sort_order
+              })
+            return changed ? next : prev
+          })
+        }
+        if (Array.isArray(json.involvement)) {
+          setInvolvementLog((prev) => {
+            const server = json.involvement as InvolvementEntry[]
+            const serverKeys = new Set(server.map((e) => `${e.event_type}:${e.meta?.task_id ?? ''}`))
+            const pendingLocal = prev.filter(
+              (e) => e.id.startsWith('local-') && !serverKeys.has(`${e.event_type}:${e.meta?.task_id ?? ''}`)
+            )
+            const merged = [...pendingLocal, ...server]
+            const same = merged.length === prev.length && merged.every((e, i) => e.id === prev[i]?.id)
+            return same ? prev : merged
+          })
+        }
+      } catch { /* ignore — realtime/other polls cover it */ }
+    }
+    const interval = setInterval(tick, 7000)
+    const onVisible = () => { if (!document.hidden) tick() }
+    window.addEventListener('focus', onVisible)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+      window.removeEventListener('focus', onVisible)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [projectId])
+
   async function cycleStatus(task: Task) {
     if (userRole !== 'admin') return
     const nextStatus = STATUS_CONFIG[task.status]?.next ?? 'pending'
@@ -180,18 +374,34 @@ export default function TaskBoard({
     }
   }
 
-  // Client approves an approval-gate task → completes it.
-  async function approveTask(task: Task) {
+  // Upload an optional approval/change-request attachment to the vault and
+  // return a chat-attachment ref (same `bucket::path` scheme the chat uses)
+  // plus the committed file id, so it can be linked from the records ledger.
+  async function uploadActionFile(file: File | null, taskId?: string): Promise<{ url?: string; name?: string; fileId?: string }> {
+    if (!file || !clientId) return { url: undefined, name: undefined, fileId: undefined }
+    // Land task approval/change files in the vault's "Tasks & Approvals" folder
+    // (folder 'tasks' + taskId), matching admin — not the chat folder.
+    const up = await uploadFileToR2({
+      file, projectId, clientId, direction: 'client-upload', folder: 'tasks', taskId,
+    })
+    return { url: `${up.bucket}::${up.file_path}`, name: up.file_name, fileId: up.id }
+  }
+
+  // Client approves an approval-gate task → completes it. An optional note and
+  // file are posted into the project chat as proof of approval.
+  async function approveTask(task: Task, note = '', file: File | null = null) {
     if (userRole !== 'client') return
     setUpdating(task.id)
     const now = new Date().toISOString()
     setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, approved_at: now, status: 'completed', completed_at: now, approval_status: 'approved' } : t)))
     try {
+      const att = await uploadActionFile(file, task.id)
       const res = await fetch('/api/portal/actions', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'approve_task', task_id: task.id }),
+        body: JSON.stringify({ action: 'approve_task', task_id: task.id, note, attachment_url: att.url, attachment_name: att.name, attachment_file_id: att.fileId }),
       })
       if (!res.ok) throw new Error('approve failed')
+      appendInvolvement('task_approved', `Approved “${task.title}”`, note, { task_id: task.id, attachment_name: att.name, attachment_file_id: att.fileId })
     } catch {
       setTasks((prev) => prev.map((t) => (t.id === task.id ? task : t)))
     } finally {
@@ -199,17 +409,19 @@ export default function TaskBoard({
     }
   }
 
-  // Client requests changes — note is required and auto-posts to chat.
-  async function requestChanges(task: Task, note: string) {
+  // Client requests changes — note is required, optional file. Auto-posts to chat.
+  async function requestChanges(task: Task, note: string, file: File | null = null) {
     if (userRole !== 'client' || !note.trim()) return
     setUpdating(task.id)
     setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, approval_status: 'changes_requested', approval_note: note, status: 'in_progress' } : t)))
     try {
+      const att = await uploadActionFile(file, task.id)
       const res = await fetch('/api/portal/actions', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'request_changes', task_id: task.id, note }),
+        body: JSON.stringify({ action: 'request_changes', task_id: task.id, note, attachment_url: att.url, attachment_name: att.name, attachment_file_id: att.fileId }),
       })
       if (!res.ok) throw new Error('request failed')
+      appendInvolvement('changes_requested', `Requested changes on “${task.title}”`, note, { task_id: task.id, attachment_name: att.name, attachment_file_id: att.fileId })
     } catch {
       setTasks((prev) => prev.map((t) => (t.id === task.id ? task : t)))
     } finally {
@@ -219,24 +431,30 @@ export default function TaskBoard({
 
   // Admin attaches approval media to a task → uploaded to the vault under the
   // Tasks & Approvals folder, named for the task, and linked via task_id.
-  async function attachMedia(task: Task, file: File) {
+  async function attachMedia(task: Task, file: File | null, note = '') {
     if (userRole !== 'admin' || !clientId) return
+    if (!file && !note.trim()) return
     setAttaching(task.id)
     try {
-      const named = new File([file], `${task.title} — client approval request — ${file.name}`, { type: file.type })
-      await uploadFileToR2({
-        file: named,
-        projectId,
-        clientId,
-        direction: 'delivery',
-        folder: 'tasks',
-        taskId: task.id,
-      })
-      // Move the gate into review so the client is prompted to approve.
-      if (task.status !== 'review' && task.status !== 'completed') {
-        await taskAction({ action: 'toggle_task', task_id: task.id, status: 'review' })
-        setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, status: 'review' } : t)))
+      // Optional file → vault (Tasks folder). Then wire note + file to the
+      // Messages hub + Approvals & Records and send the gate for approval.
+      let att: { url?: string; name?: string; fileId?: string } = {}
+      if (file) {
+        const named = new File([file], `${task.title} — approval media — ${file.name}`, { type: file.type })
+        const up = await uploadFileToR2({
+          file: named, projectId, clientId, direction: 'delivery', folder: 'tasks', taskId: task.id,
+        })
+        att = { url: `${up.bucket}::${up.file_path}`, name: up.file_name, fileId: up.id }
       }
+      const { task: updated } = await taskAction({
+        action: 'attach_task_media',
+        task_id: task.id,
+        attachment_url: att.url,
+        attachment_name: att.name,
+        attachment_file_id: att.fileId,
+        note,
+      })
+      if (updated) setTasks((prev) => prev.map((t) => (t.id === task.id ? updated : t)))
     } catch (err) {
       console.error('Attach media failed:', err)
     } finally {
@@ -282,9 +500,86 @@ export default function TaskBoard({
     } catch {
       /* no insert on failure */
     }
-    setNewTask({ title: '', priority: 'medium', category: 'deliverable', due_date: '', description: '', visible_to_client: true, requires_approval: false, phase_id: '' })
+    setNewTask({ title: '', priority: 'medium', category: 'deliverable', due_date: '', description: '', visible_to_client: false, requires_approval: false, phase_id: '' })
     setShowAddForm(false)
     setAddingTask(false)
+  }
+
+  // Generate the premium per-phase production process (Discovery → Final
+  // Delivery, with client approval gates). The trigger is always available to
+  // the admin; `mode` decides how a re-trigger reconciles with an existing
+  // process — fill empty phases, merge in missing steps, or replace it wholesale.
+  async function seedPhaseProcess(mode: 'fill' | 'merge' | 'replace' = 'fill') {
+    if (seeding) return
+    setShowGenMenu(false)
+    if (mode === 'replace' && !confirm('Replace the current phase process? Generated phase tasks will be removed and regenerated. Your custom deliverables and manually-added tasks are kept.')) return
+    setSeeding(true)
+    try {
+      const { tasks: fresh, seeded } = await taskAction({ action: 'seed_phase_tasks', project_id: projectId, mode })
+      if (Array.isArray(fresh)) setTasks(fresh)
+      // Feedback when "fill" had nothing to do (every phase already populated),
+      // so the trigger never reads as silently broken.
+      if (seeded === 0 && mode === 'fill') {
+        alert('Every phase already has a process. Use “Merge with existing” to add missing steps, or “Use new process (replace)” to regenerate.')
+      }
+    } catch (err: any) {
+      alert(err.message ?? 'Failed to generate the phase process.')
+    } finally {
+      setSeeding(false)
+    }
+  }
+
+  // Admin: patch task metadata (visibility, approval gate, priority, etc.).
+  async function updateTaskFields(task: Task, fields: Partial<Task>) {
+    if (userRole !== 'admin') return
+    setUpdating(task.id)
+    setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, ...fields } : t)))
+    try {
+      const { task: saved } = await taskAction({ action: 'update_task', task_id: task.id, updates: fields })
+      if (saved) setTasks((prev) => prev.map((t) => (t.id === task.id ? saved : t)))
+    } catch {
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? task : t)))
+    } finally {
+      setUpdating(null)
+    }
+  }
+
+  // Admin: set an explicit status (not just the next one in the cycle).
+  async function setStatus(task: Task, status: string) {
+    if (userRole !== 'admin' || status === task.status) return
+    const isCompleting = status === 'completed'
+    setUpdating(task.id)
+    setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, status, completed_at: isCompleting ? new Date().toISOString() : null } : t)))
+    try {
+      await taskAction({ action: 'toggle_task', task_id: task.id, status })
+      if (isCompleting) {
+        logActivity({
+          projectId: task.project_id, actorId: 'admin', actorName: 'Admin', actorRole: 'admin',
+          eventType: 'task_completed', title: `Task completed: “${task.title}”`, meta: { task_id: task.id },
+        }).catch(() => {})
+      }
+    } catch {
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? task : t)))
+    } finally {
+      setUpdating(null)
+    }
+  }
+
+  // Admin: resend a gate for re-approval after the client requested changes —
+  // re-opens it (status → review, approval reset to pending) so the client gets
+  // a fresh approve/request-changes prompt. Recorded as a re-send in Records.
+  async function resendForApproval(task: Task) {
+    if (userRole !== 'admin') return
+    setUpdating(task.id)
+    setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, status: 'review', approval_status: 'pending', completed_at: null } : t)))
+    try {
+      const { task: saved } = await taskAction({ action: 'resend_approval', task_id: task.id })
+      if (saved) setTasks((prev) => prev.map((t) => (t.id === task.id ? saved : t)))
+    } catch {
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? task : t)))
+    } finally {
+      setUpdating(null)
+    }
   }
 
   const filteredTasks = tasks.filter((t) => {
@@ -298,12 +593,58 @@ export default function TaskBoard({
   })
 
   const overdueCount = tasks.filter((t) => isOverdue(t.due_date, t.status) && (userRole === 'admin' || t.visible_to_client)).length
-  const awaitingApproval = tasks.filter(
+  const activeApprovalTasks = tasks.filter(
     (t) => isApprovalGate(t) && t.visible_to_client && t.status === 'review' && t.approval_status !== 'approved' && !t.approved_at
-  ).length
+  )
+  const awaitingApproval = activeApprovalTasks.length
+  // Held for re-work / re-approval — the client requested changes; the gate
+  // stays in the Active folder until the admin resends it for approval (moves
+  // it back to 'review') and the client approves (→ moves to Records).
+  const changesRequestedActive = tasks.filter(
+    (t) => isApprovalGate(t) && t.visible_to_client && t.approval_status === 'changes_requested' && !t.approved_at && t.status !== 'completed' && t.status !== 'review'
+  )
+  const activeApprovalCount = activeApprovalTasks.length + changesRequestedActive.length
+
+  // Records grouped per task — each gate shows its full chronological timeline
+  // (requested → changes → re-sent → approved). Groups ordered by latest activity.
+  const recordGroups = (() => {
+    const byTask = new Map<string, InvolvementEntry[]>()
+    for (const ev of involvementLog) {
+      const key = ev.meta?.task_id ?? `__${ev.id}`
+      const arr = byTask.get(key) ?? []
+      arr.push(ev)
+      byTask.set(key, arr)
+    }
+    return Array.from(byTask.entries())
+      .map(([taskId, events]) => {
+        const ordered = [...events].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+        const title = tasks.find((t) => t.id === taskId)?.title ?? ordered[0]?.title ?? 'Task'
+        const resolved = ordered.some((e) => e.event_type === 'task_approved' || e.event_type === 'task_auto_approved')
+        return { taskId, title, events: ordered, resolved, latestAt: ordered[ordered.length - 1]?.created_at ?? '' }
+      })
+      .sort((a, b) => new Date(b.latestAt).getTime() - new Date(a.latestAt).getTime())
+  })()
+
+  // Latest shared file per task (from the records ledger) — surfaced on the
+  // card + in the Active folder so a gate shows its attachment, like Records.
+  const latestAttachmentByTask = (() => {
+    const map = new Map<string, { fileId: string; name: string }>()
+    // involvementLog is newest-first, so the first hit per task is the latest.
+    for (const ev of involvementLog) {
+      const tid = ev.meta?.task_id
+      if (!tid || map.has(tid)) continue
+      if (ev.meta?.attachment_file_id && ev.meta?.attachment_name) {
+        map.set(tid, { fileId: ev.meta.attachment_file_id, name: ev.meta.attachment_name })
+      }
+    }
+    return map
+  })()
 
   // Build phase-grouped sections when phases are available.
   const usePhases = (phases?.length ?? 0) > 0
+  // Phases that have no tasks yet — admins can backfill the process into them.
+  const populatedPhaseIds = new Set(tasks.map((t) => t.phase_id).filter(Boolean))
+  const hasPhaseTasks = populatedPhaseIds.size > 0
   const phaseSections = usePhases
     ? [
         ...(phases ?? []).map((p, i) => ({
@@ -332,32 +673,233 @@ export default function TaskBoard({
     isExpanded: expandedId === task.id,
     onToggleExpand: () => setExpandedId(expandedId === task.id ? null : task.id),
     onCycleStatus: () => cycleStatus(task),
-    onApprove: () => approveTask(task),
-    onRequestChanges: (note: string) => requestChanges(task, note),
-    onAttachMedia: (file: File) => attachMedia(task, file),
+    onSetStatus: (status: string) => setStatus(task, status),
+    onUpdateFields: (fields: Partial<Task>) => updateTaskFields(task, fields),
+    onApprove: (note: string, file: File | null) => approveTask(task, note, file),
+    onRequestChanges: (note: string, file: File | null) => requestChanges(task, note, file),
+    onAttachMedia: (file: File | null, note: string) => attachMedia(task, file, note),
+    onResend: () => resendForApproval(task),
+    onViewFile: (fileId: string, name: string) => openFile(fileId, name),
+    attachment: latestAttachmentByTask.get(task.id) ?? null,
     onDelete: () => deleteTask(task.id),
+    phases: phases ?? [],
   })
 
   return (
     <div className="space-y-4">
       {/* Progress card */}
       <div className="p-5 rounded-2xl" style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}>
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <p className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Project Progress</p>
-            <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-              {completedCount} of {visibleTasks.length} steps complete
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Tasks Progress</p>
               {awaitingApproval > 0 && (
-                <span style={{ color: 'hsl(var(--primary))' }}> · {awaitingApproval} awaiting your approval</span>
+                <span
+                  className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                  style={{ backgroundColor: 'hsl(var(--status-amber) / 0.14)', color: 'hsl(var(--status-amber))' }}
+                >
+                  <ShieldCheck size={10} />
+                  {awaitingApproval} pending {userRole === 'client' ? 'your approval' : 'client approval'}
+                </span>
+              )}
+            </div>
+            <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              {completedCount} of {visibleTasks.length} tasks complete
+              {awaitingApproval > 0 && (
+                <span style={{ color: 'hsl(var(--status-amber))' }}>
+                  {' '}· {awaitingApproval} {userRole === 'client' ? 'awaiting your approval' : 'awaiting client approval'}
+                </span>
               )}
             </p>
           </div>
-          <span className="font-display text-3xl font-bold tabular-nums" style={{ color: completionPct === 100 ? 'hsl(var(--status-green))' : 'hsl(var(--primary))' }}>
+          <span className="font-display text-3xl font-bold tabular-nums flex-shrink-0" style={{ color: completionPct === 100 ? 'hsl(var(--status-green))' : 'hsl(var(--primary))' }}>
             {completionPct}%
           </span>
         </div>
         <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
           <div className="h-full rounded-full transition-all duration-700" style={{ width: `${completionPct}%`, backgroundColor: completionPct === 100 ? 'hsl(var(--status-green))' : 'hsl(var(--primary))' }} />
+        </div>
+      </div>
+
+      {/* Approvals & Records — two live folder cards in both portals. ACTIVE
+          holds gates awaiting a decision plus any change-requests held for
+          re-approval (until the admin resends → review → client approves).
+          RECORDS is the permanent, timestamped audit history. Both update live. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+        {/* ── Active Approvals folder ── */}
+        <div className="rounded-2xl overflow-hidden" style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}>
+          <button onClick={() => setShowActive((s) => !s)} className="w-full flex items-center gap-2.5 px-4 py-3.5 text-left">
+            <span className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'hsl(var(--status-amber) / 0.14)' }}>
+              <Clock size={15} style={{ color: 'hsl(var(--status-amber))' }} />
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
+                Active Approvals
+                <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: 'hsl(var(--status-green))' }} title="Live" />
+              </p>
+              <p className="text-[11px] mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                {activeApprovalCount > 0 ? `${activeApprovalCount} awaiting action` : 'Nothing awaiting'}
+              </p>
+            </div>
+            {activeApprovalCount > 0 && (
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: 'hsl(var(--status-amber) / 0.16)', color: 'hsl(var(--status-amber))' }}>{activeApprovalCount}</span>
+            )}
+            <ChevronDown size={15} className="flex-shrink-0 transition-transform" style={{ color: 'hsl(var(--text-faint))', transform: showActive ? 'none' : 'rotate(-90deg)' }} />
+          </button>
+          {showActive && (
+            <div className="px-4 pb-4 max-h-[320px] overflow-y-auto scrollbar-thin" style={{ borderTop: '1px solid hsl(var(--secondary))' }}>
+              {activeApprovalCount === 0 && (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <ShieldCheck size={20} style={{ color: 'hsl(var(--text-faint))' }} />
+                  <p className="text-xs mt-2" style={{ color: 'hsl(var(--muted-foreground))' }}>Nothing awaiting approval</p>
+                </div>
+              )}
+              {/* Awaiting decision */}
+              {activeApprovalTasks.map((t) => {
+                const since = t.review_requested_at ?? t.created_at
+                return (
+                  <div key={t.id} className="flex items-start gap-3 rounded-lg p-2.5 mt-2" style={{ backgroundColor: 'hsl(var(--status-amber) / 0.07)' }}>
+                    <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{ backgroundColor: 'hsl(var(--status-amber) / 0.14)' }}>
+                      <Clock size={13} style={{ color: 'hsl(var(--status-amber))' }} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium leading-snug" style={{ color: 'hsl(var(--foreground))' }}>{t.title}</p>
+                      <p className="text-[10px] mt-1" style={{ color: 'hsl(var(--text-faint))' }}>
+                        {userRole === 'client' ? 'Awaiting your approval' : 'Awaiting client approval'} · since {new Date(since).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                      {latestAttachmentByTask.has(t.id) && (
+                        <button type="button" onClick={() => { const a = latestAttachmentByTask.get(t.id)!; openFile(a.fileId, a.name) }}
+                          className="inline-flex items-center gap-1.5 mt-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition-colors"
+                          style={{ backgroundColor: 'hsl(var(--primary) / 0.08)', color: 'hsl(var(--primary))', border: '1px solid hsl(var(--primary) / 0.18)' }}>
+                          <Eye size={11} /> {latestAttachmentByTask.get(t.id)!.name}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+              {/* Change requests — held for re-work / re-approval */}
+              {changesRequestedActive.map((t) => (
+                <div key={t.id} className="flex items-start gap-3 rounded-lg p-2.5 mt-2" style={{ backgroundColor: 'hsl(var(--primary) / 0.06)' }}>
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{ backgroundColor: 'hsl(var(--primary) / 0.12)' }}>
+                    <MessageSquareWarning size={13} style={{ color: 'hsl(var(--primary))' }} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium leading-snug" style={{ color: 'hsl(var(--foreground))' }}>{t.title}</p>
+                    {t.approval_note && <p className="text-[11px] mt-0.5 leading-snug" style={{ color: 'hsl(var(--muted-foreground))' }}>“{t.approval_note}”</p>}
+                    <p className="text-[10px] mt-1" style={{ color: 'hsl(var(--text-faint))' }}>
+                      Changes requested · {userRole === 'client' ? 'awaiting McPrime to resend for approval' : 'resend for approval when ready'}
+                    </p>
+                    {latestAttachmentByTask.has(t.id) && (
+                      <button type="button" onClick={() => { const a = latestAttachmentByTask.get(t.id)!; openFile(a.fileId, a.name) }}
+                        className="inline-flex items-center gap-1.5 mt-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition-colors"
+                        style={{ backgroundColor: 'hsl(var(--primary) / 0.08)', color: 'hsl(var(--primary))', border: '1px solid hsl(var(--primary) / 0.18)' }}>
+                        <Eye size={11} /> {latestAttachmentByTask.get(t.id)!.name}
+                      </button>
+                    )}
+                  </div>
+                  {/* Admin: re-open the gate for re-approval */}
+                  {userRole === 'admin' && (
+                    <button
+                      onClick={() => resendForApproval(t)}
+                      disabled={updating === t.id}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold flex-shrink-0 transition-all disabled:opacity-60"
+                      style={{ backgroundColor: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
+                    >
+                      {updating === t.id ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+                      Resend for approval
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ── Records folder ── */}
+        <div className="rounded-2xl overflow-hidden" style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}>
+          <button onClick={() => setShowRecords((s) => !s)} className="w-full flex items-center gap-2.5 px-4 py-3.5 text-left">
+            <span className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'hsl(var(--primary) / 0.1)' }}>
+              <ShieldCheck size={15} style={{ color: 'hsl(var(--primary))' }} />
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold flex items-center gap-2" style={{ color: 'hsl(var(--foreground))' }}>
+                Records
+                <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: 'hsl(var(--status-green))' }} title="Live" />
+              </p>
+              <p className="text-[11px] mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                {involvementLog.length > 0 ? `${involvementLog.length} decision${involvementLog.length === 1 ? '' : 's'} on record` : 'No records yet'}
+              </p>
+            </div>
+            {involvementLog.length > 0 && (
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: 'hsl(var(--primary) / 0.12)', color: 'hsl(var(--primary))' }}>{involvementLog.length}</span>
+            )}
+            <ChevronDown size={15} className="flex-shrink-0 transition-transform" style={{ color: 'hsl(var(--text-faint))', transform: showRecords ? 'none' : 'rotate(-90deg)' }} />
+          </button>
+          {showRecords && (
+            <div className="px-4 pb-4 max-h-[320px] overflow-y-auto scrollbar-thin space-y-2" style={{ borderTop: '1px solid hsl(var(--secondary))' }}>
+              {involvementLog.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <ShieldCheck size={20} style={{ color: 'hsl(var(--text-faint))' }} />
+                  <p className="text-xs mt-2" style={{ color: 'hsl(var(--muted-foreground))' }}>No approval decisions yet</p>
+                  <p className="text-[10px] mt-0.5" style={{ color: 'hsl(var(--text-faint))' }}>
+                    Every approval &amp; change request is stored here for both you and {userRole === 'client' ? 'McPrime' : 'the client'}.
+                  </p>
+                </div>
+              )}
+              {/* One group per task — the full timeline of that gate, kept as a
+                  permanent record with timestamps + details until it's approved. */}
+              {recordGroups.map((group) => (
+                <div key={group.taskId} className="pt-3">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <p className="text-xs font-semibold leading-snug min-w-0 truncate" style={{ color: 'hsl(var(--foreground))' }}>{group.title}</p>
+                    <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0"
+                      style={group.resolved
+                        ? { backgroundColor: 'hsl(var(--status-green) / 0.12)', color: 'hsl(var(--status-green))' }
+                        : { backgroundColor: 'hsl(var(--status-amber) / 0.14)', color: 'hsl(var(--status-amber))' }}>
+                      {group.resolved ? 'Resolved' : 'Open'}
+                    </span>
+                  </div>
+                  <div className="space-y-2 pl-2 ml-1" style={{ borderLeft: '1px solid hsl(var(--secondary))' }}>
+                    {group.events.map((ev) => {
+                      const { Icon, tint, label } = recordMeta(ev)
+                      return (
+                        <div key={ev.id} className="flex items-start gap-2.5 pl-1.5">
+                          <div className="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5" style={{ backgroundColor: `color-mix(in srgb, ${tint} 12%, transparent)` }}>
+                            <Icon size={12} style={{ color: tint }} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[11px] font-semibold leading-snug" style={{ color: tint }}>{label}</p>
+                            {ev.body && <p className="text-[11px] mt-0.5 leading-snug" style={{ color: 'hsl(var(--muted-foreground))' }}>{ev.body}</p>}
+                            {ev.meta?.attachment_name && (
+                              ev.meta.attachment_file_id ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openFile(ev.meta!.attachment_file_id, ev.meta!.attachment_name)}
+                                  className="inline-flex items-center gap-1.5 mt-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition-colors"
+                                  style={{ backgroundColor: 'hsl(var(--primary) / 0.08)', color: 'hsl(var(--primary))', border: '1px solid hsl(var(--primary) / 0.18)' }}
+                                >
+                                  <Eye size={11} /> {ev.meta.attachment_name}
+                                </button>
+                              ) : (
+                                <span className="inline-flex items-center gap-1.5 mt-1.5 px-2 py-1 rounded-md text-[11px]" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}>
+                                  <FileText size={11} /> {ev.meta.attachment_name}
+                                </span>
+                              )
+                            )}
+                            <p className="text-[10px] mt-1" style={{ color: 'hsl(var(--text-faint))' }}>
+                              {ev.actor_name} · {new Date(ev.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -386,14 +928,83 @@ export default function TaskBoard({
         </div>
 
         {userRole === 'admin' && (
-          <button
-            onClick={() => setShowAddForm(!showAddForm)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
-            style={{ backgroundColor: showAddForm ? 'hsl(var(--secondary))' : 'hsl(var(--primary))', color: showAddForm ? 'hsl(var(--muted-foreground))' : 'hsl(var(--primary-foreground))' }}
-          >
-            <Plus size={12} />
-            Add Task
-          </button>
+          <div className="flex items-center gap-1.5">
+            {usePhases && (
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    // No process yet → generate straight away. Otherwise offer
+                    // the reconcile choices (merge / replace / customize).
+                    if (!hasPhaseTasks) seedPhaseProcess('fill')
+                    else setShowGenMenu((s) => !s)
+                  }}
+                  disabled={seeding}
+                  title="Generate the Discovery → Final Delivery process with client approval gates"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all disabled:opacity-60"
+                  style={{ backgroundColor: 'hsl(var(--primary) / 0.1)', color: 'hsl(var(--primary))', border: '1px solid hsl(var(--primary) / 0.2)' }}
+                >
+                  {seeding ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                  {seeding ? 'Generating…' : hasPhaseTasks ? 'Generate process' : 'Generate phase process'}
+                  {hasPhaseTasks && !seeding && <ChevronDown size={12} />}
+                </button>
+
+                {showGenMenu && !seeding && (
+                  <>
+                    {/* click-away */}
+                    <div className="fixed inset-0 z-10" onClick={() => setShowGenMenu(false)} />
+                    <div
+                      className="absolute right-0 mt-1.5 w-72 rounded-xl overflow-hidden z-20 shadow-xl"
+                      style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
+                    >
+                      <div className="px-3.5 py-2.5" style={{ borderBottom: '1px solid hsl(var(--secondary))' }}>
+                        <p className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Re-generate process</p>
+                        <p className="text-[10px] mt-0.5" style={{ color: 'hsl(var(--text-faint))' }}>A process already exists. Choose how to apply the standard one.</p>
+                      </div>
+                      {[
+                        { mode: 'fill' as const, icon: Sparkles, label: 'Fill empty phases', desc: 'Only generate into phases with no tasks yet.' },
+                        { mode: 'merge' as const, icon: Layers, label: 'Merge with existing', desc: 'Keep everything; add only missing steps.' },
+                        { mode: 'replace' as const, icon: RefreshCw, label: 'Use new process (replace)', desc: 'Regenerate phase tasks; keep your custom deliverables.' },
+                      ].map((opt) => {
+                        const Icon = opt.icon
+                        return (
+                          <button
+                            key={opt.mode}
+                            onClick={() => seedPhaseProcess(opt.mode)}
+                            className="w-full flex items-start gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-secondary"
+                          >
+                            <Icon size={13} className="flex-shrink-0 mt-0.5" style={{ color: 'hsl(var(--primary))' }} />
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>{opt.label}</p>
+                              <p className="text-[10px] mt-0.5 leading-snug" style={{ color: 'hsl(var(--text-faint))' }}>{opt.desc}</p>
+                            </div>
+                          </button>
+                        )
+                      })}
+                      <button
+                        onClick={() => setShowGenMenu(false)}
+                        className="w-full flex items-start gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-secondary"
+                        style={{ borderTop: '1px solid hsl(var(--secondary))' }}
+                      >
+                        <Flag size={13} className="flex-shrink-0 mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }} />
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium" style={{ color: 'hsl(var(--foreground))' }}>Customize current</p>
+                          <p className="text-[10px] mt-0.5 leading-snug" style={{ color: 'hsl(var(--text-faint))' }}>Keep the existing process and edit it by hand below.</p>
+                        </div>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            <button
+              onClick={() => setShowAddForm(!showAddForm)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+              style={{ backgroundColor: showAddForm ? 'hsl(var(--secondary))' : 'hsl(var(--primary))', color: showAddForm ? 'hsl(var(--muted-foreground))' : 'hsl(var(--primary-foreground))' }}
+            >
+              <Plus size={12} />
+              Add Task
+            </button>
+          </div>
         )}
       </div>
 
@@ -406,25 +1017,25 @@ export default function TaskBoard({
             onChange={(e) => setNewTask((p) => ({ ...p, title: e.target.value }))}
             placeholder="Task title..."
             className="w-full px-4 py-3 rounded-lg text-sm outline-none transition-all"
-            style={{ backgroundColor: 'hsl(var(--primary-foreground))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+            style={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}
           />
           <textarea
             value={newTask.description}
             onChange={(e) => setNewTask((p) => ({ ...p, description: e.target.value }))}
             placeholder="Description (optional)..." rows={2}
             className="w-full px-4 py-3 rounded-lg text-sm outline-none transition-all resize-none"
-            style={{ backgroundColor: 'hsl(var(--primary-foreground))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+            style={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}
           />
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <select value={newTask.priority} onChange={(e) => setNewTask((p) => ({ ...p, priority: e.target.value }))} className="px-3 py-2.5 rounded-lg text-xs outline-none" style={{ backgroundColor: 'hsl(var(--primary-foreground))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}>
+            <select value={newTask.priority} onChange={(e) => setNewTask((p) => ({ ...p, priority: e.target.value }))} className="px-3 py-2.5 rounded-lg text-xs outline-none" style={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}>
               {Object.entries(PRIORITY_CONFIG).map(([k, v]) => <option key={k} value={k} style={{ backgroundColor: 'hsl(var(--card))' }}>{v.label} Priority</option>)}
             </select>
-            <select value={newTask.category} onChange={(e) => setNewTask((p) => ({ ...p, category: e.target.value }))} className="px-3 py-2.5 rounded-lg text-xs outline-none" style={{ backgroundColor: 'hsl(var(--primary-foreground))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}>
+            <select value={newTask.category} onChange={(e) => setNewTask((p) => ({ ...p, category: e.target.value }))} className="px-3 py-2.5 rounded-lg text-xs outline-none" style={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}>
               {Object.entries(CATEGORY_LABELS).map(([k, v]) => <option key={k} value={k} style={{ backgroundColor: 'hsl(var(--card))' }}>{v}</option>)}
             </select>
-            <input type="date" value={newTask.due_date} onChange={(e) => setNewTask((p) => ({ ...p, due_date: e.target.value }))} className="px-3 py-2.5 rounded-lg text-xs outline-none" style={{ backgroundColor: 'hsl(var(--primary-foreground))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))', colorScheme: 'dark' }} />
+            <input type="date" value={newTask.due_date} onChange={(e) => setNewTask((p) => ({ ...p, due_date: e.target.value }))} className="px-3 py-2.5 rounded-lg text-xs outline-none" style={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
             {usePhases ? (
-              <select value={newTask.phase_id} onChange={(e) => setNewTask((p) => ({ ...p, phase_id: e.target.value }))} className="px-3 py-2.5 rounded-lg text-xs outline-none" style={{ backgroundColor: 'hsl(var(--primary-foreground))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}>
+              <select value={newTask.phase_id} onChange={(e) => setNewTask((p) => ({ ...p, phase_id: e.target.value }))} className="px-3 py-2.5 rounded-lg text-xs outline-none" style={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}>
                 <option value="" style={{ backgroundColor: 'hsl(var(--card))' }}>No phase</option>
                 {(phases ?? []).map((p) => <option key={p.id} value={p.id} style={{ backgroundColor: 'hsl(var(--card))' }}>{p.name}</option>)}
               </select>
@@ -494,6 +1105,11 @@ export default function TaskBoard({
           )}
         </>
       )}
+
+      {/* In-app file viewer — plays media / previews docs in place. */}
+      {previewFile && (
+        <FileViewer key={previewFile.id} file={previewFile} onClose={() => setPreviewFile(null)} />
+      )}
     </div>
   )
 }
@@ -508,52 +1124,87 @@ type RowProps = {
   isExpanded: boolean
   onToggleExpand: () => void
   onCycleStatus: () => void
-  onApprove: () => void
-  onRequestChanges: (note: string) => void
-  onAttachMedia: (file: File) => void
+  onSetStatus: (status: string) => void
+  onUpdateFields: (fields: Partial<Task>) => void
+  onApprove: (note: string, file: File | null) => void
+  onRequestChanges: (note: string, file: File | null) => void
+  onAttachMedia: (file: File | null, note: string) => void
+  onResend: () => void
+  onViewFile: (fileId: string, name: string) => void
+  attachment: { fileId: string; name: string } | null
   onDelete: () => void
+  phases: Phase[]
 }
 
 function TaskRow({
   task, userRole, isUpdating, isAttaching, isExpanded,
-  onToggleExpand, onCycleStatus, onApprove, onRequestChanges, onAttachMedia, onDelete,
+  onToggleExpand, onCycleStatus, onSetStatus, onUpdateFields, onApprove, onRequestChanges, onAttachMedia, onResend, onViewFile, attachment, onDelete, phases,
 }: RowProps) {
   const cfg = STATUS_CONFIG[task.status] ?? STATUS_CONFIG.pending
   const priorityCfg = PRIORITY_CONFIG[task.priority] ?? PRIORITY_CONFIG.medium
   const overdue = isOverdue(task.due_date, task.status)
   const StatusIcon = cfg.icon
   const gate = isApprovalGate(task)
+  // Admin gate that the client sent back — needs a resend for re-approval.
+  const needsResend = userRole === 'admin' && gate && task.approval_status === 'changes_requested' && !task.approved_at && task.status !== 'review'
   const fileRef = useRef<HTMLInputElement>(null)
-  const [showNote, setShowNote] = useState(false)
+  const actionFileRef = useRef<HTMLInputElement>(null)
+  const [actionMode, setActionMode] = useState<'approve' | 'changes' | null>(null)
   const [note, setNote] = useState('')
+  const [actionFile, setActionFile] = useState<File | null>(null)
+  // Admin "send for approval" composer (optional note + optional file).
+  const [adminNote, setAdminNote] = useState('')
+  const [adminFile, setAdminFile] = useState<File | null>(null)
 
   const clientCanAct = userRole === 'client' && task.visible_to_client && task.status === 'review' && task.approval_status !== 'approved' && !task.approved_at
 
+  function resetAction() {
+    setActionMode(null); setNote(''); setActionFile(null)
+  }
+  function openAction(mode: 'approve' | 'changes') {
+    setActionMode(mode); setNote(''); setActionFile(null)
+    if (!isExpanded) onToggleExpand()
+  }
+
+  // Completed cards read as "done" via a Liquid Glass surface; the expanded
+  // (selected) card pops with a premium ring + subtle lift. Both portals share
+  // this component, so the treatment is identical for admin and client.
+  const isCompleted = task.status === 'completed'
+  const isSelected = isExpanded
+  const rowBorder = overdue
+    ? '1px solid hsl(var(--destructive) / 0.25)'
+    : isSelected
+    ? '1px solid hsl(var(--primary) / 0.55)'
+    : gate && clientCanAct
+    ? '1px solid hsl(var(--primary) / 0.4)'
+    : isCompleted
+    ? '1px solid hsl(var(--status-green) / 0.22)'
+    : '1px solid hsl(var(--border))'
+  const rowShadow = isSelected
+    ? '0 0 0 1px hsl(var(--primary) / 0.45), 0 16px 36px -16px hsl(var(--primary) / 0.4)'
+    : gate && clientCanAct
+    ? '0 1px 3px hsl(var(--primary) / 0.12)'
+    : '0 1px 2px rgba(0,0,0,0.04)'
+  const rowStyle: React.CSSProperties = {
+    backgroundColor: isCompleted ? 'hsl(var(--card) / 0.55)' : 'hsl(var(--card))',
+    border: rowBorder,
+    boxShadow: rowShadow,
+    transform: isSelected ? 'scale(1.01)' : 'none',
+    ...(isCompleted
+      ? { backdropFilter: 'blur(14px) saturate(140%)', WebkitBackdropFilter: 'blur(14px) saturate(140%)' }
+      : {}),
+  }
+
   return (
-    <div className="rounded-xl overflow-hidden transition-all" style={{ backgroundColor: 'hsl(var(--card))', border: overdue ? '1px solid hsl(var(--destructive) / 0.2)' : gate && clientCanAct ? '1px solid hsl(var(--primary) / 0.35)' : task.status === 'completed' ? '1px solid hsl(var(--status-green) / 0.15)' : '1px solid hsl(var(--border))' }}>
-      <div className="flex items-center gap-3 p-4">
-        <button onClick={onCycleStatus} disabled={isUpdating || userRole === 'client'} className="flex-shrink-0 transition-all disabled:cursor-default" title={userRole === 'admin' ? `Mark as ${cfg.next}` : cfg.label}>
-          {isUpdating ? <Loader2 size={20} className="animate-spin" style={{ color: 'hsl(var(--primary))' }} /> : <StatusIcon size={20} style={{ color: cfg.color, opacity: userRole === 'admin' ? 1 : 0.7 }} />}
+    <div className="rounded-2xl overflow-hidden transition-all" style={rowStyle}>
+      <div className="flex items-center gap-3.5 p-5">
+        <button onClick={onCycleStatus} disabled={isUpdating || userRole === 'client'} className="flex-shrink-0 transition-all disabled:cursor-default hover:scale-110" title={userRole === 'admin' ? `Mark as ${cfg.next}` : cfg.label}>
+          {isUpdating ? <Loader2 size={22} className="animate-spin" style={{ color: 'hsl(var(--primary))' }} /> : <StatusIcon size={22} style={{ color: cfg.color, opacity: userRole === 'admin' ? 1 : 0.75 }} />}
         </button>
 
-        <div className="flex-1 min-w-0 cursor-pointer" onClick={onToggleExpand}>
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-sm font-medium" style={{ color: task.status === 'completed' ? 'hsl(var(--text-faint))' : 'hsl(var(--foreground))', textDecoration: task.status === 'completed' ? 'line-through' : 'none' }}>{task.title}</p>
-            {gate && (
-              <span className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ backgroundColor: 'hsl(var(--primary) / 0.1)', color: 'hsl(var(--primary))' }}>
-                <ShieldCheck size={9} /> Approval
-              </span>
-            )}
-            {task.priority !== 'medium' && (
-              <div className="flex items-center gap-1">
-                <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: priorityCfg.dot }} />
-                <span className="text-[10px]" style={{ color: priorityCfg.color }}>{priorityCfg.label}</span>
-              </div>
-            )}
-            {!task.visible_to_client && <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ backgroundColor: 'hsl(var(--muted) / 0.3)', color: 'hsl(var(--text-faint))' }}>Internal</span>}
-            {task.approved_at && <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold" style={{ backgroundColor: 'hsl(var(--status-green) / 0.12)', color: 'hsl(var(--status-green))' }}>✓ Approved</span>}
-            {task.approval_status === 'changes_requested' && !task.approved_at && <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold" style={{ backgroundColor: 'hsl(var(--status-amber) / 0.14)', color: 'hsl(var(--status-amber))' }}>Changes requested</span>}
-          </div>
+        {/* Left — title + due date. Shrinks/truncates so the chips can centre. */}
+        <div className="min-w-0 cursor-pointer" onClick={onToggleExpand}>
+          <p className="text-[15px] font-semibold leading-tight truncate" title={task.title} style={{ color: task.status === 'completed' ? 'hsl(var(--text-faint))' : 'hsl(var(--foreground))', textDecoration: task.status === 'completed' ? 'line-through' : 'none' }}>{task.title}</p>
           {task.due_date && (
             <div className="flex items-center gap-1 mt-1.5">
               <Calendar size={11} style={{ color: overdue ? 'hsl(var(--destructive))' : 'hsl(var(--text-faint))' }} />
@@ -562,24 +1213,60 @@ function TaskRow({
           )}
         </div>
 
-        <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full flex-shrink-0" style={{ backgroundColor: cfg.bg }}>
-          <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: cfg.color }} />
-          <span className="text-[10px] font-semibold" style={{ color: cfg.color }}>{cfg.label}</span>
+        {/* Middle — indicator chips, centred in the card (both portals).
+            Approval / priority / Internal / Approved / Changes. The status pill
+            is pinned far-right (below), not here. */}
+        <div className="flex-1 flex items-center justify-center gap-2 flex-wrap min-w-0">
+          {gate && (
+            <span className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ backgroundColor: 'hsl(var(--primary) / 0.1)', color: 'hsl(var(--primary))' }}>
+              <ShieldCheck size={9} /> Approval
+            </span>
+          )}
+          {task.priority !== 'medium' && (
+            <div className="flex items-center gap-1">
+              <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: priorityCfg.dot }} />
+              <span className="text-[10px]" style={{ color: priorityCfg.color }}>{priorityCfg.label}</span>
+            </div>
+          )}
+          {!task.visible_to_client && <span className="text-[10px] px-1.5 py-0.5 rounded font-medium" style={{ backgroundColor: 'hsl(var(--muted) / 0.3)', color: 'hsl(var(--text-faint))' }}>Internal</span>}
+          {task.approved_at && <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold" style={{ backgroundColor: 'hsl(var(--status-green) / 0.12)', color: 'hsl(var(--status-green))' }}>✓ Approved</span>}
+          {task.approval_status === 'changes_requested' && !task.approved_at && <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold" style={{ backgroundColor: 'hsl(var(--status-amber) / 0.14)', color: 'hsl(var(--status-amber))' }}>Changes requested</span>}
         </div>
 
-        {/* Client approval actions */}
+        {/* Client approval actions — open a panel for an optional note + file */}
         {clientCanAct && (
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            <button onClick={onApprove} disabled={isUpdating} className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--status-green))', color: 'hsl(var(--primary-foreground))' }}>Approve</button>
-            <button onClick={() => { setShowNote((s) => !s); onToggleExpand() }} disabled={isUpdating} className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))' }}>Request changes</button>
+            <button onClick={() => openAction('approve')} disabled={isUpdating} className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all disabled:opacity-60" style={{ backgroundColor: actionMode === 'approve' ? 'hsl(var(--status-green))' : 'hsl(var(--status-green))', color: 'hsl(var(--primary-foreground))' }}>Approve</button>
+            <button onClick={() => openAction('changes')} disabled={isUpdating} className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all disabled:opacity-60" style={{ backgroundColor: actionMode === 'changes' ? 'hsl(var(--status-amber))' : 'hsl(var(--secondary))', color: actionMode === 'changes' ? 'hsl(var(--primary-foreground))' : 'hsl(var(--foreground))' }}>Request changes</button>
           </div>
         )}
 
-        {(task.description || userRole === 'admin' || task.approval_note) && (
+        {/* Admin: resend gate for re-approval — auto-appears after the client
+            requested changes (the re-approval gate). */}
+        {needsResend && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onResend() }}
+            disabled={isUpdating}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold flex-shrink-0 transition-all disabled:opacity-60"
+            style={{ backgroundColor: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
+            title="Re-open this gate for client re-approval"
+          >
+            {isUpdating ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+            Resend for approval
+          </button>
+        )}
+
+        {(task.description || userRole === 'admin' || task.approval_note || clientCanAct) && (
           <button onClick={onToggleExpand} className="p-1.5 rounded-lg transition-all flex-shrink-0 text-faint hover:text-foreground hover:bg-secondary">
             {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </button>
         )}
+
+        {/* Status pill — pinned to the far right (only this lives here). */}
+        <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full flex-shrink-0" style={{ backgroundColor: cfg.bg }}>
+          <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: cfg.color }} />
+          <span className="text-[10px] font-semibold" style={{ color: cfg.color }}>{cfg.label}</span>
+        </div>
       </div>
 
       {/* Expanded detail */}
@@ -594,18 +1281,55 @@ function TaskRow({
             </div>
           )}
 
-          {/* Client request-changes note input */}
-          {clientCanAct && showNote && (
-            <div className="space-y-2">
+          {/* Unified client action panel — Approve or Request changes, each
+              with an optional note + file that auto-posts to the project chat
+              as a permanent record. */}
+          {clientCanAct && actionMode && (
+            <div
+              className="space-y-2.5 rounded-lg p-3.5"
+              style={{
+                backgroundColor: actionMode === 'approve' ? 'hsl(var(--status-green) / 0.07)' : 'hsl(var(--status-amber) / 0.07)',
+                border: actionMode === 'approve' ? '1px solid hsl(var(--status-green) / 0.25)' : '1px solid hsl(var(--status-amber) / 0.25)',
+              }}
+            >
+              <p className="text-xs font-semibold flex items-center gap-1.5" style={{ color: actionMode === 'approve' ? 'hsl(var(--status-green))' : 'hsl(var(--status-amber))' }}>
+                {actionMode === 'approve' ? <><ShieldCheck size={12} /> Approve this deliverable</> : <><MessageSquareWarning size={12} /> Request changes</>}
+              </p>
               <textarea
                 value={note} onChange={(e) => setNote(e.target.value)} rows={3}
-                placeholder="Describe the changes you'd like… (this will be posted to your project chat)"
+                placeholder={actionMode === 'approve'
+                  ? 'Add a note (optional) — this is posted to your project chat as a record.'
+                  : "Describe the changes you'd like… (required — posted to your project chat)"}
                 className="w-full px-3 py-2.5 rounded-lg text-sm outline-none resize-none"
-                style={{ backgroundColor: 'hsl(var(--primary-foreground))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                style={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}
               />
-              <div className="flex justify-end gap-2">
-                <button onClick={() => { setShowNote(false); setNote('') }} className="px-3 py-1.5 rounded-lg text-xs" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}>Cancel</button>
-                <button onClick={() => { if (note.trim()) { onRequestChanges(note.trim()); setShowNote(false); setNote('') } }} disabled={!note.trim() || isUpdating} className="px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50" style={{ backgroundColor: 'hsl(var(--status-amber))', color: 'hsl(var(--primary-foreground))' }}>Send request</button>
+              <input ref={actionFileRef} type="file" className="hidden" onChange={(e) => setActionFile(e.target.files?.[0] ?? null)} />
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <button type="button" onClick={() => actionFileRef.current?.click()} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))', border: '1px solid hsl(var(--border))' }}>
+                  <Paperclip size={12} /> {actionFile ? actionFile.name.slice(0, 28) : 'Attach file (optional)'}
+                </button>
+                <div className="flex gap-2">
+                  <button onClick={resetAction} className="px-3 py-1.5 rounded-lg text-xs" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}>Cancel</button>
+                  {actionMode === 'approve' ? (
+                    <button
+                      onClick={() => { onApprove(note.trim(), actionFile); resetAction() }}
+                      disabled={isUpdating}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50"
+                      style={{ backgroundColor: 'hsl(var(--status-green))', color: 'hsl(var(--primary-foreground))' }}
+                    >
+                      {isUpdating ? 'Submitting…' : 'Confirm approval'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => { if (note.trim()) { onRequestChanges(note.trim(), actionFile); resetAction() } }}
+                      disabled={!note.trim() || isUpdating}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50"
+                      style={{ backgroundColor: 'hsl(var(--status-amber))', color: 'hsl(var(--primary-foreground))' }}
+                    >
+                      {isUpdating ? 'Sending…' : 'Send request'}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -616,16 +1340,141 @@ function TaskRow({
             </p>
           )}
 
-          {/* Admin actions */}
-          {userRole === 'admin' && (
-            <div className="flex items-center gap-2 pt-1 flex-wrap">
-              <input ref={fileRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onAttachMedia(f); e.target.value = '' }} />
-              <button onClick={() => fileRef.current?.click()} disabled={isAttaching} className="text-xs px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 disabled:opacity-60" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))' }}>
-                {isAttaching ? <Loader2 size={12} className="animate-spin" /> : <Paperclip size={12} />}
-                {isAttaching ? 'Uploading…' : 'Attach approval media'}
+          {/* Shared file on this task — opens in the in-app viewer (no new tab). */}
+          {attachment && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'hsl(var(--text-faint))' }}>Shared file</span>
+              <button
+                type="button"
+                onClick={() => onViewFile(attachment.fileId, attachment.name)}
+                className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition-colors"
+                style={{ backgroundColor: 'hsl(var(--primary) / 0.08)', color: 'hsl(var(--primary))', border: '1px solid hsl(var(--primary) / 0.18)' }}
+              >
+                <Eye size={11} /> {attachment.name}
               </button>
-              <span className="text-xs flex-1" style={{ color: 'hsl(var(--text-faint))' }}>Click the status icon to advance</span>
-              <button onClick={onDelete} className="text-xs px-3 py-1.5 rounded-lg transition-all hover:bg-destructive/10" style={{ color: 'hsl(var(--destructive))' }}>Delete task</button>
+            </div>
+          )}
+
+          {/* Admin control panel — every process control in one place:
+              status, priority, visibility, approval gate, phase. */}
+          {userRole === 'admin' && (
+            <div className="space-y-3 pt-1">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {/* Process status */}
+                <label className="flex flex-col gap-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'hsl(var(--text-faint))' }}>Status</span>
+                  <select
+                    value={task.status}
+                    onChange={(e) => onSetStatus(e.target.value)}
+                    disabled={isUpdating}
+                    className="px-2.5 py-2 rounded-lg text-xs outline-none disabled:opacity-60"
+                    style={{ backgroundColor: 'hsl(var(--secondary))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  >
+                    {Object.entries(STATUS_CONFIG).map(([k, v]) => (
+                      <option key={k} value={k} style={{ backgroundColor: 'hsl(var(--card))' }}>{v.label}</option>
+                    ))}
+                  </select>
+                </label>
+                {/* Priority */}
+                <label className="flex flex-col gap-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'hsl(var(--text-faint))' }}>Priority</span>
+                  <select
+                    value={task.priority}
+                    onChange={(e) => onUpdateFields({ priority: e.target.value })}
+                    disabled={isUpdating}
+                    className="px-2.5 py-2 rounded-lg text-xs outline-none disabled:opacity-60"
+                    style={{ backgroundColor: 'hsl(var(--secondary))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                  >
+                    {Object.entries(PRIORITY_CONFIG).map(([k, v]) => (
+                      <option key={k} value={k} style={{ backgroundColor: 'hsl(var(--card))' }}>{v.label}</option>
+                    ))}
+                  </select>
+                </label>
+                {/* Phase */}
+                {phases.length > 0 && (
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'hsl(var(--text-faint))' }}>Phase</span>
+                    <select
+                      value={task.phase_id ?? ''}
+                      onChange={(e) => onUpdateFields({ phase_id: e.target.value || null })}
+                      disabled={isUpdating}
+                      className="px-2.5 py-2 rounded-lg text-xs outline-none disabled:opacity-60"
+                      style={{ backgroundColor: 'hsl(var(--secondary))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                    >
+                      <option value="" style={{ backgroundColor: 'hsl(var(--card))' }}>No phase</option>
+                      {phases.map((p) => (
+                        <option key={p.id} value={p.id} style={{ backgroundColor: 'hsl(var(--card))' }}>{p.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
+
+              {/* Toggles — visibility + approval gate */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => onUpdateFields({ visible_to_client: !task.visible_to_client })}
+                  disabled={isUpdating}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all disabled:opacity-60"
+                  style={{
+                    backgroundColor: task.visible_to_client ? 'hsl(var(--status-blue) / 0.1)' : 'hsl(var(--secondary))',
+                    color: task.visible_to_client ? 'hsl(var(--status-blue))' : 'hsl(var(--text-faint))',
+                    border: task.visible_to_client ? '1px solid hsl(var(--status-blue) / 0.25)' : '1px solid hsl(var(--border))',
+                  }}
+                  title="When on, this step shows on the client portal"
+                >
+                  {task.visible_to_client ? <Eye size={12} /> : <EyeOff size={12} />}
+                  {task.visible_to_client ? 'Visible to client' : 'Internal only'}
+                </button>
+                <button
+                  onClick={() => onUpdateFields({ requires_approval: !gate })}
+                  disabled={isUpdating}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all disabled:opacity-60"
+                  style={{
+                    backgroundColor: gate ? 'hsl(var(--primary) / 0.1)' : 'hsl(var(--secondary))',
+                    color: gate ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))',
+                    border: gate ? '1px solid hsl(var(--primary) / 0.25)' : '1px solid hsl(var(--border))',
+                  }}
+                  title="When on, the client can approve or request changes on this step"
+                >
+                  <ShieldCheck size={12} />
+                  {gate ? 'Approval gate on' : 'Approval gate off'}
+                </button>
+              </div>
+
+              {/* Send for approval — compose a note + optional file, then send
+                  it to the client. Wires to Messages + Records + the vault. */}
+              <div className="space-y-2.5 rounded-lg p-3.5" style={{ backgroundColor: 'hsl(var(--secondary) / 0.5)', border: '1px solid hsl(var(--border))' }}>
+                <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'hsl(var(--text-faint))' }}>
+                  {needsResend ? 'Re-send for approval' : 'Send for approval'}
+                </p>
+                <textarea
+                  value={adminNote}
+                  onChange={(e) => setAdminNote(e.target.value)}
+                  rows={2}
+                  placeholder="Add a note for the client (optional)…"
+                  className="w-full px-3 py-2.5 rounded-lg text-sm outline-none resize-none"
+                  style={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+                />
+                <input ref={fileRef} type="file" className="hidden" onChange={(e) => { setAdminFile(e.target.files?.[0] ?? null) }} />
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <button type="button" onClick={() => fileRef.current?.click()} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))', border: '1px solid hsl(var(--border))' }}>
+                    <Paperclip size={12} /> {adminFile ? adminFile.name.slice(0, 28) : 'Attach file (optional)'}
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={onDelete} className="text-xs px-3 py-1.5 rounded-lg transition-all hover:bg-destructive/10" style={{ color: 'hsl(var(--destructive))' }}>Delete task</button>
+                    <button
+                      onClick={() => { onAttachMedia(adminFile, adminNote); setAdminNote(''); setAdminFile(null) }}
+                      disabled={isAttaching || (!adminFile && !adminNote.trim())}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all disabled:opacity-50"
+                      style={{ backgroundColor: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
+                    >
+                      {isAttaching ? <Loader2 size={12} className="animate-spin" /> : <ShieldCheck size={12} />}
+                      {isAttaching ? 'Sending…' : needsResend ? 'Re-send for approval' : 'Send for approval'}
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </div>

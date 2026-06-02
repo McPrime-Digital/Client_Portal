@@ -46,7 +46,8 @@ export default function ProgressBar({
           className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-500 ease-out"
           style={{
             width: `${v}%`,
-            background: complete ? 'hsl(var(--status-green))' : accent,
+            background: `linear-gradient(90deg, color-mix(in srgb, ${accent} 72%, #000), ${accent})`,
+            boxShadow: `0 0 8px color-mix(in srgb, ${accent} 30%, transparent)`,
           }}
         />
       </div>

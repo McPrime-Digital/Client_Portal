@@ -11,6 +11,7 @@ import {
   ArrowRight,
   Clock,
   CheckSquare,
+  Files,
 } from 'lucide-react'
 
 export default async function ProjectsPage() {
@@ -42,13 +43,38 @@ export default async function ProjectsPage() {
     .eq('client_id', client.id)
     .order('created_at', { ascending: false })
 
-  const { data: phases } = projects && projects.length > 0
-    ? await supabaseAdmin
-        .from('project_phases')
-        .select('project_id, progress')
-        .in('project_id', projects.map((p) => p.id))
-    : { data: [] as any[] }
+  const projectIds = (projects ?? []).map((p) => p.id)
+  const hasProjects = projectIds.length > 0
+
+  const [{ data: phases }, { data: tasks }, { data: files }] = await Promise.all([
+    hasProjects
+      ? supabaseAdmin.from('project_phases').select('project_id, progress').in('project_id', projectIds)
+      : Promise.resolve({ data: [] as any[] }),
+    hasProjects
+      ? supabaseAdmin.from('tasks').select('project_id, status, visible_to_client, approved_at').in('project_id', projectIds)
+      : Promise.resolve({ data: [] as any[] }),
+    hasProjects
+      ? supabaseAdmin.from('files').select('project_id, direction').in('project_id', projectIds)
+      : Promise.resolve({ data: [] as any[] }),
+  ])
   applyCanonicalProgress(projects, phases)
+
+  // A little per-project overview: visible task progress + deliverables count.
+  const isDone = (s: string | null) => ['complete', 'completed', 'done'].includes((s ?? '').toLowerCase())
+  const statsByProject = new Map<string, { taskDone: number; taskTotal: number; deliverables: number }>()
+  for (const id of projectIds) statsByProject.set(id, { taskDone: 0, taskTotal: 0, deliverables: 0 })
+  for (const t of (tasks ?? []) as any[]) {
+    if (!t.visible_to_client) continue
+    const s = statsByProject.get(t.project_id)
+    if (!s) continue
+    s.taskTotal += 1
+    if (isDone(t.status) || t.approved_at) s.taskDone += 1
+  }
+  for (const f of (files ?? []) as any[]) {
+    if (f.direction !== 'delivery') continue
+    const s = statsByProject.get(f.project_id)
+    if (s) s.deliverables += 1
+  }
 
   const active = projects?.filter(
     (p) => p.status !== 'Completed' && p.status !== 'On Hold'
@@ -69,11 +95,26 @@ export default async function ProjectsPage() {
           className="card-interactive p-5 rounded-xl cursor-pointer
           group bg-[hsl(var(--card))] border border-[hsl(var(--border))]"
         >
-          {/* Top row */}
+          {/* Top row — project image (always shows a glass placeholder) */}
           <div className="flex items-start justify-between gap-3 mb-3">
+            <div className="w-12 h-12 rounded-xl overflow-hidden grid place-items-center flex-shrink-0"
+              style={{
+                backgroundColor: 'hsl(var(--card) / 0.55)',
+                backdropFilter: 'blur(8px) saturate(140%)',
+                WebkitBackdropFilter: 'blur(8px) saturate(140%)',
+                border: '1px solid hsl(var(--border) / 0.8)',
+                boxShadow: '0 1px 0 hsl(0 0% 100% / 0.06) inset',
+              }}>
+              {project.image_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={project.image_url} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <FolderOpen size={18} style={{ color: 'hsl(var(--text-faint))' }} />
+              )}
+            </div>
             <div className="flex-1 min-w-0">
               <h3
-                className="font-display font-semibold text-sm 
+                className="font-display font-semibold text-sm
                 truncate mb-1"
                 style={{ color: 'hsl(var(--foreground))' }}
               >
@@ -114,6 +155,28 @@ export default async function ProjectsPage() {
             </div>
             <ProgressBar value={project.progress} size="sm" />
           </div>
+
+          {/* Quick overview — a little more at a glance */}
+          {(() => {
+            const s = statsByProject.get(project.id)
+            if (!s) return null
+            return (
+              <div className="flex items-center gap-4 mb-3">
+                <div className="flex items-center gap-1.5">
+                  <CheckSquare size={12} style={{ color: 'hsl(var(--text-faint))' }} />
+                  <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                    {s.taskDone}/{s.taskTotal} task{s.taskTotal === 1 ? '' : 's'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Files size={12} style={{ color: 'hsl(var(--text-faint))' }} />
+                  <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                    {s.deliverables} deliverable{s.deliverables === 1 ? '' : 's'}
+                  </span>
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Meta row */}
           <div className="flex items-center gap-4">

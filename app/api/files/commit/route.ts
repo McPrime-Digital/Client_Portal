@@ -99,10 +99,21 @@ export async function POST(req: NextRequest) {
         .eq('id', invoiceId)
         .single()
       if (invoice && (role === 'admin' || invoice.client_id === scope.clientId)) {
-        await supabaseAdmin
-          .from('invoices')
-          .update({ receipt_file_id: fileRecord.id })
-          .eq('id', invoiceId)
+        // Client receipt → 'submitted' (awaits admin verify). Admin proof →
+        // 'verified' (admin-confirmed). Columns are optional; degrade safely.
+        const receiptPatch: Record<string, unknown> = { receipt_file_id: fileRecord.id }
+        if (category === 'receipt') {
+          receiptPatch.receipt_uploaded_by = role === 'admin' ? 'admin' : 'client'
+          receiptPatch.receipt_status = role === 'admin' ? 'verified' : 'submitted'
+          receiptPatch.receipt_submitted_at = new Date().toISOString()
+        }
+        const { error: rErr } = await supabaseAdmin
+          .from('invoices').update(receiptPatch).eq('id', invoiceId)
+        if (rErr) {
+          // New columns may not exist yet — at least keep the file link.
+          await supabaseAdmin.from('invoices')
+            .update({ receipt_file_id: fileRecord.id }).eq('id', invoiceId)
+        }
       }
     }
 

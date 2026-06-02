@@ -19,8 +19,8 @@ export default async function AdminProjectsPage() {
     .select(`
       *,
       clients(id, name, company),
-      tasks(id, status),
-      files(id),
+      tasks(id, status, approved_at),
+      files(id, direction),
       messages(id, sender_role, read_at),
       project_phases(progress)
     `)

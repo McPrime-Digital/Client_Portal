@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import AdminInvoicesList from
   '@/components/admin/AdminInvoicesList'
@@ -13,10 +14,13 @@ export default async function AdminInvoicesPage() {
     redirect('/login')
   }
 
-  // Mark any overdue invoices first
-  await supabase.rpc('mark_overdue_invoices')
+  // Reads/writes go through the service role (admin-gated above): RLS does not
+  // grant the admin a broad read on `invoices`, so the RLS-scoped client returns
+  // an empty list — which is why the hub showed no invoices. All other admin
+  // pages already read this way; this one was the lone holdout.
+  await supabaseAdmin.rpc('mark_overdue_invoices')
 
-  const { data: invoices } = await supabase
+  const { data: invoices } = await supabaseAdmin
     .from('invoices')
     .select(`
       *,

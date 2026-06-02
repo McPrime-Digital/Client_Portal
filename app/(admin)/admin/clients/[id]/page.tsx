@@ -386,7 +386,7 @@ export default async function ClientDetailPage({
                     border border-[hsl(var(--border))]
                     hover:border-[hsl(var(--primary))]"
                     style={{
-                      backgroundColor: 'hsl(var(--primary-foreground))',
+                      backgroundColor: 'hsl(var(--background))',
                     }}
                   >
                     <div className="flex
@@ -458,7 +458,7 @@ export default async function ClientDetailPage({
                 {invoices.slice(0, 5).map((inv) => {
                   const isPaid = inv.status === 'paid'
                   return (
-                    <div key={inv.id} className="flex items-center justify-between p-3 rounded-lg" style={{ backgroundColor: 'hsl(var(--primary-foreground))', border: '1px solid hsl(var(--border))' }}>
+                    <div key={inv.id} className="flex items-center justify-between p-3 rounded-lg" style={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))' }}>
                       <div className="min-w-0">
                         <p className="text-sm font-medium truncate" style={{ color: 'hsl(var(--foreground))' }}>
                           {inv.invoice_number ?? inv.title ?? 'Invoice'}

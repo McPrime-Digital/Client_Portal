@@ -37,6 +37,7 @@ export async function POST(request: NextRequest) {
       due_date,
       stripe_payment_url,
       invoice_amount,
+      image_url,
       phases,
       tasks,
     } = body
@@ -75,6 +76,17 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Set the project image as a best-effort update so creation never fails if
+    // the image_url column hasn't been migrated yet (run phase9 to enable it).
+    if (image_url) {
+      const { error: imgError } = await supabaseAdmin
+        .from('projects')
+        .update({ image_url })
+        .eq('id', project.id)
+      if (imgError) console.error('[create-project] image_url update skipped:', imgError.message)
+      else (project as any).image_url = image_url
+    }
+
     // 2. Create project phases
     const phasesToInsert = phases && Array.isArray(phases) && phases.length > 0
       ? phases.map((p: any, i: number) => ({
@@ -103,32 +115,45 @@ export async function POST(request: NextRequest) {
       console.error('[create-project] Phases insert error:', phasesError)
     }
 
-    // 3. Create tasks. Use admin-provided tasks if given, otherwise seed the
-    //    per-phase production process (with client approval gates), attaching
-    //    each task to its phase.
-    if (tasks && Array.isArray(tasks) && tasks.length > 0) {
+    // 3. Create tasks. ALWAYS seed the per-phase production process (with
+    //    client approval gates), attaching each step to its phase — so the
+    //    full process is never lost. THEN append any admin-entered deliverables
+    //    as their own visible tasks, so nothing the admin typed is dropped.
+    const seedError = await seedDefaultTasks(
+      supabaseAdmin,
+      project.id,
+      insertedPhases ?? undefined
+    )
+    if (seedError) {
+      console.error('[create-project] Default tasks seed error:', seedError)
+    }
+
+    const deliverables = Array.isArray(tasks)
+      ? (tasks as string[]).map((t) => (typeof t === 'string' ? t.trim() : '')).filter(Boolean)
+      : []
+    if (deliverables.length > 0) {
+      // Continue the sort sequence after the seeded process tasks.
+      const { count: seededCount } = await supabaseAdmin
+        .from('tasks')
+        .select('id', { count: 'exact', head: true })
+        .eq('project_id', project.id)
+      const base = seededCount ?? 0
       const { error: tasksError } = await supabaseAdmin
         .from('tasks')
         .insert(
-          tasks.map((title: string, i: number) => ({
+          deliverables.map((title, i) => ({
             project_id: project.id,
             title,
             status: 'pending',
-            sort_order: i,
+            sort_order: base + i,
+            category: 'deliverable',
+            priority: 'medium',
+            visible_to_client: true,
+            requires_approval: false,
           }))
         )
-
       if (tasksError) {
-        console.error('[create-project] Tasks insert error:', tasksError)
-      }
-    } else {
-      const seedError = await seedDefaultTasks(
-        supabaseAdmin,
-        project.id,
-        insertedPhases ?? undefined
-      )
-      if (seedError) {
-        console.error('[create-project] Default tasks seed error:', seedError)
+        console.error('[create-project] Deliverables insert error:', tasksError)
       }
     }
 

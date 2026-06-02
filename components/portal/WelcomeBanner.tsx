@@ -5,15 +5,26 @@ import { X, Sparkles } from 'lucide-react'
 
 export default function WelcomeBanner({
   clientName,
-  isFirstLogin,
+  dismissed,
 }: {
   clientName: string
-  isFirstLogin: boolean
+  // Server-persisted: once the client closes the banner it never returns.
+  dismissed: boolean
 }) {
-  const [visible, setVisible] =
-    useState(isFirstLogin)
+  const [visible, setVisible] = useState(!dismissed)
 
   if (!visible) return null
+
+  function close() {
+    // Hide immediately, then persist the dismissal. The banner stays gone
+    // across reloads/devices once `welcome_dismissed_at` is stored.
+    setVisible(false)
+    fetch('/api/portal/actions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'dismiss_welcome' }),
+    }).catch(() => {})
+  }
 
   return (
     <div
@@ -30,7 +41,8 @@ export default function WelcomeBanner({
     >
       {/* Dismiss */}
       <button
-        onClick={() => setVisible(false)}
+        onClick={close}
+        aria-label="Dismiss welcome message"
         className="absolute top-4 right-4
         p-1 rounded-lg transition-all"
         style={{ color: 'hsl(var(--text-faint))' }}

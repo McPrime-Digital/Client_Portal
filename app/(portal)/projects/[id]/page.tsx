@@ -39,6 +39,21 @@ export default async function ProjectDetailPage({
 
   if (!project) notFound()
 
+  // Approvals & Records ledger — ONLY task-approval activity (approvals,
+  // change-requests, auto-proceeded gates) with any file shared during the
+  // decision. Chat messages and other activity are deliberately excluded.
+  let involvement: any[] = []
+  try {
+    const { data } = await supabaseAdmin
+      .from('activity_log')
+      .select('id, actor_name, actor_role, event_type, title, body, meta, created_at')
+      .eq('project_id', project.id)
+      .in('event_type', ['approval_requested', 'task_approved', 'changes_requested', 'task_auto_approved'])
+      .order('created_at', { ascending: false })
+      .limit(500)
+    involvement = data ?? []
+  } catch { involvement = [] }
+
   const [
     { data: phases },
     { data: tasks },
@@ -75,6 +90,7 @@ export default async function ProjectDetailPage({
       files={files ?? []}
       initialMessages={messages ?? []}
       client={client}
+      involvement={involvement}
     />
   )
 }

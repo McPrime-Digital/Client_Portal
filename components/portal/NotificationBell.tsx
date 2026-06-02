@@ -45,12 +45,13 @@ function getNotifIcon(type: Notification['type']) {
 }
 
 function getNotifColor(type: Notification['type']) {
+  // Aligned with the admin bell + Recent Activity scheme (theme-adaptive tokens).
   const map = {
     message: 'hsl(var(--status-violet))',
-    file_delivered: 'hsl(var(--primary))',
-    status_change: 'hsl(var(--status-blue))',
-    invoice_created: 'hsl(var(--destructive))',
-    task_updated: 'hsl(var(--status-green))',
+    file_delivered: 'hsl(var(--status-blue))',
+    status_change: 'hsl(var(--status-amber))',
+    invoice_created: 'hsl(var(--status-green))',
+    task_updated: 'hsl(var(--primary))',
   }
   return map[type] ?? 'hsl(var(--muted-foreground))'
 }
@@ -65,6 +66,7 @@ export default function NotificationBell({ clientId }: Props) {
     loading,
     markAllRead,
     markOneRead,
+    dismissOne,
   } = useNotifications(clientId)
 
   // Close on outside click
@@ -82,12 +84,9 @@ export default function NotificationBell({ clientId }: Props) {
       document.removeEventListener('mousedown', handleClick)
   }, [open])
 
-  // Mark all read when panel opens
-  useEffect(() => {
-    if (open && unreadCount > 0) {
-      setTimeout(markAllRead, 1500)
-    }
-  }, [open])
+  // Notifications persist in the bell until the user opens one (click →
+  // navigate + mark read) or closes it (the X → dismiss). Opening the bell
+  // never clears anything on its own.
 
   function handleNotifClick(notif: Notification) {
     markOneRead(notif.id)
@@ -258,11 +257,16 @@ export default function NotificationBell({ clientId }: Props) {
                 const isUnread = !notif.read_at
 
                 return (
-                  <button
+                  <div
                     key={notif.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => handleNotifClick(notif)}
-                    className="w-full flex items-start gap-3 
-                    px-4 py-3 text-left transition-all"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') handleNotifClick(notif)
+                    }}
+                    className="group w-full flex items-start gap-3
+                    px-4 py-3 text-left transition-all cursor-pointer"
                     style={{
                       backgroundColor: isUnread
                         ? 'hsl(var(--primary) / 0.04)'
@@ -285,11 +289,12 @@ export default function NotificationBell({ clientId }: Props) {
                   >
                     {/* Icon */}
                     <div
-                      className="w-8 h-8 rounded-lg flex 
-                      items-center justify-center flex-shrink-0 
+                      className="w-8 h-8 rounded-lg flex
+                      items-center justify-center flex-shrink-0
                       mt-0.5"
                       style={{
-                        backgroundColor: `color-mix(in srgb, ${color} 8%, transparent)`,
+                        backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)`,
+                        border: `1px solid color-mix(in srgb, ${color} 22%, transparent)`,
                       }}
                     >
                       <Icon size={14}
@@ -298,7 +303,7 @@ export default function NotificationBell({ clientId }: Props) {
 
                     {/* Content */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-start 
+                      <div className="flex items-start
                         justify-between gap-2">
                         <p
                           className="text-sm leading-tight"
@@ -313,8 +318,8 @@ export default function NotificationBell({ clientId }: Props) {
                         </p>
                         {isUnread && (
                           <div
-                            className="w-2 h-2 rounded-full 
-                            flex-shrink-0 mt-1"
+                            className="w-2 h-2 rounded-full
+                            flex-shrink-0 mt-1.5"
                             style={{
                               backgroundColor: 'hsl(var(--destructive))',
                             }}
@@ -334,7 +339,32 @@ export default function NotificationBell({ clientId }: Props) {
                         {timeAgo(notif.created_at)}
                       </p>
                     </div>
-                  </button>
+
+                    {/* Dismiss (X) — closes this notification from the bell.
+                        The action stays recorded in the project's records. */}
+                    <button
+                      type="button"
+                      aria-label="Dismiss notification"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        dismissOne(notif.id)
+                      }}
+                      className="w-6 h-6 rounded-md flex items-center
+                      justify-center flex-shrink-0 transition-all
+                      opacity-60 hover:opacity-100"
+                      style={{ color: 'hsl(var(--text-faint))' }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.color = 'hsl(var(--foreground))'
+                        e.currentTarget.style.backgroundColor = 'hsl(var(--secondary))'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.color = 'hsl(var(--text-faint))'
+                        e.currentTarget.style.backgroundColor = 'transparent'
+                      }}
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
                 )
               })}
           </div>

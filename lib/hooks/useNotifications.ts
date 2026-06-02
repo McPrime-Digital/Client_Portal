@@ -15,6 +15,7 @@ export type Notification = {
   title: string
   body: string | null
   read_at: string | null
+  dismissed_at?: string | null
   created_at: string
 }
 
@@ -25,6 +26,8 @@ export function useNotifications(clientId: string | null) {
   const [loading, setLoading] = useState(true)
   // Tracks ids optimistically marked read so a poll mid-flight can't un-read them.
   const readIds = useRef<Set<string>>(new Set())
+  // Tracks ids optimistically dismissed so a poll mid-flight can't resurrect them.
+  const dismissedIds = useRef<Set<string>>(new Set())
 
   const unreadCount = notifications.filter((n) => !n.read_at).length
 
@@ -35,11 +38,14 @@ export function useNotifications(clientId: string | null) {
       const json = await res.json()
       const incoming: Notification[] = json.notifications ?? []
       setNotifications(
-        incoming.map((n) =>
-          readIds.current.has(n.id) && !n.read_at
-            ? { ...n, read_at: new Date().toISOString() }
-            : n
-        )
+        incoming
+          // Drop anything dismissed (server-side or optimistically pending).
+          .filter((n) => !n.dismissed_at && !dismissedIds.current.has(n.id))
+          .map((n) =>
+            readIds.current.has(n.id) && !n.read_at
+              ? { ...n, read_at: new Date().toISOString() }
+              : n
+          )
       )
     } finally {
       setLoading(false)
@@ -55,8 +61,11 @@ export function useNotifications(clientId: string | null) {
     // Poll as a safety net; Supabase Realtime gives instant delivery.
     const interval = setInterval(loadNotifications, POLL_INTERVAL)
     const supabase = createClient()
+    // Unique channel suffix so multiple hook instances (e.g. the bell + a
+    // project page's tab badges) don't double-join the same topic on one
+    // socket — same pattern as RealtimeRefresh.
     const channel = supabase
-      .channel(`notifications:${clientId}`)
+      .channel(`notifications:${clientId}:${Math.random().toString(36).slice(2, 8)}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'notifications', filter: `client_id=eq.${clientId}` },
@@ -107,11 +116,40 @@ export function useNotifications(clientId: string | null) {
     await markRead({ ids: [notificationId] })
   }
 
+  // Dismiss (the bell X) — remove the row from the bell. The action stays
+  // recorded in activity_log, so the audit trail is untouched.
+  const dismiss = useCallback(
+    async (body: { ids?: string[]; all?: boolean }) => {
+      await fetch('/api/portal/notifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, dismiss: true }),
+      })
+    },
+    []
+  )
+
+  async function dismissOne(notificationId: string) {
+    dismissedIds.current.add(notificationId)
+    setNotifications((prev) => prev.filter((n) => n.id !== notificationId))
+    await dismiss({ ids: [notificationId] })
+  }
+
+  async function dismissAll() {
+    const ids = notifications.map((n) => n.id)
+    if (ids.length === 0) return
+    ids.forEach((id) => dismissedIds.current.add(id))
+    setNotifications([])
+    await dismiss({ all: true })
+  }
+
   return {
     notifications,
     unreadCount,
     loading,
     markAllRead,
     markOneRead,
+    dismissOne,
+    dismissAll,
   }
 }

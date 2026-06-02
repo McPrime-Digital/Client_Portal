@@ -5,6 +5,8 @@
 @layer base {
   /* ── Light theme — white canvas, shark surfaces ── */
   :root {
+    /* Native controls (date picker calendar, scrollbars) follow the theme. */
+    color-scheme: light;
     --background: 210 36% 98%;        /* #F7F9FB near-white canvas */
     --foreground: 216 22% 12%;        /* #171C23 cool near-black */
     --card: 208 26% 92%;             /* #E2E8ED soft shark surface */
@@ -37,6 +39,7 @@
 
   /* ── Dark theme — deep navy ── */
   .dark {
+    color-scheme: dark;
     --background: 228 90% 9%;         /* #020A2B deep navy canvas */
     --foreground: 226 39% 92%;        /* #E8EBF5 off-white */
     --card: 225 70% 19%;              /* #0C1E55 lifted card / panel */

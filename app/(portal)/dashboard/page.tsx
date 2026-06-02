@@ -7,7 +7,7 @@ import WelcomeBanner from '@/components/portal/WelcomeBanner'
 import OverviewGreeting from '@/components/portal/OverviewGreeting'
 import ProgressBar from '@/components/shared/ProgressBar'
 import RealtimeRefresh from '@/components/shared/RealtimeRefresh'
-import { applyCanonicalProgress } from '@/lib/projectProgress'
+import { applyCanonicalProgress, phaseColor } from '@/lib/projectProgress'
 import {
   FolderOpen,
   CheckSquare,
@@ -21,8 +21,15 @@ import {
   Activity,
   CalendarClock,
   Download,
-  Wallet,
   Sparkles,
+  ClipboardList,
+  CheckCircle2,
+  FileVideo,
+  FileImage,
+  FileText,
+  FileArchive,
+  FileAudio,
+  File as FileIcon,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -33,6 +40,15 @@ type Kpi = {
   icon: LucideIcon
   href: string
   color: string
+}
+
+type PhaseRow = {
+  id: string
+  project_id: string
+  name: string
+  progress: number
+  sort_order: number
+  is_complete: boolean
 }
 
 // ── Helpers ─────────────────────────────────────
@@ -65,6 +81,38 @@ function shortDate(dateStr: string): string {
 const isTaskDone = (s: string | null) =>
   ['complete', 'completed', 'done'].includes((s ?? '').toLowerCase())
 
+// File-type presentation for the deliverables cards — icon + accent + extension.
+function fileMeta(fileName: string, fileType: string | null) {
+  const ext = (fileName.split('.').pop() || '').toUpperCase().slice(0, 4)
+  const t = (fileType || '').toLowerCase()
+  const name = fileName.toLowerCase()
+  const is = (...xs: string[]) => xs.some((x) => t.includes(x) || name.endsWith(`.${x}`))
+  if (t.startsWith('video') || is('mp4', 'mov', 'webm', 'mkv'))
+    return { Icon: FileVideo, color: 'hsl(var(--status-violet))', ext: ext || 'VIDEO' }
+  if (t.startsWith('image') || is('png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'))
+    return { Icon: FileImage, color: 'hsl(var(--status-blue))', ext: ext || 'IMG' }
+  if (t.startsWith('audio') || is('mp3', 'wav', 'aac', 'm4a'))
+    return { Icon: FileAudio, color: 'hsl(var(--status-green))', ext: ext || 'AUDIO' }
+  if (is('zip', 'rar', '7z', 'tar', 'gz'))
+    return { Icon: FileArchive, color: 'hsl(var(--status-amber))', ext: ext || 'ZIP' }
+  if (t.includes('pdf') || t.includes('document') || is('pdf', 'doc', 'docx', 'txt'))
+    return { Icon: FileText, color: 'hsl(var(--primary))', ext: ext || 'DOC' }
+  return { Icon: FileIcon, color: 'hsl(var(--muted-foreground))', ext: ext || 'FILE' }
+}
+
+// Icon + accent for a notification type — drives the Recent Activity feed so it
+// reflects every alert kind, not just messages.
+function notifMeta(type: string): { Icon: LucideIcon; color: string } {
+  switch (type) {
+    case 'message': return { Icon: MessageSquare, color: 'hsl(var(--status-violet))' }
+    case 'file_delivered': return { Icon: Download, color: 'hsl(var(--status-blue))' }
+    case 'status_change': return { Icon: Activity, color: 'hsl(var(--status-amber))' }
+    case 'invoice_created': return { Icon: CreditCard, color: 'hsl(var(--status-green))' }
+    case 'task_updated': return { Icon: CheckSquare, color: 'hsl(var(--primary))' }
+    default: return { Icon: Activity, color: 'hsl(var(--muted-foreground))' }
+  }
+}
+
 export default async function DashboardPage() {
   const supabase = await createClient()
 
@@ -91,9 +139,9 @@ export default async function DashboardPage() {
     )
   }
 
-  const isFirstLogin = client?.onboarded_at
-    ? Date.now() - new Date(client.onboarded_at).getTime() < 300000
-    : false
+  // Welcome banner shows for every client until they dismiss it themselves
+  // (persisted in clients.welcome_dismissed_at). Absent column → shows.
+  const welcomeDismissed = !!client?.welcome_dismissed_at
 
   // Projects first, then everything scoped to their ids
   const { data: projects } = await supabaseAdmin
@@ -109,9 +157,10 @@ export default async function DashboardPage() {
     { data: tasks },
     { data: recentFiles },
     { data: unreadMsgs },
-    { data: recentMessages },
+    { data: recentNotifs },
     { data: invoices },
     { data: phases },
+    { count: deliverablesCount },
   ] = await Promise.all([
     hasProjects
       ? supabaseAdmin.from('tasks').select('*').in('project_id', projectIds)
@@ -131,22 +180,41 @@ export default async function DashboardPage() {
           .eq('sender_role', 'admin')
           .in('project_id', projectIds)
       : Promise.resolve({ data: [] as any[] }),
-    hasProjects
-      ? supabaseAdmin
-          .from('messages')
-          .select('*')
-          .in('project_id', projectIds)
-          .order('created_at', { ascending: false })
-          .limit(6)
-      : Promise.resolve({ data: [] as any[] }),
+    // Recent Activity stream — every alert type for this client (messages,
+    // deliveries, status changes, invoices, task approvals), not just messages.
+    supabaseAdmin
+      .from('notifications')
+      .select('id, type, title, body, created_at, project_id')
+      .eq('client_id', client.id)
+      .order('created_at', { ascending: false })
+      .limit(10),
     supabaseAdmin.from('invoices').select('*').eq('client_id', client.id),
     hasProjects
       ? supabaseAdmin
           .from('project_phases')
-          .select('project_id, progress')
+          .select('id, project_id, name, progress, sort_order, is_complete')
           .in('project_id', projectIds)
       : Promise.resolve({ data: [] as any[] }),
+    // Total delivered files — powers the Deliverables KPI (accurate count,
+    // not just the recent slice above).
+    supabaseAdmin
+      .from('files')
+      .select('id', { count: 'exact', head: true })
+      .eq('client_id', client.id)
+      .eq('direction', 'delivery'),
   ])
+
+  // Phases grouped per project (ordered) — drives the live phase breakdown on
+  // each active-project card, mirroring the admin pipeline.
+  const phasesByProject = new Map<string, PhaseRow[]>()
+  for (const ph of (phases ?? []) as PhaseRow[]) {
+    const arr = phasesByProject.get(ph.project_id) ?? []
+    arr.push(ph)
+    phasesByProject.set(ph.project_id, arr)
+  }
+  for (const arr of phasesByProject.values()) {
+    arr.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+  }
 
   // Keep overview progress in sync with the phase-average (single
   // source of truth shared with project detail pages).
@@ -164,10 +232,31 @@ export default async function DashboardPage() {
   const inReview = (projects ?? []).filter(
     (p) => p.status === 'In Review' || p.status === 'Revisions'
   )
-  const completedTasks = (tasks ?? []).filter((t) => isTaskDone(t.status)).length
-  const totalTasks = (tasks ?? []).length
+  // Only tasks the client can actually see count toward their progress
+  // numbers (internal steps are excluded so the figures match what they see).
+  const clientTasks = (tasks ?? []).filter((t) => t.visible_to_client)
+  const completedTasks = clientTasks.filter((t) => isTaskDone(t.status) || !!t.approved_at).length
+  const totalTasks = clientTasks.length
+  const tasksRemaining = Math.max(0, totalTasks - completedTasks)
   const taskPct = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0
   const unreadMessages = (unreadMsgs ?? []).length
+
+  // Per-project task rollup for the Task Process overview card.
+  const taskByProject = (projects ?? [])
+    .map((p) => {
+      const list = clientTasks.filter((t) => t.project_id === p.id)
+      const done = list.filter((t) => isTaskDone(t.status) || !!t.approved_at).length
+      return {
+        id: p.id,
+        title: p.title,
+        status: p.status,
+        total: list.length,
+        done,
+        pct: list.length > 0 ? Math.round((done / list.length) * 100) : 0,
+      }
+    })
+    .filter((p) => p.total > 0)
+    .sort((a, b) => a.pct - b.pct)
 
   const allInvoices = invoices ?? []
   const outstanding = allInvoices
@@ -186,41 +275,33 @@ export default async function DashboardPage() {
     .filter((i) => (i.status === 'unpaid' || i.status === 'overdue') && i.due_date)
     .sort((a, b) => new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime())[0]
   const payLink = allInvoices.find(
-    (i) => (i.status === 'unpaid' || i.status === 'overdue') && i.stripe_payment_link
-  )?.stripe_payment_link
+    (i) => (i.status === 'unpaid' || i.status === 'overdue') && i.stripe_payment_url
+  )?.stripe_payment_url
 
   // Next project delivery
   const upcoming = activeProjects
     .filter((p) => p.due_date)
     .sort((a, b) => new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime())[0]
 
-  // Recent activity — merged from deliverables + messages
+  // Recent activity — the client's full alert stream (all notification types),
+  // so it reflects messages, deliveries, status changes, invoices and task
+  // approvals — not just messages.
   type ActivityItem = {
     id: string
-    kind: 'file' | 'message'
+    type: string
     title: string
     sub: string
     time: string
+    projectId: string | null
   }
-  const fileActs: ActivityItem[] = (recentFiles ?? []).slice(0, 6).map((f) => ({
-    id: `f-${f.id}`,
-    kind: 'file',
-    title: f.file_name,
-    sub: 'New deliverable available',
-    time: f.created_at,
+  const activity: ActivityItem[] = (recentNotifs ?? []).slice(0, 6).map((n) => ({
+    id: n.id,
+    type: n.type,
+    title: n.title,
+    sub: n.body ?? '',
+    time: n.created_at,
+    projectId: n.project_id ?? null,
   }))
-  const msgActs: ActivityItem[] = (recentMessages ?? [])
-    .filter((m) => !m.is_deleted && m.body)
-    .map((m) => ({
-      id: `m-${m.id}`,
-      kind: 'message' as const,
-      title: m.sender_role === 'admin' ? (m.sender_name || 'McPrime Digital') : 'You',
-      sub: m.body,
-      time: m.created_at,
-    }))
-  const activity = [...fileActs, ...msgActs]
-    .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
-    .slice(0, 6)
 
   const firstName = (client.name ?? '').split(' ')[0]
   const now = new Date()
@@ -260,12 +341,12 @@ export default async function DashboardPage() {
       color: 'hsl(var(--status-violet))',
     },
     {
-      label: 'Outstanding',
-      value: formatCurrency(outstanding),
-      sub: dueCount > 0 ? `${dueCount} invoice${dueCount !== 1 ? 's' : ''} due` : 'All settled',
-      icon: Wallet,
-      href: '/invoices',
-      color: outstanding > 0 ? 'hsl(var(--destructive))' : 'hsl(var(--status-green))',
+      label: 'Deliverables',
+      value: deliverablesCount ?? 0,
+      sub: (deliverablesCount ?? 0) > 0 ? 'Ready to download' : 'None yet',
+      icon: Files,
+      href: '/files',
+      color: 'hsl(var(--primary))',
     },
   ]
 
@@ -273,12 +354,12 @@ export default async function DashboardPage() {
     <div className="space-y-6 w-full">
       {/* Live: refresh overview when the client's data changes */}
       <RealtimeRefresh
-        tables={['projects', 'project_phases', 'invoices', 'activity_log', 'messages', 'files']}
-        pollMs={45000}
+        tables={['projects', 'project_phases', 'tasks', 'invoices', 'activity_log', 'messages', 'files', 'notifications']}
+        pollMs={30000}
       />
 
-      {/* Welcome banner for first-time clients */}
-      <WelcomeBanner clientName={client?.name ?? 'there'} isFirstLogin={isFirstLogin} />
+      {/* Welcome banner — stays until the client closes it themselves */}
+      <WelcomeBanner clientName={client?.name ?? 'there'} dismissed={welcomeDismissed} />
 
       {/* Pending approvals — items awaiting the client's review */}
       {pendingApprovals.length > 0 && (
@@ -317,31 +398,42 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* Overdue / unpaid alert */}
-      {dueCount > 0 && (
-        <Link href="/invoices">
-          <div
-            className="card-interactive flex items-center justify-between p-4 rounded-xl cursor-pointer"
-            style={{
-              backgroundColor: overdueAmount > 0 ? 'hsl(var(--destructive) / 0.08)' : 'hsl(var(--primary) / 0.06)',
-              border: overdueAmount > 0 ? '1px solid hsl(var(--destructive) / 0.25)' : '1px solid hsl(var(--primary) / 0.2)',
-            }}
-          >
-            <div className="flex items-center gap-3">
-              <AlertCircle size={16} style={{ color: overdueAmount > 0 ? 'hsl(var(--destructive))' : 'hsl(var(--primary))' }} />
-              <span className="text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>
-                {overdueAmount > 0
-                  ? `${formatCurrency(overdueAmount)} overdue — please settle to avoid delays`
-                  : `${formatCurrency(outstanding)} outstanding across ${dueCount} invoice${dueCount !== 1 ? 's' : ''}`}
+      {/* Account standing — a premium relationship ribbon. Billing detail
+          lives in the Billing Summary card; this is the at-a-glance status. */}
+      {(() => {
+        const standing = overdueAmount > 0
+          ? { label: 'Action needed', tint: 'hsl(var(--destructive))', note: `${formatCurrency(overdueAmount)} overdue` }
+          : dueCount > 0
+          ? { label: 'Payment due', tint: 'hsl(var(--primary))', note: `${formatCurrency(outstanding)} across ${dueCount} invoice${dueCount !== 1 ? 's' : ''}` }
+          : pendingApprovals.length > 0
+          ? { label: 'Review pending', tint: 'hsl(var(--status-amber))', note: `${pendingApprovals.length} item${pendingApprovals.length !== 1 ? 's' : ''} awaiting you` }
+          : { label: 'In good standing', tint: 'hsl(var(--status-green))', note: 'Everything is up to date' }
+        const ctaHref = (overdueAmount > 0 || dueCount > 0) ? '/invoices' : pendingApprovals.length > 0 ? '/projects' : '/projects'
+        const facts: string[] = [`${activeProjects.length} active project${activeProjects.length !== 1 ? 's' : ''}`]
+        if (upcoming?.due_date) facts.push(`Next delivery ${shortDate(upcoming.due_date)}`)
+        return (
+          <Link href={ctaHref} className="block">
+            <div className="card-interactive flex items-center justify-between gap-4 p-4 rounded-xl flex-wrap"
+              style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}>
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold flex-shrink-0"
+                  style={{ backgroundColor: `color-mix(in srgb, ${standing.tint} 12%, transparent)`, color: standing.tint }}>
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: standing.tint }} />
+                  {standing.label}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate" style={{ color: 'hsl(var(--foreground))' }}>{standing.note}</p>
+                  <p className="text-xs truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>{facts.join(' · ')}</p>
+                </div>
+              </div>
+              <span className="flex items-center gap-1 text-sm font-semibold flex-shrink-0" style={{ color: standing.tint }}>
+                {(overdueAmount > 0 || dueCount > 0) ? 'View invoices' : pendingApprovals.length > 0 ? 'Review now' : 'View projects'}
+                <ArrowRight size={14} />
               </span>
             </div>
-            <div className="flex items-center gap-1 text-sm flex-shrink-0" style={{ color: overdueAmount > 0 ? 'hsl(var(--destructive))' : 'hsl(var(--primary))' }}>
-              View invoices
-              <ArrowRight size={14} />
-            </div>
-          </div>
-        </Link>
-      )}
+          </Link>
+        )
+      })()}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -440,9 +532,126 @@ export default async function DashboardPage() {
                         </div>
                       </div>
                       <ProgressBar value={project.progress} size="sm" className="mt-4" />
+
+                      {/* Live phase breakdown — mirrors the admin pipeline.
+                          Bars animate as the admin advances each phase. */}
+                      {(() => {
+                        const phs = phasesByProject.get(project.id) ?? []
+                        if (phs.length === 0) return null
+                        return (
+                          <div className="mt-4 pt-4 space-y-1.5" style={{ borderTop: '1px solid hsl(var(--border))' }}>
+                            {phs.map((ph, i) => (
+                              <div key={ph.id} className="flex items-center gap-2.5">
+                                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                                  style={{ backgroundColor: ph.is_complete ? 'hsl(var(--status-green))' : phaseColor(i) }} />
+                                <span className="text-[11px] flex-shrink-0 w-24 truncate"
+                                  style={{ color: ph.is_complete ? 'hsl(var(--status-green))' : 'hsl(var(--muted-foreground))' }}>
+                                  {ph.name}
+                                </span>
+                                <div className="flex-1 h-1 rounded-full overflow-hidden" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                                  <div className="h-full rounded-full transition-all duration-500"
+                                    style={{ width: `${ph.progress}%`, backgroundColor: ph.is_complete ? 'hsl(var(--status-green))' : phaseColor(i) }} />
+                                </div>
+                                <span className="text-[10px] tabular-nums flex-shrink-0 w-8 text-right" style={{ color: 'hsl(var(--text-faint))' }}>
+                                  {ph.progress}%
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      })()}
                     </div>
                   </Link>
                 ))}
+              </div>
+            )}
+          </section>
+
+          {/* Task Process overview — live production-task progress, end-to-end
+              wired (refreshes on any task change via RealtimeRefresh). */}
+          <section>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-display text-base font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
+                Task Progress
+              </h2>
+              <Link href="/projects" className="flex items-center gap-1 text-sm" style={{ color: 'hsl(var(--primary))' }}>
+                View all <ArrowRight size={14} />
+              </Link>
+            </div>
+
+            {totalTasks === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 rounded-xl"
+                style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}>
+                <ClipboardList size={28} style={{ color: 'hsl(var(--text-faint))' }} />
+                <p className="text-sm mt-3" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  No tasks yet — your project plan will appear here
+                </p>
+              </div>
+            ) : (
+              <div className="rounded-xl p-5" style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}>
+                {/* Header: overall completion + live indicator + stat chips */}
+                <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
+                      style={{ backgroundColor: 'hsl(var(--primary) / 0.1)' }}>
+                      <ClipboardList size={20} style={{ color: 'hsl(var(--primary))' }} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="font-display text-2xl font-bold tabular-nums" style={{ color: 'hsl(var(--foreground))' }}>
+                          {taskPct}%
+                        </p>
+                        <span className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'hsl(var(--status-green))' }} title="Live" />
+                      </div>
+                      <p className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>overall completion</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    {[
+                      { label: 'Done', value: completedTasks, color: 'hsl(var(--status-green))', icon: CheckCircle2 },
+                      { label: 'Remaining', value: tasksRemaining, color: 'hsl(var(--muted-foreground))', icon: Clock },
+                      { label: 'Awaiting you', value: pendingApprovals.length, color: 'hsl(var(--status-amber))', icon: CheckSquare },
+                    ].map((c) => {
+                      const Icon = c.icon
+                      return (
+                        <div key={c.label} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg"
+                          style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                          <Icon size={13} style={{ color: c.color }} />
+                          <span className="text-sm font-semibold tabular-nums" style={{ color: 'hsl(var(--foreground))' }}>{c.value}</span>
+                          <span className="text-[11px]" style={{ color: 'hsl(var(--muted-foreground))' }}>{c.label}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Overall progress bar */}
+                <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                  <div className="h-full rounded-full transition-all duration-700"
+                    style={{ width: `${taskPct}%`, background: taskPct === 100 ? 'hsl(var(--status-green))' : 'linear-gradient(90deg, color-mix(in srgb, hsl(var(--primary)) 72%, #000), hsl(var(--primary)))' }} />
+                </div>
+
+                {/* Per-project breakdown */}
+                {taskByProject.length > 0 && (
+                  <div className="mt-5 space-y-3">
+                    {taskByProject.slice(0, 5).map((p) => (
+                      <Link key={p.id} href={`/projects/${p.id}`} className="flex items-center gap-3 group">
+                        <span className="text-xs flex-shrink-0 w-32 truncate transition-colors group-hover:text-[hsl(var(--primary))]"
+                          style={{ color: 'hsl(var(--foreground))' }} title={p.title}>
+                          {p.title}
+                        </span>
+                        <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'hsl(var(--secondary))' }}>
+                          <div className="h-full rounded-full transition-all duration-500"
+                            style={{ width: `${p.pct}%`, backgroundColor: p.pct === 100 ? 'hsl(var(--status-green))' : 'hsl(var(--primary))' }} />
+                        </div>
+                        <span className="text-[11px] tabular-nums flex-shrink-0 w-10 text-right font-semibold"
+                          style={{ color: p.pct === 100 ? 'hsl(var(--status-green))' : 'hsl(var(--text-faint))' }}>
+                          {p.done}/{p.total}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </section>
@@ -469,36 +678,52 @@ export default async function DashboardPage() {
                 </p>
               </div>
             ) : (
-              <div className="rounded-xl overflow-hidden" style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}>
-                {recentFiles.slice(0, 5).map((file, index, arr) => (
-                  <Link key={file.id} href="/files">
-                    <div
-                      className="group flex items-center gap-4 px-5 py-4 transition-colors hover:bg-[hsl(var(--secondary))]"
-                      style={{ borderBottom: index < arr.length - 1 ? '1px solid hsl(var(--border))' : 'none' }}
-                    >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {recentFiles.slice(0, 6).map((file) => {
+                  const { Icon, color, ext } = fileMeta(file.file_name, file.file_type)
+                  return (
+                    <Link key={file.id} href="/files" className="group">
                       <div
-                        className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                        style={{ backgroundColor: 'hsl(var(--primary) / 0.1)' }}
+                        className="card-interactive rounded-xl p-4 h-full flex flex-col"
+                        style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
                       >
-                        <Files size={14} style={{ color: 'hsl(var(--primary))' }} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate" style={{ color: 'hsl(var(--foreground))' }}>
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                          <div
+                            className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
+                            style={{ backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)`, border: `1px solid color-mix(in srgb, ${color} 20%, transparent)` }}
+                          >
+                            <Icon size={20} style={{ color }} />
+                          </div>
+                          <span
+                            className="text-[10px] font-bold tracking-wide px-2 py-0.5 rounded-md flex-shrink-0"
+                            style={{ backgroundColor: `color-mix(in srgb, ${color} 10%, transparent)`, color }}
+                          >
+                            {ext}
+                          </span>
+                        </div>
+                        <p
+                          className="text-sm font-semibold leading-snug break-words line-clamp-2"
+                          style={{ color: 'hsl(var(--foreground))' }}
+                          title={file.file_name}
+                        >
                           {file.file_name}
                         </p>
-                        <p className="text-xs mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                          {shortDate(file.created_at)}
-                          {file.file_size ? ` · ${(file.file_size / 1024 / 1024).toFixed(1)} MB` : ''}
-                        </p>
+                        <div className="mt-auto pt-3 flex items-center justify-between gap-2">
+                          <span className="text-[11px] truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                            {shortDate(file.created_at)}
+                            {file.file_size ? ` · ${(file.file_size / 1024 / 1024).toFixed(1)} MB` : ''}
+                          </span>
+                          <span
+                            className="flex items-center gap-1 text-[11px] font-semibold flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                            style={{ color: 'hsl(var(--primary))' }}
+                          >
+                            <Download size={12} /> Open
+                          </span>
+                        </div>
                       </div>
-                      <Download
-                        size={15}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                        style={{ color: 'hsl(var(--primary))' }}
-                      />
-                    </div>
-                  </Link>
-                ))}
+                    </Link>
+                  )
+                })}
               </div>
             )}
           </section>
@@ -512,9 +737,17 @@ export default async function DashboardPage() {
             className="rounded-xl p-5"
             style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
           >
-            <div className="flex items-center gap-2 mb-4">
-              <CreditCard size={15} style={{ color: 'hsl(var(--primary))' }} />
-              <h2 className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Billing Snapshot</h2>
+            <div className="flex items-center justify-between gap-2 mb-4">
+              <div className="flex items-center gap-2">
+                <CreditCard size={15} style={{ color: 'hsl(var(--primary))' }} />
+                <h2 className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>Billing Summary</h2>
+              </div>
+              {overdueAmount > 0 && (
+                <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                  style={{ backgroundColor: 'hsl(var(--destructive) / 0.12)', color: 'hsl(var(--destructive))' }}>
+                  <AlertCircle size={10} /> {formatCurrency(overdueAmount)} overdue
+                </span>
+              )}
             </div>
 
             <div className="space-y-4">
@@ -592,15 +825,14 @@ export default async function DashboardPage() {
             ) : (
               <div className="space-y-1">
                 {activity.map((item) => {
-                  const Icon = item.kind === 'file' ? Files : MessageSquare
-                  const color = item.kind === 'file' ? 'hsl(var(--primary))' : 'hsl(var(--status-violet))'
+                  const { Icon, color } = notifMeta(item.type)
                   return (
                     <div key={item.id} className="flex items-start gap-3 p-2 rounded-lg">
                       <div
-                        className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
-                        style={{ backgroundColor: `color-mix(in srgb, ${color} 10%, transparent)` }}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
+                        style={{ backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)`, border: `1px solid color-mix(in srgb, ${color} 22%, transparent)` }}
                       >
-                        <Icon size={13} style={{ color }} />
+                        <Icon size={14} style={{ color }} />
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium leading-snug truncate" style={{ color: 'hsl(var(--foreground))' }}>
