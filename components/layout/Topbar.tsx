@@ -52,12 +52,20 @@ export default function Topbar({ clientName, clientId }: Props) {
           <NotificationBell clientId={clientId} />
         )}
 
-        {/* User avatar */}
-        <div
-          className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold cursor-pointer transition-opacity hover:opacity-80 bg-primary text-primary-foreground"
-          title={clientName}
-        >
-          {clientName?.[0]?.toUpperCase() ?? 'C'}
+        {/* Account owner / manager — first name at the extreme top-right */}
+        <div className="flex items-center gap-2.5 pl-1">
+          <div className="hidden sm:block text-right leading-tight">
+            <p className="text-sm font-semibold text-foreground truncate max-w-[140px]">
+              {clientName?.split(' ')[0] ?? 'Account'}
+            </p>
+            <p className="text-[11px] text-primary">Account owner</p>
+          </div>
+          <div
+            className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold cursor-pointer transition-opacity hover:opacity-80 bg-primary text-primary-foreground"
+            title={clientName}
+          >
+            {clientName?.[0]?.toUpperCase() ?? 'C'}
+          </div>
         </div>
       </div>
     </header>

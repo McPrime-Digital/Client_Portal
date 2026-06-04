@@ -8,6 +8,7 @@ import OverviewGreeting from '@/components/portal/OverviewGreeting'
 import ProgressBar from '@/components/shared/ProgressBar'
 import RealtimeRefresh from '@/components/shared/RealtimeRefresh'
 import { applyCanonicalProgress, phaseColor } from '@/lib/projectProgress'
+import { resolveFolder } from '@/lib/fileCategories'
 import {
   FolderOpen,
   CheckSquare,
@@ -155,23 +156,24 @@ export default async function DashboardPage() {
 
   const [
     { data: tasks },
-    { data: recentFiles },
+    { data: deliveredFiles },
     { data: unreadMsgs },
     { data: recentNotifs },
     { data: invoices },
     { data: phases },
-    { count: deliverablesCount },
   ] = await Promise.all([
     hasProjects
       ? supabaseAdmin.from('tasks').select('*').in('project_id', projectIds)
       : Promise.resolve({ data: [] as any[] }),
+    // All admin-delivered files; filtered to GENUINE deliverables below
+    // (final assets / Deliverables folder — never chat or task-review media).
     supabaseAdmin
       .from('files')
-      .select('*')
+      .select('id, file_name, file_size, file_type, created_at, category, folder, task_id, is_final, direction')
       .eq('client_id', client.id)
       .eq('direction', 'delivery')
       .order('created_at', { ascending: false })
-      .limit(8),
+      .limit(200),
     hasProjects
       ? supabaseAdmin
           .from('messages')
@@ -195,14 +197,17 @@ export default async function DashboardPage() {
           .select('id, project_id, name, progress, sort_order, is_complete')
           .in('project_id', projectIds)
       : Promise.resolve({ data: [] as any[] }),
-    // Total delivered files — powers the Deliverables KPI (accurate count,
-    // not just the recent slice above).
-    supabaseAdmin
-      .from('files')
-      .select('id', { count: 'exact', head: true })
-      .eq('client_id', client.id)
-      .eq('direction', 'delivery'),
   ])
+
+  // A "deliverable" is a final asset, or a file the admin uploaded to the
+  // Deliverables folder — NOT a chat attachment (e.g. a voice note) or
+  // task-review media. This is the same taxonomy the File Vault uses.
+  const deliverables = (deliveredFiles ?? []).filter((f: any) =>
+    f.is_final === true ||
+    resolveFolder({ folder: f.folder, category: f.category, direction: f.direction, taskId: f.task_id }) === 'deliverables'
+  )
+  const deliverablesCount = deliverables.length
+  const recentFiles = deliverables.slice(0, 8)
 
   // Phases grouped per project (ordered) — drives the live phase breakdown on
   // each active-project card, mirroring the admin pipeline.
@@ -835,7 +840,7 @@ export default async function DashboardPage() {
                 <p className="text-xs mt-2" style={{ color: 'hsl(var(--text-faint))' }}>No activity yet</p>
               </div>
             ) : (
-              <div className="space-y-1">
+              <div className="space-y-1 max-h-[420px] overflow-y-auto scrollbar-thin -mr-1 pr-1">
                 {activity.map((item, i) => {
                   const { Icon, color } = notifMeta(item.type)
                   // Where tapping the item takes the client — parity with the

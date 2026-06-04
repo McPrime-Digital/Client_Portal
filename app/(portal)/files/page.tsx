@@ -4,11 +4,6 @@ import { redirect } from 'next/navigation'
 import { AlertCircle } from 'lucide-react'
 import AllFilesVault from '@/components/portal/AllFilesVault'
 import RealtimeRefresh from '@/components/shared/RealtimeRefresh'
-import StorageMeter from '@/components/shared/StorageMeter'
-
-const GB = 1024 ** 3
-// Soft storage quota guide (overridable via env).
-const CLIENT_QUOTA = (Number(process.env.NEXT_PUBLIC_STORAGE_QUOTA_GB) || 25) * GB
 
 export default async function FilesPage() {
   const supabase = await createClient()
@@ -46,23 +41,13 @@ export default async function FilesPage() {
       .eq('client_id', client.id),
   ])
 
-  const all = files ?? []
-  const r2Bytes = all.filter((f) => f.bucket === 'r2').reduce((a, f) => a + (f.file_size || 0), 0)
-  const supabaseBytes = all.filter((f) => f.bucket !== 'r2').reduce((a, f) => a + (f.file_size || 0), 0)
-
+  // NOTE: storage usage is intentionally NOT shown to clients — only the admin
+  // File Vault surfaces the storage meter.
   return (
     <>
       {/* Live: new task media / deliverables / uploads appear without a reload. */}
       <RealtimeRefresh tables={['files']} pollMs={15000} />
-      <div className="mb-6">
-        <StorageMeter
-          r2Bytes={r2Bytes}
-          supabaseBytes={supabaseBytes}
-          fileCount={all.length}
-          quotaBytes={CLIENT_QUOTA}
-        />
-      </div>
-      <AllFilesVault files={all} projects={projects ?? []} />
+      <AllFilesVault files={files ?? []} projects={projects ?? []} />
     </>
   )
 }

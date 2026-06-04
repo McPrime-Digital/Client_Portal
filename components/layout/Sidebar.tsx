@@ -205,30 +205,15 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
         ))}
       </nav>
 
-      {/* User card */}
+      {/* Sign out (extreme bottom-left) */}
       <div className="px-3 py-4 border-t border-border">
-        <div className="flex items-center gap-3 px-3 py-2 rounded-md">
-          <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 overflow-hidden bg-primary text-primary-foreground">
-            {clientAvatar ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={clientAvatar} alt="" className="w-full h-full object-cover" />
-            ) : (
-              clientName?.[0]?.toUpperCase() ?? 'C'
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate text-foreground">
-              {clientName}
-            </p>
-          </div>
-          <button
-            onClick={handleLogout}
-            className="p-1.5 rounded-md transition-colors text-faint hover:text-destructive hover:bg-secondary"
-            title="Sign out"
-          >
-            <LogOut size={15} />
-          </button>
-        </div>
+        <button
+          onClick={handleLogout}
+          className="flex w-full items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors text-muted-foreground hover:text-destructive hover:bg-secondary"
+        >
+          <LogOut size={16} />
+          Sign out
+        </button>
       </div>
       </aside>
     </>

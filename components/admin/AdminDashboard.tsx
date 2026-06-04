@@ -598,7 +598,7 @@ function ProjectCard({ project }: { project: Project }) {
       style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
     >
       <div className="flex items-center gap-4">
-        {/* Project thumbnail */}
+        {/* Project thumbnail (with a clear placeholder when none uploaded) */}
         {(project as any).image_url ? (
           <img
             src={(project as any).image_url}
@@ -606,7 +606,12 @@ function ProjectCard({ project }: { project: Project }) {
             className="w-11 h-11 rounded-lg object-cover flex-shrink-0 border border-[hsl(var(--border))]"
           />
         ) : (
-          <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: cfg.dot }} />
+          <div
+            className="w-11 h-11 rounded-lg flex-shrink-0 grid place-items-center border border-[hsl(var(--border))]"
+            style={{ backgroundColor: 'hsl(var(--secondary))' }}
+          >
+            <Folder size={18} style={{ color: 'hsl(var(--text-faint))' }} />
+          </div>
         )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
