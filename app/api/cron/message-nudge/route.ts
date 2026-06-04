@@ -9,9 +9,9 @@ import { notifyAwayRecipient } from '@/lib/notify'
 // batch is nudged at most once (messages.nudged_at).
 //
 // Triggered two ways (idempotent — dedup via nudged_at):
-//   • GET  — Vercel Cron (hourly), authorized by CRON_SECRET.
-//   • POST — any signed-in user's app load (covers Hobby plans without crons);
-//            the active party's load nudges the away party.
+//   • GET  — Vercel Cron (daily; Hobby-plan safe), authorized by CRON_SECRET.
+//   • POST — any signed-in user's app load — the active party's visit nudges the
+//            away party, giving near-real-time coverage between cron runs.
 const NO_REPLY_MS = 5 * 60 * 60 * 1000
 
 async function runNudge() {

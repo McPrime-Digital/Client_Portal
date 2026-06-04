@@ -94,8 +94,9 @@ export default function PresencePulse({
     }, 30_000)
 
     // Kick the 5h "no reply" message nudge on load — the active party's visit
-    // triggers a (idempotent) scan that alerts any away counterpart. This makes
-    // the nudge work even on Vercel plans without scheduled crons.
+    // triggers an (idempotent) scan that alerts any away counterpart. This gives
+    // near-real-time coverage between the once-daily Vercel cron runs (and works
+    // on plans where finer-grained crons aren't available).
     fetch('/api/cron/message-nudge', { method: 'POST' }).catch(() => {})
 
     return () => {
