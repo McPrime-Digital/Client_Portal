@@ -137,6 +137,84 @@ async function sendEmailAlert(to: string, subject: string, text: string): Promis
   }
 }
 
+type RecipientState = {
+  email: string | null
+  phone: string | null
+  userId: string | null
+  lastSeen: string | null | undefined
+  prefs: PrefMap
+}
+
+// Resolve a recipient's contact details, last-seen heartbeat and per-category
+// channel preferences. Shared by every "away" escalation path.
+async function resolveRecipientState(
+  recipient: 'admin' | 'client',
+  projectId?: string | null,
+  clientId?: string | null
+): Promise<RecipientState | null> {
+  if (recipient === 'client') {
+    const cid = clientId ?? (await clientIdForProject(projectId))
+    if (!cid) return null
+    const { data } = await supabaseAdmin
+      .from('clients')
+      .select('user_id, email, phone, last_seen_at, notification_prefs')
+      .eq('id', cid)
+      .single()
+    return {
+      email: data?.email ?? null,
+      phone: (data as any)?.phone ?? null,
+      userId: (data as any)?.user_id ?? null,
+      lastSeen: (data as any)?.last_seen_at,
+      prefs: ((data as any)?.notification_prefs ?? {}) as PrefMap,
+    }
+  }
+  const { data } = await supabaseAdmin
+    .from('business_settings')
+    .select('business_email, admin_last_seen_at, notification_prefs')
+    .limit(1)
+    .single()
+  return {
+    email: (data as any)?.business_email ?? null,
+    phone: null,
+    userId: null,
+    lastSeen: (data as any)?.admin_last_seen_at,
+    prefs: ((data as any)?.notification_prefs ?? {}) as PrefMap,
+  }
+}
+
+// Immediate, per-message device push for a new chat message — fired on send.
+// Pushes ONLY when the recipient is away (no recent heartbeat → app not open or
+// backgrounded); an active, in-app recipient is never pushed because they see
+// the message live. Email/SMS are intentionally left to the 5h nudge cron so a
+// live conversation never spams those channels per message. Best-effort.
+export async function pushMessageAlert(opts: {
+  recipient: 'admin' | 'client'
+  projectId: string
+  senderName: string
+  preview: string
+}): Promise<void> {
+  try {
+    const state = await resolveRecipientState(opts.recipient, opts.projectId)
+    if (!state) return
+    // In the app right now → they'll see it live; don't push.
+    if (!awayFrom(state.lastSeen)) return
+    const ch = state.prefs['messages'] ?? {}
+    if (ch.push === false) return // push opted out for messages
+
+    const url = deepLink(opts.recipient, 'messages', opts.projectId)
+    const payload = {
+      title: `New message from ${opts.senderName}`,
+      body: opts.preview || undefined,
+      url,
+      tag: 'messages',
+    }
+    if (opts.recipient === 'admin') await sendPushToAdmins(payload)
+    else await sendPushToUser(state.userId, payload)
+  } catch {
+    // never block the triggering send
+  }
+}
+
 // Escalate an alert to a recipient's preferred channels when they're away.
 // Channels: device push → mobile SMS → email. Entirely best-effort.
 // Returns true if the recipient was away (escalation attempted) — the message
@@ -150,35 +228,9 @@ export async function notifyAwayRecipient(opts: {
   body?: string | null
 }): Promise<boolean> {
   try {
-    let email: string | null = null
-    let phone: string | null = null
-    let userId: string | null = null
-    let lastSeen: string | null | undefined
-    let prefs: PrefMap = {}
-
-    if (opts.recipient === 'client') {
-      const clientId = opts.clientId ?? (await clientIdForProject(opts.projectId))
-      if (!clientId) return false
-      const { data } = await supabaseAdmin
-        .from('clients')
-        .select('user_id, email, phone, last_seen_at, notification_prefs')
-        .eq('id', clientId)
-        .single()
-      email = data?.email ?? null
-      phone = (data as any)?.phone ?? null
-      userId = (data as any)?.user_id ?? null
-      lastSeen = (data as any)?.last_seen_at
-      prefs = ((data as any)?.notification_prefs ?? {}) as PrefMap
-    } else {
-      const { data } = await supabaseAdmin
-        .from('business_settings')
-        .select('business_email, admin_last_seen_at, notification_prefs')
-        .limit(1)
-        .single()
-      email = (data as any)?.business_email ?? null
-      lastSeen = (data as any)?.admin_last_seen_at
-      prefs = ((data as any)?.notification_prefs ?? {}) as PrefMap
-    }
+    const state = await resolveRecipientState(opts.recipient, opts.projectId, opts.clientId)
+    if (!state) return false
+    const { email, phone, userId, lastSeen, prefs } = state
 
     // Only escalate when the recipient is actually away.
     if (!awayFrom(lastSeen)) return false

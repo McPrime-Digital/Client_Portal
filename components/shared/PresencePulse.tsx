@@ -3,16 +3,22 @@
 import { useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { usePresenceStore, type PresenceEntry } from '@/lib/stores/presence-store'
+import { isHubMounted } from '@/lib/realtimeBus'
 
 // Mounted once per portal layout. Does three things, app-wide (every page):
 //   1. Tracks the current user in a shared presence channel so the *other*
-//      party's messaging hub can show an accurate Online/Away indicator.
+//      party's messaging hub shows an accurate Online/Away indicator. Presence
+//      follows tab VISIBILITY — you are "Online" only while the app is actually
+//      open in the foreground, and drop to "Away" the moment you switch away or
+//      background it. This keeps Online truthful and aligned with the away-push
+//      logic (away → device push; in-app → no push).
 //   2. Auto-marks incoming messages as "delivered" the instant they arrive
 //      while the user is anywhere in the app (the WhatsApp double-grey tick),
-//      even if the chat isn't open. Clients have RLS read on their own
-//      messages so Realtime delivers here; the mark is debounced per project.
+//      even if the chat isn't open, and pings the sender so their tick flips
+//      live. When a messaging hub is open it owns that receipt itself, so this
+//      only steps in when no hub is mounted.
 //   3. Sends a lightweight heartbeat so the server can tell "away" from
-//      "in-app" for deferred (email) alerts. Best-effort — never throws.
+//      "in-app" for deferred (push/email) alerts. Best-effort — never throws.
 export default function PresencePulse({
   role,
   userId,
@@ -29,10 +35,19 @@ export default function PresencePulse({
     if (!userId) return
     const supabase = createClient()
 
-    // ── 1. Shared app presence ────────────────────────────────
+    // ── 1. Shared app presence (visibility-gated) ─────────────
     const presenceCh = supabase.channel('presence:app', {
       config: { presence: { key: userId } },
     })
+    // Track when the app is foregrounded; untrack when it's hidden, so the other
+    // party never sees a stale "Online" for a backgrounded/closed tab.
+    const syncPresence = () => {
+      if (document.visibilityState === 'visible') {
+        presenceCh.track({ role, userId, clientId })
+      } else {
+        presenceCh.untrack()
+      }
+    }
     presenceCh
       .on('presence', { event: 'sync' }, () => {
         const state = presenceCh.presenceState() as Record<string, any[]>
@@ -51,13 +66,26 @@ export default function PresencePulse({
         setOnline(entries)
       })
       .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          await presenceCh.track({ role, userId, clientId })
-        }
+        if (status === 'SUBSCRIBED') syncPresence()
       })
 
     // ── 2. Auto-deliver incoming messages anywhere in the app ──
     const endpoint = role === 'admin' ? '/api/admin/messages' : '/api/portal/messages'
+    // Ping the sender (cross-browser) so their tick flips to double-grey the
+    // instant we mark a message delivered. Uses a short-lived broadcast on the
+    // thread's topic — but ONLY when no messaging hub is open in this tab (the
+    // hub owns that topic and handles the receipt itself; two subscriptions to
+    // one topic on the shared socket would collide).
+    const pingDelivered = (projectId: string) => {
+      if (isHubMounted()) return
+      const ch = supabase.channel(`thread:${projectId}`)
+      ch.subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          ch.send({ type: 'broadcast', event: 'sync', payload: { projectId } })
+          setTimeout(() => supabase.removeChannel(ch), 1500)
+        }
+      })
+    }
     const markDelivered = (projectId: string) => {
       if (deliverTimers.current[projectId]) return
       deliverTimers.current[projectId] = setTimeout(() => {
@@ -66,7 +94,9 @@ export default function PresencePulse({
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ project_id: projectId, mode: 'delivered' }),
-        }).catch(() => {})
+        })
+          .then(() => pingDelivered(projectId))
+          .catch(() => {})
       }, 250)
     }
     const inboxCh = supabase
@@ -93,6 +123,14 @@ export default function PresencePulse({
       if (document.visibilityState === 'visible') beat()
     }, 30_000)
 
+    // Tab focus/blur flips Online↔Away instantly and re-stamps the heartbeat on
+    // return, so "away" coverage (push) and presence stay tight and in sync.
+    const onVisibility = () => {
+      syncPresence()
+      if (document.visibilityState === 'visible') beat()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
     // Kick the 5h "no reply" message nudge on load — the active party's visit
     // triggers an (idempotent) scan that alerts any away counterpart. This gives
     // near-real-time coverage between the once-daily Vercel cron runs (and works
@@ -101,6 +139,7 @@ export default function PresencePulse({
 
     return () => {
       clearInterval(heartbeat)
+      document.removeEventListener('visibilitychange', onVisibility)
       Object.values(deliverTimers.current).forEach(clearTimeout)
       deliverTimers.current = {}
       supabase.removeChannel(presenceCh)

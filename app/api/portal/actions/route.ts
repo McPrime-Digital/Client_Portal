@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { createAdminNotification } from '@/lib/notify'
+import { createAdminNotification, pushMessageAlert } from '@/lib/notify'
+import { messagePreview } from '@/lib/messagePreview'
 import { recordActivity } from '@/lib/logActivity'
 
 // Verify the calling user is an authenticated client
@@ -212,10 +213,16 @@ export async function POST(req: NextRequest) {
           .single()
 
         if (error) throw error
-        // Plain chat messages do NOT create a bell entry or push immediately —
-        // active conversations stay quiet. Unread is shown via the Messages
-        // badge; if the admin doesn't reply within 5h, the hourly nudge cron
-        // (/api/cron/message-nudge) sends a SINGLE deferred alert per prefs.
+        // No in-app bell entry for plain chat (the Messages badge carries
+        // unread). But push the admin's device instantly IF they're away —
+        // an active, in-app admin is left alone (they see it live). Email/SMS
+        // stay on the 5h nudge cron so a live thread never spams them.
+        await pushMessageAlert({
+          recipient: 'admin',
+          projectId: project_id,
+          senderName: client.name,
+          preview: messagePreview({ body: msgBody, attachment_name }),
+        })
         return NextResponse.json({ message: data })
       }
 

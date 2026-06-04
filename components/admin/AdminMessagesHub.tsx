@@ -17,6 +17,7 @@ import type { Message } from '@/lib/types/database'
 import { uploadFileToR2 } from '@/lib/uploadClient'
 import { messagePreview } from '@/lib/messagePreview'
 import { usePresenceStore, isClientOnline } from '@/lib/stores/presence-store'
+import { acquireHub, releaseHub, type ThreadMessagePayload } from '@/lib/realtimeBus'
 
 type Thread = {
   id: string
@@ -85,12 +86,14 @@ export default function AdminMessagesHub({
   const [messages, setMessages] = useState<Message[]>([])
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
-  const channelRef = useRef<any>(null)
+  // One persistent broadcast channel per thread (`thread:${projectId}`),
+  // subscribed for EVERY thread — so a message in any thread reorders the list,
+  // bumps its unread badge and flips ticks live, not just the open one.
+  const threadChannelsRef = useRef<Record<string, any>>({})
 
   // Typing state (per active thread). Online/Away comes from app-wide presence.
   const [clientTyping, setClientTyping] = useState(false)
   const online = usePresenceStore((s) => s.online)
-  const typingChannelRef = useRef<any>(null)
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const typingBroadcastRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Stable view of the active thread id for use inside realtime callbacks.
@@ -101,6 +104,14 @@ export default function AdminMessagesHub({
   const [mobileView, setMobileView] = useState<
     'list' | 'thread'
   >('list')
+
+  // Broadcast a lightweight "sync" ping on a thread's channel so the client
+  // refetches instantly — drives WhatsApp-speed ticks without relying on
+  // Postgres replication (which RLS starves on the admin side).
+  const broadcastSync = useCallback((projectId: string) => {
+    const ch = threadChannelsRef.current[projectId]
+    if (ch) ch.send({ type: 'broadcast', event: 'sync', payload: { projectId } })
+  }, [])
 
   const loadMessages = useCallback(
     async (projectId: string) => {
@@ -124,9 +135,7 @@ export default function AdminMessagesHub({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ project_id: projectId }),
       })
-        .then(() => {
-          typingChannelRef.current?.send({ type: 'broadcast', event: 'sync', payload: {} })
-        })
+        .then(() => broadcastSync(projectId))
         .catch(() => {})
 
       setThreads((prev) =>
@@ -135,18 +144,10 @@ export default function AdminMessagesHub({
         )
       )
     },
-    []
+    [broadcastSync]
   )
 
   // Scroll behavior now handled inside MessageThread
-
-  // Broadcast a lightweight "sync" ping so the client refetches instantly —
-  // drives WhatsApp-speed ticks without relying on Postgres replication (which
-  // RLS starves on the admin side).
-  const broadcastSync = useCallback(() => {
-    const ch = typingChannelRef.current
-    if (ch) ch.send({ type: 'broadcast', event: 'sync', payload: {} })
-  }, [])
 
   // Refetch the active thread, reorder the thread list (newest on top), and —
   // if the admin is viewing this thread — instantly mark incoming client
@@ -188,7 +189,7 @@ export default function AdminMessagesHub({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ project_id: projectId }),
           })
-            .then(() => broadcastSync())
+            .then(() => broadcastSync(projectId))
             .catch(() => {})
         }
       } catch {
@@ -198,107 +199,113 @@ export default function AdminMessagesHub({
     [broadcastSync]
   )
 
-  useEffect(() => {
-    if (!activeThread) return
+  // Apply a thread's incoming message broadcast (from the client). Drives the
+  // list whether or not that thread is open: reorder to top, bump the unread
+  // badge for background threads, or pull it into the open conversation and
+  // mark it read. Always acknowledges delivery so the client's tick flips.
+  const handleIncoming = useCallback(
+    (payload: ThreadMessagePayload) => {
+      const projectId = payload?.projectId
+      if (!projectId) return
+      // Our own outgoing message is already reflected locally on send.
+      if (payload.senderRole === 'admin') return
 
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current)
-    }
+      const open =
+        activeThreadIdRef.current === projectId &&
+        typeof document !== 'undefined' &&
+        document.visibilityState === 'visible'
 
-    const channel = supabase
-      .channel(`admin-hub:${activeThread.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `project_id=eq.${activeThread.id}`,
-        },
-        async (payload) => {
-          const msg = payload.new as Message
-
-          setMessages((prev) => {
-            if (prev.find((m) => m.id === msg.id))
-              return prev
-            return [...prev, msg]
-          })
-
-          setThreads((prev) => {
-            const idx = prev.findIndex((t) => t.id === activeThread.id)
-            if (idx === -1) return prev
-            const updated = {
-              ...prev[idx],
-              latestMessage: msg,
-              unreadCount: msg.sender_role === 'client' ? 0 : prev[idx].unreadCount,
-            }
-            return [updated, ...prev.filter((t) => t.id !== activeThread.id)]
-          })
-
-          if (msg.sender_role === 'client') {
-            fetch('/api/admin/messages', {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ project_id: activeThread.id }),
-            }).catch(() => {})
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'messages',
-          filter: `project_id=eq.${activeThread.id}`,
-        },
-        (payload) => {
-          const updated = payload.new as Message
-          setMessages((prev) =>
-            prev.map((m) => m.id === updated.id ? { ...m, ...updated } : m)
-          )
-        }
-      )
-      .subscribe()
-
-    channelRef.current = channel
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [activeThread?.id])
-
-  // Typing indicator + instant sync for the active thread. One subscribed
-  // channel carries BOTH typing events and "sync" pings. Online/Away is handled
-  // app-wide by PresencePulse → presence store, so no per-thread presence here.
-  useEffect(() => {
-    if (!activeThread) {
-      setClientTyping(false)
-      typingChannelRef.current = null
-      return
-    }
-    const projectId = activeThread.id
-
-    const typingCh = supabase
-      .channel(`typing:${projectId}`)
-      .on('broadcast', { event: 'typing' }, (payload) => {
-        if (payload.payload?.role === 'client') {
-          setClientTyping(true)
-          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
-          typingTimeoutRef.current = setTimeout(() => setClientTyping(false), 3000)
-        }
-      })
-      .on('broadcast', { event: 'sync' }, () => {
+      if (open) {
+        // Active + visible: pull the message in, mark read, flip client ticks.
         refetchMessages(projectId)
-      })
-      .subscribe()
-    typingChannelRef.current = typingCh
+        return
+      }
 
-    return () => {
-      typingChannelRef.current = null
-      supabase.removeChannel(typingCh)
+      // Background thread: update the row + unread badge instantly (no fetch).
+      const latest = {
+        id: payload.messageId ?? `temp-${Date.now()}`,
+        sender_role: payload.senderRole,
+        sender_name: payload.senderName ?? '',
+        body: payload.body ?? '',
+        attachment_name: payload.attachmentName ?? null,
+        is_deleted: false,
+        created_at: payload.createdAt ?? new Date().toISOString(),
+      } as unknown as Message
+      setThreads((prev) => {
+        const idx = prev.findIndex((t) => t.id === projectId)
+        if (idx === -1) return prev
+        const updated = {
+          ...prev[idx],
+          latestMessage: latest,
+          unreadCount: prev[idx].unreadCount + 1,
+        }
+        return [updated, ...prev.filter((t) => t.id !== projectId)]
+      })
+      // We received it → mark delivered and ping the client (double-grey tick).
+      fetch('/api/admin/messages', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: projectId, mode: 'delivered' }),
+      })
+        .then(() => broadcastSync(projectId))
+        .catch(() => {})
+    },
+    [refetchMessages, broadcastSync]
+  )
+
+  // Persistent per-thread broadcast bus — one channel per thread, for ALL
+  // threads (not just the open one). Each carries new-message, read/delivered
+  // "sync" pings and typing. This is how a message in a background thread
+  // reorders the list + bumps its unread badge live, and how ticks flip
+  // instantly — all without relying on Postgres replication (RLS-starved for
+  // admins). `self: false` so we never react to our own broadcasts.
+  // Order-independent: only the SET of threads matters, so reordering the list
+  // (which happens constantly) doesn't tear channels down and rebuild them.
+  const threadIdsKey = threads.map((t) => t.id).slice().sort().join(',')
+  useEffect(() => {
+    const ids = threads.map((t) => t.id)
+    for (const projectId of ids) {
+      if (threadChannelsRef.current[projectId]) continue
+      const ch = supabase
+        .channel(`thread:${projectId}`, { config: { broadcast: { self: false } } })
+        .on('broadcast', { event: 'message' }, (p) => handleIncoming(p.payload))
+        .on('broadcast', { event: 'sync' }, (p) => {
+          const pid = p.payload?.projectId ?? projectId
+          if (activeThreadIdRef.current === pid) refetchMessages(pid)
+        })
+        .on('broadcast', { event: 'typing' }, (p) => {
+          if (activeThreadIdRef.current !== projectId) return
+          if (p.payload?.role === 'client') {
+            setClientTyping(true)
+            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+            typingTimeoutRef.current = setTimeout(() => setClientTyping(false), 3000)
+          }
+        })
+        .subscribe()
+      threadChannelsRef.current[projectId] = ch
     }
-  }, [activeThread?.id, refetchMessages])
+    // Drop channels for threads that disappeared.
+    for (const pid of Object.keys(threadChannelsRef.current)) {
+      if (!ids.includes(pid)) {
+        supabase.removeChannel(threadChannelsRef.current[pid])
+        delete threadChannelsRef.current[pid]
+      }
+    }
+  }, [threadIdsKey, handleIncoming, refetchMessages])
+
+  // Tear every channel down on unmount. acquireHub/releaseHub tells
+  // PresencePulse this tab owns the thread topics (so it won't double-subscribe
+  // them for delivery receipts).
+  useEffect(() => {
+    acquireHub()
+    return () => {
+      releaseHub()
+      for (const pid of Object.keys(threadChannelsRef.current)) {
+        supabase.removeChannel(threadChannelsRef.current[pid])
+      }
+      threadChannelsRef.current = {}
+    }
+  }, [])
 
   // Polling safety net — keeps the thread live if realtime + broadcast both
   // drop. The broadcast layer above already makes updates feel instant.
@@ -309,9 +316,10 @@ export default function AdminMessagesHub({
     return () => clearInterval(interval)
   }, [activeThread?.id, refetchMessages])
 
-  // Broadcast typing when admin types (through the subscribed channel)
+  // Broadcast typing when admin types (through the active thread's channel)
   function handleAdminTyping() {
-    const ch = typingChannelRef.current
+    if (!activeThread) return
+    const ch = threadChannelsRef.current[activeThread.id]
     if (!ch || typingBroadcastRef.current) return
     ch.send({
       type: 'broadcast',
@@ -324,6 +332,7 @@ export default function AdminMessagesHub({
   }
 
   function selectThread(thread: Thread) {
+    setClientTyping(false)
     setActiveThread(thread)
     setMobileView('thread')
     loadMessages(thread.id)
@@ -332,13 +341,10 @@ export default function AdminMessagesHub({
   async function sendMessage(body: string, replyToId?: string, attachmentUrl?: string, attachmentName?: string) {
     if (!activeThread) return
 
-    const { data: { user } } =
-      await supabase.auth.getUser()
-
     const optimistic: Message = {
       id: `temp-${Date.now()}`,
       project_id: activeThread.id,
-      sender_id: user!.id,
+      sender_id: '',
       sender_role: 'admin',
       sender_name: adminName,
       body: body,
@@ -352,7 +358,14 @@ export default function AdminMessagesHub({
       created_at: new Date().toISOString(),
     }
 
+    // Show instantly + float this thread to the top right away.
     setMessages((prev) => [...prev, optimistic])
+    setThreads((prev) => {
+      const idx = prev.findIndex((t) => t.id === activeThread.id)
+      if (idx === -1) return prev
+      const updated = { ...prev[idx], latestMessage: optimistic }
+      return [updated, ...prev.filter((t) => t.id !== activeThread.id)]
+    })
 
     let inserted: Message | null = null
     try {
@@ -393,8 +406,22 @@ export default function AdminMessagesHub({
         const updated = { ...prev[idx], latestMessage: inserted }
         return [updated, ...prev.filter((t) => t.id !== activeThread.id)]
       })
-      // Tell the client to refetch immediately (instant single→double tick).
-      broadcastSync()
+      // Tell the client instantly: reorder their thread, bump unread (or mark
+      // read if they're in it), and flip our tick single→double.
+      const ch = threadChannelsRef.current[activeThread.id]
+      ch?.send({
+        type: 'broadcast',
+        event: 'message',
+        payload: {
+          projectId: activeThread.id,
+          messageId: inserted.id,
+          senderRole: 'admin',
+          senderName: inserted.sender_name,
+          body: inserted.body,
+          attachmentName: inserted.attachment_name,
+          createdAt: inserted.created_at,
+        },
+      })
     }
   }
 

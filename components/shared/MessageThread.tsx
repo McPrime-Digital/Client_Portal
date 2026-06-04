@@ -92,7 +92,6 @@ export default function MessageThread({
   onTyping,
 }: Props) {
   const [newMessage, setNewMessage] = useState('')
-  const [sending, setSending] = useState(false)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
   const [uploading, setUploading] = useState(false)
   const [attachment, setAttachment] = useState<{ url: string; name: string } | null>(null)
@@ -125,27 +124,27 @@ export default function MessageThread({
   }, [showAttachMenu])
 
   // ── Submit ──────────────────────────────────────────────
-  async function handleSubmit(e: React.FormEvent) {
+  // The message leaves the box the INSTANT Send is tapped: we clear the
+  // composer synchronously and the bubble appears immediately (optimistic,
+  // with a pending tick). The network round-trip runs in the background and
+  // never blocks or disables the input — so chatting stays continuous.
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if ((!newMessage.trim() && !attachment) || sending || uploading) return
+    if ((!newMessage.trim() && !attachment) || uploading) return
+    const body = newMessage.trim()
     // Never send a reply that points at an unsent (optimistic) message —
     // its temp id is not a valid row and would be rejected by the DB.
     const replyId = replyTo && !isPending(replyTo) ? replyTo.id : undefined
-    setSending(true)
-    try {
-      await onSendMessage(newMessage.trim(), replyId, attachment?.url, attachment?.name)
-      setNewMessage('')
-      setReplyTo(null)
-      setAttachment(null)
-    } catch (err) {
+    const att = attachment
+
+    setNewMessage('')
+    setReplyTo(null)
+    setAttachment(null)
+    requestAnimationFrame(() => inputRef.current?.focus())
+
+    void onSendMessage(body, replyId, att?.url, att?.name).catch((err) => {
       console.error(err)
-    } finally {
-      setSending(false)
-      // Keep the composer active for continuous, WhatsApp-style chat — the
-      // input is disabled while `sending`, which blurs it, so refocus once
-      // re-enabled (next tick, after React flushes the disabled→enabled swap).
-      requestAnimationFrame(() => inputRef.current?.focus())
-    }
+    })
   }
 
   // ── File Handling ──────────────────────────────────────
@@ -240,6 +239,10 @@ export default function MessageThread({
     if (resolvedUrls[rawUrl]) return resolvedUrls[rawUrl]
     // Resolve server-side — the browser client can't sign every bucket
     // (storage RLS), so this authorizes + signs with the service role.
+    // A "bucket::path" ref is not itself a usable URL, so if signing fails we
+    // must NOT fall back to it (that renders a broken image). Leave it
+    // unresolved instead — the loading skeleton stays and we retry next pass.
+    const failValue = rawUrl.includes('::') ? '' : rawUrl
     try {
       const res = await fetch('/api/portal/messages/attachment', {
         method: 'POST',
@@ -247,12 +250,12 @@ export default function MessageThread({
         body: JSON.stringify({ ref: rawUrl }),
       })
       const json = await res.json()
-      const signed = res.ok && json.url ? json.url : rawUrl
+      const signed = res.ok && json.url ? json.url : failValue
       setResolvedUrls(prev => ({ ...prev, [rawUrl]: signed }))
       return signed
     } catch {
-      setResolvedUrls(prev => ({ ...prev, [rawUrl]: rawUrl }))
-      return rawUrl
+      setResolvedUrls(prev => ({ ...prev, [rawUrl]: failValue }))
+      return failValue
     }
   }, [resolvedUrls])
 
@@ -264,6 +267,14 @@ export default function MessageThread({
       }
     })
   }, [messages])
+
+  // Resolve the staged composer attachment too, so the preview bar can show a
+  // real thumbnail of the image/video you're about to send (not a blank chip).
+  useEffect(() => {
+    if (attachment?.url && !resolvedUrls[attachment.url]) {
+      resolveUrl(attachment.url)
+    }
+  }, [attachment])
 
   // ── Render ──────────────────────────────────────────────
   return (
@@ -357,6 +368,22 @@ export default function MessageThread({
                       >
                         <p className="font-semibold mb-0.5 truncate">{repliedMsg.sender_name}</p>
                         <p className="truncate opacity-80">{repliedMsg.body || 'Attachment'}</p>
+                      </div>
+                    )}
+
+                    {/* Loading skeleton — while the signed URL resolves, show a
+                        placeholder so an attachment is never a blank bubble. */}
+                    {msg.attachment_url && !resolvedAttachUrl && (
+                      <div
+                        className="m-1.5 flex items-center justify-center rounded-xl"
+                        style={{
+                          width: isImg || isVid || isPdf ? 256 : 200,
+                          height: isImg || isVid || isPdf ? 160 : 56,
+                          maxWidth: '100%',
+                          backgroundColor: isMe ? 'hsl(var(--background) / 0.12)' : 'hsl(var(--background) / 0.35)',
+                        }}
+                      >
+                        <Loader2 size={18} className="animate-spin opacity-70" />
                       </div>
                     )}
 
@@ -569,20 +596,48 @@ export default function MessageThread({
           </div>
         )}
 
-        {/* Attachment Preview Bar */}
-        {attachment && (
-          <div className="flex items-center justify-between mb-3 px-4 py-2.5 rounded-xl border" style={{ backgroundColor: 'hsl(var(--primary) / 0.05)', borderColor: 'hsl(var(--primary) / 0.2)' }}>
-            <div className="flex items-center gap-2 min-w-0">
-              <FileIcon size={14} style={{ color: 'hsl(var(--primary))' }} />
-              <span className="text-xs truncate font-medium" style={{ color: 'hsl(var(--foreground))' }}>
-                {attachment.name}
-              </span>
+        {/* Attachment Preview Bar — shows a real thumbnail of what's staged */}
+        {attachment && (() => {
+          const kind = attachmentKind(attachment.name)
+          const previewUrl = resolvedUrls[attachment.url]
+          const isMedia = kind === 'image' || kind === 'video'
+          return (
+            <div className="flex items-center justify-between mb-3 px-3 py-2.5 rounded-xl border" style={{ backgroundColor: 'hsl(var(--primary) / 0.05)', borderColor: 'hsl(var(--primary) / 0.2)' }}>
+              <div className="flex items-center gap-3 min-w-0">
+                {/* Thumb: image/video preview, or a typed icon for documents */}
+                <div
+                  className="w-12 h-12 rounded-lg overflow-hidden flex items-center justify-center flex-shrink-0"
+                  style={{ backgroundColor: 'hsl(var(--border))' }}
+                >
+                  {isMedia && previewUrl ? (
+                    kind === 'image' ? (
+                      <img src={previewUrl} alt={attachment.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <video src={previewUrl} className="w-full h-full object-cover" muted preload="metadata" />
+                    )
+                  ) : isMedia && !previewUrl ? (
+                    <Loader2 size={16} className="animate-spin" style={{ color: 'hsl(var(--primary))' }} />
+                  ) : kind === 'audio' ? (
+                    <Mic size={18} style={{ color: 'hsl(var(--primary))' }} />
+                  ) : (
+                    <FileText size={18} style={{ color: 'hsl(var(--primary))' }} />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs truncate font-medium" style={{ color: 'hsl(var(--foreground))' }}>
+                    {attachment.name}
+                  </p>
+                  <p className="text-[10px] uppercase tracking-wide mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                    {isMedia && !previewUrl ? 'Loading preview…' : 'Ready to send'}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setAttachment(null)} className="p-1 hover:bg-[hsl(var(--border))] rounded text-[hsl(var(--muted-foreground))] flex-shrink-0">
+                <X size={14} />
+              </button>
             </div>
-            <button onClick={() => setAttachment(null)} className="p-1 hover:bg-[hsl(var(--border))] rounded text-[hsl(var(--muted-foreground))]">
-              <X size={14} />
-            </button>
-          </div>
-        )}
+          )
+        })()}
 
         <form onSubmit={handleSubmit} className="flex items-center gap-2">
           {recording ? (
@@ -603,7 +658,7 @@ export default function MessageThread({
               <button
                 type="button"
                 onClick={() => setShowAttachMenu(!showAttachMenu)}
-                disabled={uploading || sending}
+                disabled={uploading}
                 className="w-10 h-10 rounded-xl flex items-center justify-center transition-all disabled:opacity-50"
                 style={{
                   backgroundColor: showAttachMenu ? 'hsl(var(--primary))' : 'hsl(var(--border))',
@@ -677,7 +732,7 @@ export default function MessageThread({
             placeholder={uploading ? 'Uploading...' : recording ? 'Recording...' : 'Type a message...'}
             className="flex-1 px-4 py-3 rounded-xl text-sm outline-none transition-all focus:border-[hsl(var(--primary))] focus:shadow-[0_0_0_3px_hsl(var(--primary) / 0.08)]"
             style={{ backgroundColor: 'hsl(var(--border))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}
-            disabled={uploading || sending || recording}
+            disabled={uploading || recording}
           />
 
           {/* Voice Record */}
@@ -685,7 +740,7 @@ export default function MessageThread({
             <button
               type="button"
               onClick={() => setRecording(true)}
-              disabled={uploading || sending}
+              disabled={uploading}
               className="w-10 h-10 rounded-xl flex items-center justify-center transition-all disabled:opacity-50"
               style={{ backgroundColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
               title="Voice note"
@@ -697,11 +752,11 @@ export default function MessageThread({
           {/* Send */}
           <button
             type="submit"
-            disabled={(!newMessage.trim() && !attachment) || sending || uploading || recording}
+            disabled={(!newMessage.trim() && !attachment) || uploading || recording}
             className="w-10 h-10 rounded-xl flex items-center justify-center transition-all disabled:opacity-40"
             style={{ backgroundColor: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
           >
-            {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+            <Send size={16} />
           </button>
           </>
           )}

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { computeProjectProgress, deriveProjectStatus } from '@/lib/projectProgress'
-import { createNotification, clientIdForProject } from '@/lib/notify'
+import { createNotification, clientIdForProject, pushMessageAlert } from '@/lib/notify'
+import { messagePreview } from '@/lib/messagePreview'
 import { recordActivity } from '@/lib/logActivity'
 import { seedDefaultTasks, buildPhaseTaskRows, safeCategory } from '@/lib/defaultTasks'
 
@@ -125,10 +126,16 @@ export async function POST(req: NextRequest) {
           .select()
           .single()
         if (error) throw error
-        // Plain chat messages do NOT create a client bell entry or push
-        // immediately — active conversations stay quiet. Unread is shown via the
-        // Messages badge; if the client doesn't reply within 5h, the hourly
-        // nudge cron (/api/cron/message-nudge) sends a SINGLE alert per prefs.
+        // No in-app bell entry for plain chat (the Messages badge carries
+        // unread). But push the client's device instantly IF they're away —
+        // an active, in-app client is left alone (they see it live). Email/SMS
+        // stay on the 5h nudge cron so a live thread never spams them.
+        await pushMessageAlert({
+          recipient: 'client',
+          projectId: project_id,
+          senderName: 'McPrime Digital',
+          preview: messagePreview({ body: msgBody, attachment_name }),
+        })
         return NextResponse.json({ message: data })
       }
 
