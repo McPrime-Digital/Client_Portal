@@ -125,13 +125,10 @@ export async function POST(req: NextRequest) {
           .select()
           .single()
         if (error) throw error
-        await createNotification({
-          clientId: await clientIdForProject(project_id),
-          projectId: project_id,
-          type: 'message',
-          title: 'New message from McPrime Digital',
-          body: typeof msgBody === 'string' ? msgBody.slice(0, 120) : null,
-        })
+        // Plain chat messages do NOT create a client bell entry or push
+        // immediately — active conversations stay quiet. Unread is shown via the
+        // Messages badge; if the client doesn't reply within 5h, the hourly
+        // nudge cron (/api/cron/message-nudge) sends a SINGLE alert per prefs.
         return NextResponse.json({ message: data })
       }
 

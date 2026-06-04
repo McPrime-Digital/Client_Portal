@@ -206,6 +206,26 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ settings: data })
       }
 
+      // Notification preferences live in their own action (isolated from the
+      // business/payment save) so a missing notification_prefs column — before
+      // the phase10 migration is applied — can't break the rest of settings.
+      case 'save_notification_prefs': {
+        const { prefs } = body
+        if (!prefs || typeof prefs !== 'object') {
+          return NextResponse.json({ error: 'Invalid preferences.' }, { status: 400 })
+        }
+        const { error } = await supabaseAdmin
+          .from('business_settings')
+          .upsert({ id: 'singleton', notification_prefs: prefs, updated_at: new Date().toISOString() })
+        if (error) {
+          return NextResponse.json(
+            { error: 'Could not save preferences. Apply the phase10 migration (notification_prefs column) first.' },
+            { status: 500 }
+          )
+        }
+        return NextResponse.json({ success: true })
+      }
+
       default:
         return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
     }

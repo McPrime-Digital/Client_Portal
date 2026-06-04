@@ -141,6 +141,10 @@ export default function MessageThread({
       console.error(err)
     } finally {
       setSending(false)
+      // Keep the composer active for continuous, WhatsApp-style chat — the
+      // input is disabled while `sending`, which blurs it, so refocus once
+      // re-enabled (next tick, after React flushes the disabled→enabled swap).
+      requestAnimationFrame(() => inputRef.current?.focus())
     }
   }
 
@@ -295,6 +299,7 @@ export default function MessageThread({
           const isImg = attKind === 'image'
           const isVid = attKind === 'video'
           const isAud = attKind === 'audio'
+          const isPdf = /\.pdf$/i.test(attachName)
           const deletable = isMe && canDelete(msg.created_at) && onDeleteMessage
 
           return (
@@ -397,18 +402,52 @@ export default function MessageThread({
                       </div>
                     )}
 
-                    {/* Generic File Attachment — opens in the viewer */}
-                    {resolvedAttachUrl && !isImg && !isVid && !isAud && msg.attachment_url && (
+                    {/* Inline PDF preview — first page is rendered right in the
+                        bubble; tap anywhere to open the large in-app viewer. */}
+                    {resolvedAttachUrl && isPdf && (
+                      <div
+                        className="relative m-1.5 rounded-xl overflow-hidden cursor-pointer border border-border"
+                        style={{ width: 256, maxWidth: '100%' }}
+                        onClick={() => setViewerSource({ url: resolvedAttachUrl, name: attachName || 'document.pdf' })}
+                      >
+                        <iframe
+                          src={`${resolvedAttachUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+                          title={attachName || 'PDF preview'}
+                          className="w-full pointer-events-none"
+                          style={{ height: 200, border: 'none', backgroundColor: '#fff' }}
+                          loading="lazy"
+                        />
+                        {/* Transparent hit area guarantees the tap opens large view */}
+                        <div className="absolute inset-0" />
+                        <div
+                          className="absolute bottom-0 inset-x-0 flex items-center gap-2 px-3 py-2 text-xs"
+                          style={{ backgroundColor: 'hsl(var(--background) / 0.9)', color: 'hsl(var(--foreground))' }}
+                        >
+                          <FileText size={14} className="flex-shrink-0" />
+                          <span className="truncate flex-1 text-left">{attachName || 'PDF'}</span>
+                          <Eye size={13} className="flex-shrink-0 opacity-70" />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Generic File Attachment — preview tile; opens in the viewer */}
+                    {resolvedAttachUrl && !isImg && !isVid && !isAud && !isPdf && msg.attachment_url && (
                       <button
                         type="button"
                         onClick={() => setViewerSource({ url: resolvedAttachUrl, name: attachName || 'Attachment' })}
-                        className={`mx-3 mt-3 flex w-[calc(100%-1.5rem)] items-center gap-2 p-2.5 rounded-lg text-xs transition-colors ${
+                        className={`m-1.5 flex w-64 max-w-full flex-col gap-2 rounded-xl p-3 text-xs transition-colors border border-border ${
                           isMe ? 'bg-[hsl(var(--background))]/10 hover:bg-[hsl(var(--background))]/20' : 'bg-[hsl(var(--background))]/30 hover:bg-[hsl(var(--background))]/50'
                         }`}
                       >
-                        <FileText size={16} className="flex-shrink-0" />
-                        <span className="truncate flex-1 text-left">{attachName || 'Attachment'}</span>
-                        <Eye size={14} className="flex-shrink-0 opacity-60" />
+                        <div className="flex items-center justify-center h-20 rounded-lg" style={{ backgroundColor: 'hsl(var(--background) / 0.25)' }}>
+                          <FileText size={32} className="opacity-70" />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="truncate flex-1 text-left font-medium">{attachName || 'Attachment'}</span>
+                          <span className="flex items-center gap-1 flex-shrink-0 opacity-70">
+                            <Eye size={13} /> Open
+                          </span>
+                        </div>
                       </button>
                     )}
 

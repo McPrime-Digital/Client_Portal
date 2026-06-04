@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { uploadFileToR2 } from '@/lib/uploadClient'
 import FileViewer, { type ViewerFile } from '@/components/shared/FileViewer'
+import InvoiceDetailModal from '@/components/shared/InvoiceDetailModal'
 import type { BusinessSettings } from '@/lib/types/database'
 
 type Invoice = {
@@ -33,6 +34,8 @@ type Invoice = {
   receipt_status: string | null
   receipt_uploaded_by: string | null
   created_at: string
+  currency?: string | null
+  line_items?: { description: string; quantity?: number; unit_price?: number; total?: number }[] | null
   projects: {
     id: string
     title: string
@@ -238,6 +241,9 @@ export default function InvoicesClient({
   const [previewFile, setPreviewFile] = useState<ViewerFile | null>(null)
   const openReceipt = (fileId: string, name: string) => setPreviewFile({ id: fileId, file_name: name })
 
+  // Full invoice details modal (tap any invoice to open).
+  const [detail, setDetail] = useState<Invoice | null>(null)
+
   return (
     <div className="space-y-8 max-w-[860px]">
       {/* Header */}
@@ -422,6 +428,14 @@ export default function InvoicesClient({
                           })}
                         </span>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => setDetail(invoice)}
+                        className="text-xs font-semibold"
+                        style={{ color: 'hsl(var(--primary))' }}
+                      >
+                        View details
+                      </button>
                     </div>
                   </div>
 
@@ -494,13 +508,14 @@ export default function InvoicesClient({
             {paid.map((invoice, index) => (
               <div
                 key={invoice.id}
-                className="flex items-center gap-4 px-5 py-4"
+                onClick={() => setDetail(invoice)}
+                className="flex items-center gap-4 px-5 py-4 cursor-pointer transition-colors hover:bg-[hsl(var(--secondary))]"
                 style={{
                   borderBottom:
                     index < paid.length - 1
                       ? '1px solid hsl(var(--border))'
                       : 'none',
-                  opacity: 0.7,
+                  opacity: 0.85,
                 }}
               >
                 <div
@@ -538,7 +553,7 @@ export default function InvoicesClient({
                 {invoice.receipt_file_id && (
                   <button
                     type="button"
-                    onClick={() => openReceipt(invoice.receipt_file_id!, invoice.receipt_uploaded_by === 'admin' ? 'Proof of payment' : 'Receipt')}
+                    onClick={(e) => { e.stopPropagation(); openReceipt(invoice.receipt_file_id!, invoice.receipt_uploaded_by === 'admin' ? 'Proof of payment' : 'Receipt') }}
                     className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium flex-shrink-0 transition-all"
                     style={{ backgroundColor: 'hsl(var(--secondary))', color: 'hsl(var(--foreground))', border: '1px solid hsl(var(--border))' }}
                     title={invoice.receipt_uploaded_by === 'admin' ? 'Proof of payment' : 'Your receipt'}
@@ -565,6 +580,15 @@ export default function InvoicesClient({
       {/* In-app viewer for receipts / proof of payment (no new tab). */}
       {previewFile && (
         <FileViewer key={previewFile.id} file={previewFile} onClose={() => setPreviewFile(null)} />
+      )}
+
+      {/* Full invoice details */}
+      {detail && (
+        <InvoiceDetailModal
+          invoice={detail}
+          onClose={() => setDetail(null)}
+          onViewReceipt={(fileId, name) => { setDetail(null); openReceipt(fileId, name) }}
+        />
       )}
     </div>
   )

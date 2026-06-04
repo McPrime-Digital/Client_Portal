@@ -14,6 +14,7 @@ import {
   ImagePlus,
   Trash2,
 } from 'lucide-react'
+import NotificationPreferences from '@/components/shared/NotificationPreferences'
 
 type Props = {
   user: User
@@ -458,6 +459,20 @@ export default function ClientSettings({
           )}
         </button>
       </form>
+
+      {/* ── Notification preferences ── */}
+      <NotificationPreferences
+        initial={client?.notification_prefs ?? null}
+        onSave={async (prefs) => {
+          const res = await fetch('/api/portal/actions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'save_notification_prefs', prefs }),
+          })
+          const json = await res.json().catch(() => ({}))
+          if (!res.ok) throw new Error(json.error ?? 'Failed to save.')
+        }}
+      />
 
       {/* ── Password ── */}
       <form

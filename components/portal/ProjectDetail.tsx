@@ -16,7 +16,6 @@ import type {
 import MessageThread from '@/components/shared/MessageThread'
 import TaskBoard from '@/components/shared/TaskBoard'
 import { useNotifications } from '@/lib/hooks/useNotifications'
-import { logActivity } from '@/lib/logActivity'
 import { uploadFileToR2 } from '@/lib/uploadClient'
 import ProgressBar from '@/components/shared/ProgressBar'
 import { computeProjectProgress, phaseColor } from '@/lib/projectProgress'
@@ -111,6 +110,14 @@ export default function ProjectDetail({
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
   const [fileList, setFileList] = useState<FileRecord[]>(files)
+
+  // Keep live state in sync whenever the server re-renders (RealtimeRefresh /
+  // poll re-runs the page query). useState seeds only once, so without this the
+  // client would never see admin-driven phase/status/file changes live — the
+  // core of "phases must update live across portals".
+  useEffect(() => { setPhases(initialPhases) }, [initialPhases])
+  useEffect(() => { setLiveStatus(project.status) }, [project.status])
+  useEffect(() => { setFileList(files) }, [files])
   const [refreshing, setRefreshing] = useState(false)
   // Typing & presence state
   const [adminTyping, setAdminTyping] = useState(false)
@@ -418,18 +425,8 @@ export default function ProjectDetail({
         })
       }
 
-      // Log activity — fire-and-forget, never blocks message delivery
-      logActivity({
-        projectId: project.id,
-        clientId: client.id,
-        actorId: client.user_id ?? client.id,
-        actorName: client.name,
-        actorRole: 'client',
-        eventType: 'message_sent',
-        title: `${client.name} sent a message`,
-        body: body.slice(0, 80),
-        meta: { project_id: project.id },
-      }).catch(() => {})
+      // Plain chat is intentionally NOT written to the activity log / recent
+      // activity feed — only task-related events appear there.
     } catch (err: any) {
       console.error('Failed to send message:', err)
       // Roll back the optimistic placeholder so it doesn't linger.

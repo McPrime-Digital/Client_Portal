@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect, notFound } from 'next/navigation'
 import AdminProjectDetail from '@/components/admin/AdminProjectDetail'
+import RealtimeRefresh from '@/components/shared/RealtimeRefresh'
 
 export default async function AdminProjectDetailPage({
   params,
@@ -118,14 +119,22 @@ export default async function AdminProjectDetailPage({
   }
 
   return (
-    <AdminProjectDetail
-      project={project}
-      client={client}
-      phases={phases ?? []}
-      tasks={tasks ?? []}
-      files={files ?? []}
-      initialMessages={messages ?? []}
-      involvement={involvement}
-    />
+    <>
+      {/* Live: keep the admin's view in sync with client-driven changes
+          (e.g. approvals advancing phases), with a poll fallback. */}
+      <RealtimeRefresh
+        tables={['project_phases', 'projects', 'tasks', 'files']}
+        pollMs={15000}
+      />
+      <AdminProjectDetail
+        project={project}
+        client={client}
+        phases={phases ?? []}
+        tasks={tasks ?? []}
+        files={files ?? []}
+        initialMessages={messages ?? []}
+        involvement={involvement}
+      />
+    </>
   )
 }

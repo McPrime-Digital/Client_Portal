@@ -212,14 +212,25 @@ export async function POST(req: NextRequest) {
           .single()
 
         if (error) throw error
-        await createAdminNotification({
-          clientId: client.id,
-          projectId: project_id,
-          type: 'message',
-          title: `New message from ${client.name}`,
-          body: typeof msgBody === 'string' ? msgBody.slice(0, 120) : null,
-        })
+        // Plain chat messages do NOT create a bell entry or push immediately —
+        // active conversations stay quiet. Unread is shown via the Messages
+        // badge; if the admin doesn't reply within 5h, the hourly nudge cron
+        // (/api/cron/message-nudge) sends a SINGLE deferred alert per prefs.
         return NextResponse.json({ message: data })
+      }
+
+      // ── Save notification preferences (per-category channels) ──
+      case 'save_notification_prefs': {
+        const { prefs } = body
+        if (!prefs || typeof prefs !== 'object') {
+          return NextResponse.json({ error: 'Invalid preferences.' }, { status: 400 })
+        }
+        const { error } = await supabaseAdmin
+          .from('clients')
+          .update({ notification_prefs: prefs })
+          .eq('id', client.id)
+        if (error) throw error
+        return NextResponse.json({ success: true })
       }
 
       // ── Update own profile ──────────────────────────────

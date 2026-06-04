@@ -187,7 +187,7 @@ export default async function DashboardPage() {
       .select('id, type, title, body, created_at, project_id')
       .eq('client_id', client.id)
       .order('created_at', { ascending: false })
-      .limit(10),
+      .limit(20),
     supabaseAdmin.from('invoices').select('*').eq('client_id', client.id),
     hasProjects
       ? supabaseAdmin
@@ -294,7 +294,7 @@ export default async function DashboardPage() {
     time: string
     projectId: string | null
   }
-  const activity: ActivityItem[] = (recentNotifs ?? []).slice(0, 6).map((n) => ({
+  const activity: ActivityItem[] = (recentNotifs ?? []).slice(0, 12).map((n) => ({
     id: n.id,
     type: n.type,
     title: n.title,
@@ -495,11 +495,23 @@ export default async function DashboardPage() {
                 </p>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="flex flex-col gap-3">
                 {activeProjects.map((project) => (
-                  <Link key={project.id} href={`/projects/${project.id}`}>
+                  <Link key={project.id} href={`/projects/${project.id}`} className="block">
                     <div className="card-interactive p-5 rounded-xl cursor-pointer bg-[hsl(var(--card))] border border-[hsl(var(--border))]">
                       <div className="flex items-start justify-between gap-4">
+                        {/* Project thumbnail */}
+                        {(project as any).image_url ? (
+                          <img
+                            src={(project as any).image_url}
+                            alt={project.title}
+                            className="w-14 h-14 rounded-xl object-cover flex-shrink-0 border border-[hsl(var(--border))]"
+                          />
+                        ) : (
+                          <div className="w-14 h-14 rounded-xl flex-shrink-0 flex items-center justify-center bg-[hsl(var(--secondary))] border border-[hsl(var(--border))]">
+                            <FolderOpen size={20} style={{ color: 'hsl(var(--text-faint))' }} />
+                          </div>
+                        )}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-3 mb-2 flex-wrap">
                             <h3 className="font-semibold text-sm truncate" style={{ color: 'hsl(var(--foreground))' }}>
@@ -824,10 +836,27 @@ export default async function DashboardPage() {
               </div>
             ) : (
               <div className="space-y-1">
-                {activity.map((item) => {
+                {activity.map((item, i) => {
                   const { Icon, color } = notifMeta(item.type)
+                  // Where tapping the item takes the client — parity with the
+                  // admin feed, where every event links to its context.
+                  const href =
+                    item.type === 'invoice_created'
+                      ? '/invoices'
+                      : item.projectId
+                      ? `/projects/${item.projectId}`
+                      : '/messages'
+                  const isFirst = i === 0
                   return (
-                    <div key={item.id} className="flex items-start gap-3 p-2 rounded-lg">
+                    <Link
+                      key={item.id}
+                      href={href}
+                      className="flex items-start gap-3 p-3 rounded-xl transition-all card-interactive"
+                      style={{
+                        backgroundColor: isFirst ? 'hsl(var(--primary) / 0.04)' : 'transparent',
+                        border: isFirst ? '1px solid hsl(var(--primary) / 0.08)' : '1px solid transparent',
+                      }}
+                    >
                       <div
                         className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
                         style={{ backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)`, border: `1px solid color-mix(in srgb, ${color} 22%, transparent)` }}
@@ -835,17 +864,19 @@ export default async function DashboardPage() {
                         <Icon size={14} style={{ color }} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium leading-snug truncate" style={{ color: 'hsl(var(--foreground))' }}>
+                        <p className="text-xs font-medium leading-snug" style={{ color: 'hsl(var(--foreground))' }}>
                           {item.title}
                         </p>
-                        <p className="text-[11px] truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                          {item.sub}
-                        </p>
+                        {item.sub && (
+                          <p className="text-[11px] mt-0.5 truncate" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                            {item.sub}
+                          </p>
+                        )}
                       </div>
                       <span className="text-[10px] flex-shrink-0 mt-0.5" style={{ color: 'hsl(var(--text-faint))' }}>
                         {timeAgo(item.time)}
                       </span>
-                    </div>
+                    </Link>
                   )
                 })}
               </div>

@@ -6,7 +6,7 @@ import { useSidebarStore } from '@/lib/stores/sidebar-store'
 import ThemeToggle from '../ThemeToggle'
 import AdminNotificationBell from './AdminNotificationBell'
 
-type Props = { adminName: string }
+type Props = { adminName: string; adminRole?: string }
 
 const routeNames: Record<string, string> = {
   '/admin': 'Overview',
@@ -18,7 +18,7 @@ const routeNames: Record<string, string> = {
   '/admin/settings': 'Settings',
 }
 
-export default function AdminTopbar({ adminName }: Props) {
+export default function AdminTopbar({ adminName, adminRole = 'Owner' }: Props) {
   const pathname = usePathname()
   const { toggle } = useSidebarStore()
   const pageName =
@@ -45,8 +45,15 @@ export default function AdminTopbar({ adminName }: Props) {
       <div className="flex items-center gap-2">
         <AdminNotificationBell />
         <ThemeToggle />
-        <div className="text-xs px-3 py-1 rounded-full font-medium bg-primary/10 text-primary border border-primary/20">
-          {adminName}
+        {/* Owner / manager identity (extreme top-right) */}
+        <div className="flex items-center gap-2.5 pl-2">
+          <div className="hidden sm:block text-right leading-tight">
+            <p className="text-sm font-semibold text-foreground truncate max-w-[160px]">{adminName}</p>
+            <p className="text-[11px] text-primary">{adminRole}</p>
+          </div>
+          <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 bg-primary text-primary-foreground">
+            {adminName?.[0]?.toUpperCase() ?? 'A'}
+          </div>
         </div>
       </div>
     </header>

@@ -13,6 +13,7 @@ import {
   DollarSign,
   Check,
 } from 'lucide-react'
+import InvoiceDetailModal from '@/components/shared/InvoiceDetailModal'
 
 type Invoice = {
   id: string
@@ -25,6 +26,8 @@ type Invoice = {
   invoice_number: string | null
   notes: string | null
   created_at: string
+  currency?: string | null
+  line_items?: { description: string; quantity?: number; unit_price?: number; total?: number }[] | null
 }
 
 type Props = {
@@ -57,6 +60,7 @@ export default function AdminInvoicesTab({
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
+  const [detail, setDetail] = useState<Invoice | null>(null)
   const [saving, setSaving] = useState(false)
   const [updatingId, setUpdatingId] = useState<string | null>(
     null
@@ -315,12 +319,15 @@ export default function AdminInvoicesTab({
                         #{invoice.invoice_number}
                       </p>
                     )}
-                    <p
-                      className="text-sm font-semibold"
+                    <button
+                      type="button"
+                      onClick={() => setDetail(invoice)}
+                      className="text-sm font-semibold text-left hover:underline"
                       style={{ color: 'hsl(var(--foreground))' }}
+                      title="View full invoice details"
                     >
                       {invoice.title}
-                    </p>
+                    </button>
                     {invoice.notes && (
                       <p className="text-xs mt-1 leading-relaxed"
                         style={{ color: 'hsl(var(--muted-foreground))' }}>
@@ -454,6 +461,11 @@ export default function AdminInvoicesTab({
             )
           })}
         </div>
+      )}
+
+      {/* Full invoice details */}
+      {detail && (
+        <InvoiceDetailModal invoice={detail} onClose={() => setDetail(null)} />
       )}
 
       {/* Create Invoice Modal */}

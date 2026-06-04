@@ -5,12 +5,13 @@ import { createClient } from '@/lib/supabase/client'
 import type { User } from '@supabase/supabase-js'
 import {
   Shield, Lock, Check, Loader2, AlertCircle, Eye, EyeOff,
-  CreditCard, Building2, Users, ChevronRight,
+  CreditCard, Building2, Users, ChevronRight, Bell,
 } from 'lucide-react'
+import NotificationPreferences, { type PrefMap } from '@/components/shared/NotificationPreferences'
 
 type Props = { user: User }
 
-type SectionKey = 'business' | 'payments' | 'profile' | 'security' | 'team'
+type SectionKey = 'business' | 'payments' | 'notifications' | 'profile' | 'security' | 'team'
 
 export default function AdminSettings({ user }: Props) {
   const supabase = createClient()
@@ -39,6 +40,9 @@ export default function AdminSettings({ user }: Props) {
   const [paySuccess, setPaySuccess] = useState(false)
   const [payError, setPayError] = useState('')
 
+  // Admin notification preferences (stored on business_settings.notification_prefs).
+  const [notifPrefs, setNotifPrefs] = useState<PrefMap | null>(null)
+
   useEffect(() => {
     let active = true
     fetch('/api/admin/invoice-actions', {
@@ -49,6 +53,7 @@ export default function AdminSettings({ user }: Props) {
       .then((j) => {
         if (active && j.settings) {
           setPay((prev) => Object.fromEntries(Object.keys(prev).map((k) => [k, j.settings[k] ?? ''])) as typeof prev)
+          setNotifPrefs((j.settings.notification_prefs ?? null) as PrefMap | null)
         }
       })
       .catch(() => {})
@@ -148,6 +153,7 @@ export default function AdminSettings({ user }: Props) {
   const navItems: { key: SectionKey; label: string; icon: any; desc: string; tint: string }[] = [
     { key: 'business', label: 'Business Profile', icon: Building2, desc: 'Identity on invoices', tint: 'primary' },
     { key: 'payments', label: 'Payment Details', icon: CreditCard, desc: 'Bank & wire info', tint: 'status-green' },
+    { key: 'notifications', label: 'Notifications', icon: Bell, desc: 'Alerts & channels', tint: 'primary' },
     { key: 'profile', label: 'Admin Profile', icon: Shield, desc: 'Your account', tint: 'status-blue' },
     { key: 'security', label: 'Security', icon: Lock, desc: 'Password & access', tint: 'status-violet' },
     { key: 'team', label: 'Team & Roles', icon: Users, desc: 'Seats & permissions', tint: 'status-amber' },
@@ -230,6 +236,23 @@ export default function AdminSettings({ user }: Props) {
               {payError && <div className="flex items-center gap-2"><AlertCircle size={13} style={{ color: 'hsl(var(--destructive))' }} /><p className="text-sm" style={{ color: 'hsl(var(--destructive))' }}>{payError}</p></div>}
               <PaySaveButton />
             </form>
+          )}
+
+          {/* Notifications */}
+          {section === 'notifications' && (
+            <NotificationPreferences
+              initial={notifPrefs}
+              onSave={async (prefs) => {
+                const res = await fetch('/api/admin/invoice-actions', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ action: 'save_notification_prefs', prefs }),
+                })
+                const json = await res.json().catch(() => ({}))
+                if (!res.ok) throw new Error(json.error ?? 'Failed to save.')
+                setNotifPrefs(prefs)
+              }}
+            />
           )}
 
           {/* Admin Profile */}

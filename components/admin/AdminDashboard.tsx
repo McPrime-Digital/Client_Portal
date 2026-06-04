@@ -598,7 +598,16 @@ function ProjectCard({ project }: { project: Project }) {
       style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
     >
       <div className="flex items-center gap-4">
-        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: cfg.dot }} />
+        {/* Project thumbnail */}
+        {(project as any).image_url ? (
+          <img
+            src={(project as any).image_url}
+            alt={project.title}
+            className="w-11 h-11 rounded-lg object-cover flex-shrink-0 border border-[hsl(var(--border))]"
+          />
+        ) : (
+          <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: cfg.dot }} />
+        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-sm font-semibold truncate" style={{ color: 'hsl(var(--foreground))' }}>{project.title}</p>

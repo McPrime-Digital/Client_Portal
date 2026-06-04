@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { uploadFileToR2 } from '@/lib/uploadClient'
 import FileViewer, { type ViewerFile } from '@/components/shared/FileViewer'
+import InvoiceDetailModal from '@/components/shared/InvoiceDetailModal'
 import {
   Plus,
   DollarSign,
@@ -114,6 +115,7 @@ export default function AdminInvoicesList({
     useState(invoices)
   // Receipts / proof open in the in-app viewer (never a new browser tab).
   const [previewFile, setPreviewFile] = useState<ViewerFile | null>(null)
+  const [detail, setDetail] = useState<any | null>(null)
   // Keep in sync when a realtime refresh re-runs the server query.
   useEffect(() => { setLocalInvoices(invoices) }, [invoices])
   const [showNewForm, setShowNewForm] = useState(false)
@@ -440,8 +442,12 @@ export default function AdminInvoicesList({
                     style={{ color: cfg.color }} />
                 </div>
 
-                {/* Main info */}
-                <div className="flex-1 min-w-0">
+                {/* Main info — click to view full details */}
+                <div
+                  className="flex-1 min-w-0 cursor-pointer"
+                  onClick={() => setDetail(invoice)}
+                  title="View full invoice details"
+                >
                   <div className="flex items-center
                     gap-2 flex-wrap">
                     <p
@@ -687,6 +693,14 @@ export default function AdminInvoicesList({
       />
 
       {/* In-app viewer for receipts / proof of payment (no new tab). */}
+      {detail && (
+        <InvoiceDetailModal
+          invoice={detail}
+          onClose={() => setDetail(null)}
+          onViewReceipt={(fileId, name) => { setDetail(null); setPreviewFile({ id: fileId, file_name: name }) }}
+        />
+      )}
+
       {previewFile && (
         <FileViewer key={previewFile.id} file={previewFile} onClose={() => setPreviewFile(null)} />
       )}

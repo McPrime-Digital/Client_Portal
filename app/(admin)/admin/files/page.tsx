@@ -2,6 +2,12 @@ import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import AdminFileVault, { type AdminFileRow } from '@/components/admin/AdminFileVault'
+import RealtimeRefresh from '@/components/shared/RealtimeRefresh'
+import StorageMeter from '@/components/shared/StorageMeter'
+
+const GB = 1024 ** 3
+// Soft storage quota guide for the whole workspace (overridable via env).
+const ADMIN_QUOTA = (Number(process.env.NEXT_PUBLIC_STORAGE_QUOTA_GB) || 250) * GB
 
 // Embedded one-to-one relations come back as an object (or, in some
 // shapes, a single-element array) — normalise both.
@@ -47,5 +53,23 @@ export default async function AdminFilesPage() {
       }
     })
 
-  return <AdminFileVault files={rows} />
+  const allRaw = data ?? []
+  const r2Bytes = allRaw.filter((f) => (f as { bucket?: string }).bucket === 'r2').reduce((a, f) => a + (f.file_size || 0), 0)
+  const supabaseBytes = allRaw.filter((f) => (f as { bucket?: string }).bucket !== 'r2').reduce((a, f) => a + (f.file_size || 0), 0)
+
+  return (
+    <>
+      {/* Live: new task media / deliverables / uploads appear without a reload. */}
+      <RealtimeRefresh tables={['files']} pollMs={15000} />
+      <div className="mb-6">
+        <StorageMeter
+          r2Bytes={r2Bytes}
+          supabaseBytes={supabaseBytes}
+          fileCount={allRaw.filter((f) => f.client_id).length}
+          quotaBytes={ADMIN_QUOTA}
+        />
+      </div>
+      <AdminFileVault files={rows} />
+    </>
+  )
 }

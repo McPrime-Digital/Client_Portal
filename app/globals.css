@@ -81,6 +81,45 @@
     font-family: var(--font-display, sans-serif);
     @apply tracking-tight;
   }
+
+  /* ── Form control normalization ──────────────────────────────────────────
+     Native date/time inputs otherwise keep an intrinsic min-width (so they
+     refuse to shrink inside grid/flex cells — causing the kickoff/delivery
+     date boxes to overlap or misalign) and use a different internal box model
+     than text inputs (so they sit a few px off). Normalizing them here aligns
+     every date/time field across BOTH portals, on every device, in one place. */
+  input[type='date'],
+  input[type='time'],
+  input[type='datetime-local'],
+  input[type='month'],
+  input[type='week'] {
+    -webkit-appearance: none;
+    appearance: none;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+  /* Keep the value left-aligned and flush, matching text inputs. */
+  input[type='date']::-webkit-date-and-time-value,
+  input[type='time']::-webkit-date-and-time-value,
+  input[type='datetime-local']::-webkit-date-and-time-value {
+    text-align: left;
+    margin: 0;
+  }
+  /* Themed, clearly-tappable calendar/clock picker indicator. */
+  input::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: 0.55;
+    transition: opacity 0.15s ease;
+  }
+  input:hover::-webkit-calendar-picker-indicator,
+  input:focus::-webkit-calendar-picker-indicator {
+    opacity: 0.9;
+  }
+  /* Selects share the same box model as text inputs so they line up in grids. */
+  select {
+    box-sizing: border-box;
+    min-width: 0;
+  }
 }
 
 @layer utilities {

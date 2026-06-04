@@ -15,6 +15,8 @@ import {
 import MessageThread from '@/components/shared/MessageThread'
 import type { Message } from '@/lib/types/database'
 import { uploadFileToR2 } from '@/lib/uploadClient'
+import { messagePreview } from '@/lib/messagePreview'
+import { usePresenceStore, isClientOnline } from '@/lib/stores/presence-store'
 
 type Thread = {
   id: string
@@ -85,12 +87,16 @@ export default function AdminMessagesHub({
   const [sendError, setSendError] = useState<string | null>(null)
   const channelRef = useRef<any>(null)
 
-  // Typing & presence state (per active thread)
+  // Typing state (per active thread). Online/Away comes from app-wide presence.
   const [clientTyping, setClientTyping] = useState(false)
-  const [clientOnline, setClientOnline] = useState(false)
+  const online = usePresenceStore((s) => s.online)
   const typingChannelRef = useRef<any>(null)
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const typingBroadcastRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Stable view of the active thread id for use inside realtime callbacks.
+  const activeThreadIdRef = useRef<string | null>(null)
+  useEffect(() => { activeThreadIdRef.current = activeThread?.id ?? null }, [activeThread?.id])
+  const clientOnline = isClientOnline(online, activeThread?.client?.id ?? null)
 
   const [mobileView, setMobileView] = useState<
     'list' | 'thread'
@@ -111,12 +117,17 @@ export default function AdminMessagesHub({
         setLoadingMessages(false)
       }
 
-      // Mark client messages as read (server-side, service role)
+      // Mark client messages as read (server-side, service role), then ping the
+      // client so their ticks turn blue instantly.
       fetch('/api/admin/messages', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ project_id: projectId }),
-      }).catch(() => {})
+      })
+        .then(() => {
+          typingChannelRef.current?.send({ type: 'broadcast', event: 'sync', payload: {} })
+        })
+        .catch(() => {})
 
       setThreads((prev) =>
         prev.map((t) =>
@@ -128,6 +139,64 @@ export default function AdminMessagesHub({
   )
 
   // Scroll behavior now handled inside MessageThread
+
+  // Broadcast a lightweight "sync" ping so the client refetches instantly —
+  // drives WhatsApp-speed ticks without relying on Postgres replication (which
+  // RLS starves on the admin side).
+  const broadcastSync = useCallback(() => {
+    const ch = typingChannelRef.current
+    if (ch) ch.send({ type: 'broadcast', event: 'sync', payload: {} })
+  }, [])
+
+  // Refetch the active thread, reorder the thread list (newest on top), and —
+  // if the admin is viewing this thread — instantly mark incoming client
+  // messages read and tell the client.
+  const refetchMessages = useCallback(
+    async (projectId: string) => {
+      try {
+        const res = await fetch(`/api/admin/messages?project_id=${projectId}`)
+        const json = await res.json()
+        if (!json.messages) return
+        const incoming = json.messages as Message[]
+        setMessages((prev) => {
+          if (samePersisted(prev, incoming)) return prev
+          const pending = prev.filter((m) => m.id.startsWith('temp-'))
+          return [...incoming, ...pending]
+        })
+        const latest = incoming[incoming.length - 1] ?? null
+        if (latest) {
+          setThreads((prev) => {
+            const idx = prev.findIndex((t) => t.id === projectId)
+            if (idx === -1) return prev
+            const isActive = activeThreadIdRef.current === projectId
+            const updated = {
+              ...prev[idx],
+              latestMessage: latest,
+              unreadCount: isActive ? 0 : prev[idx].unreadCount,
+            }
+            return [updated, ...prev.filter((t) => t.id !== projectId)]
+          })
+        }
+        if (
+          activeThreadIdRef.current === projectId &&
+          incoming.some(
+            (m) => m.sender_role === 'client' && !m.read_at && !m.id.startsWith('temp-')
+          )
+        ) {
+          fetch('/api/admin/messages', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ project_id: projectId }),
+          })
+            .then(() => broadcastSync())
+            .catch(() => {})
+        }
+      } catch {
+        /* ignore */
+      }
+    },
+    [broadcastSync]
+  )
 
   useEffect(() => {
     if (!activeThread) return
@@ -155,20 +224,16 @@ export default function AdminMessagesHub({
             return [...prev, msg]
           })
 
-          setThreads((prev) =>
-            prev.map((t) =>
-              t.id === activeThread.id
-                ? {
-                    ...t,
-                    latestMessage: msg,
-                    unreadCount:
-                      msg.sender_role === 'client'
-                        ? 0
-                        : t.unreadCount,
-                  }
-                : t
-            )
-          )
+          setThreads((prev) => {
+            const idx = prev.findIndex((t) => t.id === activeThread.id)
+            if (idx === -1) return prev
+            const updated = {
+              ...prev[idx],
+              latestMessage: msg,
+              unreadCount: msg.sender_role === 'client' ? 0 : prev[idx].unreadCount,
+            }
+            return [updated, ...prev.filter((t) => t.id !== activeThread.id)]
+          })
 
           if (msg.sender_role === 'client') {
             fetch('/api/admin/messages', {
@@ -203,19 +268,17 @@ export default function AdminMessagesHub({
     }
   }, [activeThread?.id])
 
-  // Typing indicator + presence for the active thread
+  // Typing indicator + instant sync for the active thread. One subscribed
+  // channel carries BOTH typing events and "sync" pings. Online/Away is handled
+  // app-wide by PresencePulse → presence store, so no per-thread presence here.
   useEffect(() => {
     if (!activeThread) {
       setClientTyping(false)
-      setClientOnline(false)
       typingChannelRef.current = null
       return
     }
     const projectId = activeThread.id
 
-    // Single subscribed channel used for BOTH listening and sending typing
-    // events — sending through a subscribed channel is far more reliable
-    // than spinning up a throwaway channel per keystroke.
     const typingCh = supabase
       .channel(`typing:${projectId}`)
       .on('broadcast', { event: 'typing' }, (payload) => {
@@ -225,54 +288,26 @@ export default function AdminMessagesHub({
           typingTimeoutRef.current = setTimeout(() => setClientTyping(false), 3000)
         }
       })
+      .on('broadcast', { event: 'sync' }, () => {
+        refetchMessages(projectId)
+      })
       .subscribe()
     typingChannelRef.current = typingCh
-
-    const presenceCh = supabase.channel(`presence:${projectId}`, {
-      config: { presence: { key: 'admin' } },
-    })
-    presenceCh
-      .on('presence', { event: 'sync' }, () => {
-        const state = presenceCh.presenceState()
-        const clientPresent = Object.values(state).some((presences: any) =>
-          presences.some((p: any) => p.role === 'client')
-        )
-        setClientOnline(clientPresent)
-      })
-      .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          await presenceCh.track({ role: 'admin' })
-        }
-      })
 
     return () => {
       typingChannelRef.current = null
       supabase.removeChannel(typingCh)
-      supabase.removeChannel(presenceCh)
     }
-  }, [activeThread?.id])
+  }, [activeThread?.id, refetchMessages])
 
-  // Polling fallback — keeps the thread live even when realtime replication
-  // is unavailable. Picks up new messages and read/delivered changes.
+  // Polling safety net — keeps the thread live if realtime + broadcast both
+  // drop. The broadcast layer above already makes updates feel instant.
   useEffect(() => {
     if (!activeThread) return
     const projectId = activeThread.id
-    const interval = setInterval(() => {
-      fetch(`/api/admin/messages?project_id=${projectId}`)
-        .then((r) => r.json())
-        .then((json) => {
-          if (!json.messages) return
-          setMessages((prev) => {
-            const incoming = json.messages as Message[]
-            if (samePersisted(prev, incoming)) return prev
-            const pending = prev.filter((m) => m.id.startsWith('temp-'))
-            return [...incoming, ...pending]
-          })
-        })
-        .catch(() => {})
-    }, 5000)
+    const interval = setInterval(() => refetchMessages(projectId), 6000)
     return () => clearInterval(interval)
-  }, [activeThread?.id])
+  }, [activeThread?.id, refetchMessages])
 
   // Broadcast typing when admin types (through the subscribed channel)
   function handleAdminTyping() {
@@ -352,13 +387,14 @@ export default function AdminMessagesHub({
         }
         return prev.map((m) => (m.id === optimistic.id ? inserted! : m))
       })
-      setThreads((prev) =>
-        prev.map((t) =>
-          t.id === activeThread.id
-            ? { ...t, latestMessage: inserted }
-            : t
-        )
-      )
+      setThreads((prev) => {
+        const idx = prev.findIndex((t) => t.id === activeThread.id)
+        if (idx === -1) return prev
+        const updated = { ...prev[idx], latestMessage: inserted }
+        return [updated, ...prev.filter((t) => t.id !== activeThread.id)]
+      })
+      // Tell the client to refetch immediately (instant single→double tick).
+      broadcastSync()
     }
   }
 
@@ -530,7 +566,7 @@ export default function AdminMessagesHub({
                           {thread.latestMessage.sender_role === 'admin'
                             ? 'You: '
                             : `${thread.client?.name}: `}
-                          {thread.latestMessage.body}
+                          {messagePreview(thread.latestMessage)}
                         </p>
                       ) : (
                         <p className="text-xs mt-1.5 italic"

@@ -16,7 +16,7 @@ export default async function AdminPage() {
   const { data: projects } = await supabaseAdmin
     .from('projects')
     .select(`
-      id, title, status, progress, created_at, updated_at,
+      id, title, status, progress, created_at, updated_at, image_url,
       clients(id, name, company, avatar_url),
       project_phases(id, name, progress, sort_order, is_complete),
       tasks(id, status, visible_to_client, requires_approval, approval_status, approved_at),

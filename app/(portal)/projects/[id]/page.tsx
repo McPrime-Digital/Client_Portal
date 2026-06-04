@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect, notFound } from 'next/navigation'
 import ProjectDetail from '@/components/portal/ProjectDetail'
+import RealtimeRefresh from '@/components/shared/RealtimeRefresh'
 
 export default async function ProjectDetailPage({
   params,
@@ -83,14 +84,23 @@ export default async function ProjectDetailPage({
   ])
 
   return (
-    <ProjectDetail
-      project={project}
-      phases={phases ?? []}
+    <>
+      {/* Live: re-run this server query (fresh phases/status/tasks) on any
+          change, with a poll fallback so phase progress always advances in
+          real time even if Realtime replication is unavailable. */}
+      <RealtimeRefresh
+        tables={['project_phases', 'projects', 'tasks', 'files']}
+        pollMs={12000}
+      />
+      <ProjectDetail
+        project={project}
+        phases={phases ?? []}
       tasks={tasks ?? []}
       files={files ?? []}
       initialMessages={messages ?? []}
-      client={client}
-      involvement={involvement}
-    />
+        client={client}
+        involvement={involvement}
+      />
+    </>
   )
 }

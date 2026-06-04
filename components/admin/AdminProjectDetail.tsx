@@ -9,7 +9,6 @@ import AdminInvoicesTab from '@/components/admin/AdminInvoicesTab'
 import MessageThread from '@/components/shared/MessageThread'
 import TaskBoard from '@/components/shared/TaskBoard'
 import type { Message } from '@/lib/types/database'
-import { logActivity } from '@/lib/logActivity'
 import { uploadFileToR2 } from '@/lib/uploadClient'
 import ProgressBar from '@/components/shared/ProgressBar'
 import ProgressSlider from '@/components/shared/ProgressSlider'
@@ -100,6 +99,14 @@ export default function AdminProjectDetail({
   const [tasks, setTasks] = useState(initialTasks)
   const [files, setFiles] = useState(initialFiles)
   const [messages, setMessages] = useState(initialMessages)
+
+  // Sync from the server on RealtimeRefresh/poll re-renders so client-driven
+  // changes (approvals advancing phases, uploads) appear live for the admin
+  // too. Fires only when the server actually returns new data (new prop ref).
+  useEffect(() => { setProject(initialProject) }, [initialProject])
+  useEffect(() => { setPhases(initialPhases) }, [initialPhases])
+  useEffect(() => { setTasks(initialTasks) }, [initialTasks])
+  useEffect(() => { setFiles(initialFiles) }, [initialFiles])
 
   // Overview state
   const [savingPhase, setSavingPhase] = useState<string | null>(
@@ -519,17 +526,8 @@ export default function AdminProjectDetail({
         )
       )
 
-      // Log activity — fire-and-forget
-      logActivity({
-        projectId: project.id,
-        actorId: user!.id,
-        actorName: 'McPrime Digital',
-        actorRole: 'admin',
-        eventType: 'message_sent',
-        title: 'McPrime Digital sent a message',
-        body: body.slice(0, 80),
-        meta: { project_id: project.id },
-      }).catch(() => {})
+      // Plain chat is intentionally NOT written to the activity log / recent
+      // activity feed — only task-related events appear there.
     } catch (err: any) {
       console.error('Failed to send message:', err)
       alert(`Failed to send message: ${err.message}`)

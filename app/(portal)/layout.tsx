@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import Sidebar from '@/components/layout/Sidebar'
 import Topbar from '@/components/layout/Topbar'
+import PresencePulse from '@/components/shared/PresencePulse'
 
 export default async function PortalLayout({
   children,
@@ -53,6 +54,11 @@ export default async function PortalLayout({
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
+      <PresencePulse
+        role="client"
+        userId={session.user.id}
+        clientId={(activeClient as any).id ?? null}
+      />
       <Sidebar
         clientName={activeClient.name}
         clientCompany={(activeClient as any).company ?? null}
