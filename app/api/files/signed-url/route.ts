@@ -1,3 +1,4 @@
+import { isAdmin } from '@/lib/auth/role'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getSignedDownloadUrl } from '@/lib/r2'
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Authorize: admins can read any file; clients only their own.
-    if (user.user_metadata?.role !== 'admin') {
+    if (!isAdmin(user)) {
       const { data: clientRow } = await supabaseAdmin
         .from('clients')
         .select('id')

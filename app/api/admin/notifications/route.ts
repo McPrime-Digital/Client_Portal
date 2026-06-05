@@ -1,3 +1,4 @@
+import { isAdmin } from '@/lib/auth/role'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -5,7 +6,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 async function verifyAdmin() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  return user && user.user_metadata?.role === 'admin' ? user : null
+  return user && isAdmin(user) ? user : null
 }
 
 // Admin-facing notification stream (for_admin = true).

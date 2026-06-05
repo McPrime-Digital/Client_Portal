@@ -1,3 +1,4 @@
+import { userRole } from '@/lib/auth/role'
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
@@ -72,7 +73,7 @@ async function handleSuccessfulAuth(
   origin: string,
   next: string,
 ) {
-  const role = user.user_metadata?.role ?? 'client'
+  const role = userRole(user)
 
   // Mark client as onboarded if first login
   if (role === 'client') {

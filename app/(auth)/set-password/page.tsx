@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { Session } from '@supabase/supabase-js'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import McPrimeLogo from '@/components/McPrimeLogo'
+import { userClientId } from '@/lib/auth/role'
 
 export default function SetPasswordPage() {
   const router = useRouter()
@@ -104,7 +105,7 @@ export default function SetPasswordPage() {
     // Link auth user to client record
     const { data: { user } } = await supabase.auth.getUser()
     if (user) {
-      const clientId = user.user_metadata?.client_id
+      const clientId = userClientId(user)
       if (clientId) {
         await supabase
           .from('clients')

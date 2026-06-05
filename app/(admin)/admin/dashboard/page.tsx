@@ -1,3 +1,4 @@
+import { isAdmin } from '@/lib/auth/role'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
@@ -11,7 +12,7 @@ export default async function AdminDashboardPage() {
     await supabase.auth.getUser()
   if (
     !user ||
-    user.user_metadata?.role !== 'admin'
+    !isAdmin(user)
   ) {
     redirect('/login')
   }

@@ -1,3 +1,4 @@
+import { isAdmin } from '@/lib/auth/role'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -13,7 +14,7 @@ export async function POST() {
     if (!user) return NextResponse.json({ ok: false })
 
     const now = new Date().toISOString()
-    if (user.user_metadata?.role === 'admin') {
+    if (isAdmin(user)) {
       // Admins have no clients row — stamp the singleton business_settings.
       await supabaseAdmin
         .from('business_settings')

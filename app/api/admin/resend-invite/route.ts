@@ -4,6 +4,7 @@ import { createClient as createAdminClient }
   from '@supabase/supabase-js'
 import { NextRequest, NextResponse }
   from 'next/server'
+import { isAdmin } from '@/lib/auth/role'
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,7 +15,7 @@ export async function POST(req: NextRequest) {
 
     if (
       !user ||
-      user.user_metadata?.role !== 'admin'
+      !isAdmin(user)
     ) {
       return NextResponse.json(
         { error: 'Unauthorized' },

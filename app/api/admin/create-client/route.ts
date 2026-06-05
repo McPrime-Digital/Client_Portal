@@ -1,13 +1,14 @@
 import { createClient } from '@supabase/supabase-js'
 import { createClient as createServerClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
+import { isAdmin } from '@/lib/auth/role'
 
 export async function POST(req: NextRequest) {
   try {
     // Gate: only authenticated admins may create clients / auth users.
     const authClient = await createServerClient()
     const { data: { user } } = await authClient.auth.getUser()
-    if (!user || user.user_metadata?.role !== 'admin') {
+    if (!user || !isAdmin(user)) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -134,11 +135,12 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Update the auth user's metadata with client_id
-    // so the set-password page can link user → client
+    // Bind the auth user to its client + role. SECURITY: role and client_id
+    // live in app_metadata (service-role only, not user-editable); only the
+    // display name stays in user_metadata.
     await supabaseAdmin.auth.admin.updateUserById(userId, {
-      user_metadata: {
-        name,
+      user_metadata: { name },
+      app_metadata: {
         role: 'client',
         client_id: client.id,
       },

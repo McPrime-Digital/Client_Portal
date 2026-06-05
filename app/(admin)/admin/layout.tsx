@@ -4,6 +4,7 @@ import AdminSidebar from '@/components/admin/AdminSidebar'
 import AdminTopbar from '@/components/admin/AdminTopbar'
 import PresencePulse from '@/components/shared/PresencePulse'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { userRole } from '@/lib/auth/role'
 
 export default async function AdminLayout({
   children,
@@ -16,7 +17,7 @@ export default async function AdminLayout({
 
   if (!user) redirect('/login')
 
-  const role = user.user_metadata?.role
+  const role = userRole(user)
   if (role !== 'admin') redirect('/dashboard')
 
   // Agency/company name shown beside the logo (top-left). Falls back to the

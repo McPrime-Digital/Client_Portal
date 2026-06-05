@@ -1,3 +1,4 @@
+import { isAdmin } from '@/lib/auth/role'
 import { createClient } from
   '@/lib/supabase/server'
 import { supabaseAdmin } from
@@ -15,7 +16,7 @@ export default async function ClientsPage() {
 
   if (
     !user ||
-    user.user_metadata?.role !== 'admin'
+    !isAdmin(user)
   ) {
     redirect('/login')
   }

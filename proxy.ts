@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { userRole } from '@/lib/auth/role'
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -65,7 +66,7 @@ export async function proxy(request: NextRequest) {
 
   // Admin trying to access client portal
   if (user && isPortalRoute) {
-    const role = user.user_metadata?.role
+    const role = userRole(user)
     if (role === 'admin') {
       const url = request.nextUrl.clone()
       url.pathname = '/admin'
@@ -75,7 +76,7 @@ export async function proxy(request: NextRequest) {
 
   // Client trying to access admin panel
   if (user && isAdminRoute) {
-    const role = user.user_metadata?.role
+    const role = userRole(user)
     if (role !== 'admin') {
       const url = request.nextUrl.clone()
       url.pathname = '/dashboard'
@@ -85,7 +86,7 @@ export async function proxy(request: NextRequest) {
 
   // Logged in hitting login page — send to right place
   if (user && pathname === '/login') {
-    const role = user.user_metadata?.role
+    const role = userRole(user)
     const url = request.nextUrl.clone()
     url.pathname = role === 'admin' ? '/admin' : '/dashboard'
     return NextResponse.redirect(url)

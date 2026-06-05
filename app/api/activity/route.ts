@@ -1,3 +1,4 @@
+import { userRole } from '@/lib/auth/role'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { logActivityServer } from '@/lib/logActivity'
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest) {
     clientId: clientId ?? undefined,
     actorId: user.id,
     actorName: user.user_metadata?.name ?? 'User',
-    actorRole: user.user_metadata?.role === 'admin' ? 'admin' : 'client',
+    actorRole: userRole(user),
     eventType,
     title,
     body: detail ?? undefined,

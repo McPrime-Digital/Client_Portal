@@ -1,3 +1,4 @@
+import { isAdmin } from '@/lib/auth/role'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getSignedDownloadUrl } from '@/lib/r2'
@@ -33,7 +34,7 @@ export async function GET(
     }
 
     // Authorize non-admins to their own files only.
-    if (user.user_metadata?.role !== 'admin') {
+    if (!isAdmin(user)) {
       const { data: clientRow } = await supabaseAdmin
         .from('clients')
         .select('id')

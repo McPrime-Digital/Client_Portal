@@ -1,3 +1,4 @@
+import { isAdmin } from '@/lib/auth/role'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect, notFound } from 'next/navigation'
@@ -11,7 +12,7 @@ export default async function EditClientPage({
   const { id } = await params
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user || user.user_metadata?.role !== 'admin') redirect('/login')
+  if (!user || !isAdmin(user)) redirect('/login')
 
   const { data: client } = await supabaseAdmin
     .from('clients')

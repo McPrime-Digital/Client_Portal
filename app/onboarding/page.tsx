@@ -1,3 +1,4 @@
+import { isAdmin } from '@/lib/auth/role'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
@@ -11,7 +12,7 @@ export default async function OnboardingPage() {
   if (!user) redirect('/login')
 
   // Admins don't onboard.
-  if (user.user_metadata?.role === 'admin') redirect('/admin')
+  if (isAdmin(user)) redirect('/admin')
 
   const { data: client } = await supabaseAdmin
     .from('clients')

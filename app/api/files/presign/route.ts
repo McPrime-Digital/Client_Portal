@@ -1,3 +1,4 @@
+import { userRole } from '@/lib/auth/role'
 import { createClient } from '@/lib/supabase/server'
 import { getSignedUploadUrl } from '@/lib/r2'
 import { resolveUploadScope } from '@/lib/uploadScope'
@@ -23,7 +24,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'fileName is required.' }, { status: 400 })
     }
 
-    const role = user.user_metadata?.role ?? 'client'
+    const role = userRole(user)
     const scope = await resolveUploadScope(role, user.id, projectId, bodyClientId)
     if ('error' in scope) {
       return NextResponse.json({ error: scope.error }, { status: scope.status })

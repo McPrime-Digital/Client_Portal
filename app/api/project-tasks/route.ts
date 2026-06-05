@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { isAdmin } from '@/lib/auth/role'
 
 // Live source of truth for a project's task board — tasks + the Approvals &
 // Records ledger. Read via the service role (so it works for admin, whose RLS
@@ -18,8 +19,8 @@ export async function GET(req: NextRequest) {
   if (!projectId) return NextResponse.json({ error: 'project_id required' }, { status: 400 })
 
   // Authorize: admins see any project; clients only their own.
-  const isAdmin = user.user_metadata?.role === 'admin'
-  if (!isAdmin) {
+  const admin = isAdmin(user)
+  if (!admin) {
     const { data: client } = await supabaseAdmin
       .from('clients').select('id').eq('user_id', user.id).single()
     if (!client) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })

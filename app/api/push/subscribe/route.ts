@@ -1,3 +1,4 @@
+import { userRole } from '@/lib/auth/role'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -13,7 +14,7 @@ export async function POST(req: NextRequest) {
   const endpoint = subscription?.endpoint
   if (!endpoint) return NextResponse.json({ error: 'Invalid subscription' }, { status: 400 })
 
-  const role = user.user_metadata?.role === 'admin' ? 'admin' : 'client'
+  const role = userRole(user)
   let clientId: string | null = null
   if (role === 'client') {
     const { data: c } = await supabaseAdmin.from('clients').select('id').eq('user_id', user.id).single()

@@ -1,3 +1,4 @@
+import { isAdmin } from '@/lib/auth/role'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { deleteFromR2 } from '@/lib/r2'
@@ -12,7 +13,7 @@ export async function DELETE(
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
-    if (!user || user.user_metadata?.role !== 'admin') {
+    if (!user || !isAdmin(user)) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }

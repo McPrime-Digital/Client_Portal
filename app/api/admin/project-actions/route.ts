@@ -1,3 +1,4 @@
+import { isAdmin } from '@/lib/auth/role'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -26,7 +27,7 @@ async function recordGateSent(task: { id: string; title: string; project_id: str
 async function verifyAdmin() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user || user.user_metadata?.role !== 'admin') {
+  if (!user || !isAdmin(user)) {
     return null
   }
   return user
