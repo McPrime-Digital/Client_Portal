@@ -10,7 +10,7 @@ import {
   Undo2, Redo2, Pilcrow, Heading1, Heading2, Heading3,
   Bold, Italic, Underline, Strikethrough, Code,
   List, ListOrdered, ListChecks, AlignLeft, AlignCenter, AlignRight, Link2, ListTree, Search, X,
-  Eye, PencilLine, Download, Upload, History, RotateCcw, FileCode2, Printer, MessageSquare,
+  Eye, PencilLine, Download, Upload, History, RotateCcw, FileCode2, Printer, MessageSquare, FileType,
 } from 'lucide-react'
 import type { SupabaseYjsProvider } from '@/lib/collab/supabaseYjs'
 import { SCRIPT_TEMPLATES } from '@/lib/studio/scriptTemplates'
@@ -238,6 +238,13 @@ export default function DocEditor({
     w.focus()
     w.print()
   }
+  const exportWord = async () => {
+    const html = await editor.blocksToHTMLLossy(editor.document)
+    const doc =
+      `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" ` +
+      `xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"></head><body>${html}</body></html>`
+    download(doc, 'document.doc', 'application/msword')
+  }
 
   // Version history (per tab) — manual snapshots of the block content.
   const loadVersions = async () => {
@@ -276,7 +283,15 @@ export default function DocEditor({
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div
+      className="flex h-full flex-col"
+      onKeyDown={(e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
+          e.preventDefault()
+          setShowFind(true)
+        }
+      }}
+    >
       {/* persistent formatting toolbar */}
       <div className={`flex flex-shrink-0 flex-wrap items-center gap-0.5 border-b px-3 py-1.5 ${barBg}`}>
         <button className={btn} title="Undo" onClick={() => editor.undo()}><Undo2 size={16} /></button>
@@ -309,6 +324,7 @@ export default function DocEditor({
         <Sep />
         <button className={btn} title="Export as Markdown" onClick={exportMarkdown}><Download size={16} /></button>
         <button className={btn} title="Export as HTML" onClick={exportHtml}><FileCode2 size={16} /></button>
+        <button className={btn} title="Export as Word (.doc)" onClick={exportWord}><FileType size={16} /></button>
         <button className={btn} title="Print / Save as PDF" onClick={printDoc}><Printer size={16} /></button>
         <button className={btn} title="Import Markdown" onClick={() => fileRef.current?.click()}><Upload size={16} /></button>
         <input
