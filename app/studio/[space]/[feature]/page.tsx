@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { getSpace } from '@/lib/studio/spaces'
 import ScriptDesign from '@/components/studio/ScriptDesign'
+import Storyboard from '@/components/studio/Storyboard'
 
 export default async function FeaturePage({
   params,
@@ -17,6 +18,9 @@ export default async function FeaturePage({
   // Real features progressively replace the stub below.
   if (space.id === 'workspace' && feature.slug === 'script') {
     return <ScriptDesign />
+  }
+  if (space.id === 'workspace' && feature.slug === 'storyboard') {
+    return <Storyboard />
   }
 
   const Icon = feature.icon
