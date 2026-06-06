@@ -3,21 +3,28 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  Plus, Clapperboard, NotebookPen, ScrollText, Megaphone, FileText, Loader2,
-  MoreVertical, LayoutGrid, List as ListIcon, Trash2, PencilLine, ChevronDown,
+  Plus, FileText, Loader2, MoreVertical, LayoutGrid, List as ListIcon,
+  Trash2, PencilLine, ChevronDown, LayoutTemplate, X,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 type Doc = { id: string; title: string; preview: string | null; updated_at: string; last_opened_at: string | null }
-type TemplateKey = 'blank' | 'screenplay' | 'treatment' | 'brief' | 'ad'
+type Template = { key: string; label: string; color: string; title: string }
 
-const TEMPLATES: { key: TemplateKey; label: string; icon: typeof Plus; title: string }[] = [
-  { key: 'blank', label: 'Blank', icon: Plus, title: 'Untitled' },
-  { key: 'screenplay', label: 'Screenplay', icon: Clapperboard, title: 'Untitled Screenplay' },
-  { key: 'treatment', label: 'Treatment', icon: NotebookPen, title: 'Untitled Treatment' },
-  { key: 'brief', label: 'Concept Brief', icon: ScrollText, title: 'Untitled Brief' },
-  { key: 'ad', label: 'Ad Script', icon: Megaphone, title: 'Untitled Ad Script' },
+const TEMPLATES: Template[] = [
+  { key: 'screenplay', label: 'Screenplay', color: '#3b3a78', title: 'Untitled Screenplay' },
+  { key: 'treatment', label: 'Treatment', color: '#0e7490', title: 'Untitled Treatment' },
+  { key: 'brief', label: 'Concept Brief', color: '#b45309', title: 'Untitled Brief' },
+  { key: 'ad', label: 'Ad Script', color: '#be123c', title: 'Untitled Ad Script' },
+  { key: 'shotlist', label: 'Shot List', color: '#15803d', title: 'Untitled Shot List' },
+  { key: 'callsheet', label: 'Call Sheet', color: '#1d4ed8', title: 'Untitled Call Sheet' },
+  { key: 'voiceover', label: 'Voiceover', color: '#7c3aed', title: 'Untitled VO Script' },
+  { key: 'pitch', label: 'Pitch', color: '#db2777', title: 'Untitled Pitch' },
+  { key: 'directors', label: "Director's Statement", color: '#0f766e', title: "Director's Statement" },
+  { key: 'beatsheet', label: 'Beat Sheet', color: '#c2410c', title: 'Untitled Beat Sheet' },
+  { key: 'character', label: 'Character Bible', color: '#4338ca', title: 'Character Bible' },
 ]
+const FEATURED = ['screenplay', 'treatment', 'brief', 'ad']
 
 function rel(ts: string): string {
   const d = (Date.now() - new Date(ts).getTime()) / 1000
@@ -40,77 +47,28 @@ function Bar({ w = '100%', tone = 'bg-gray-200' }: { w?: string; tone?: string }
   return <div className={`h-[3px] rounded-full ${tone}`} style={{ width: w }} />
 }
 
-function TemplateThumb({ kind }: { kind: TemplateKey }) {
-  if (kind === 'blank') {
-    return (
-      <Paper>
-        <div className="flex h-full items-center justify-center">
-          <Plus size={26} strokeWidth={2.5} className="text-[#4285F4]" />
-        </div>
-      </Paper>
-    )
-  }
-  if (kind === 'screenplay') {
-    return (
-      <Paper>
-        <div className="space-y-[5px] text-[5px] leading-tight">
-          <p className="text-right font-semibold tracking-wide">FADE IN:</p>
-          <p className="font-bold">INT. STUDIO — DAY</p>
-          <Bar w="100%" /><Bar w="88%" />
-          <div className="mx-auto w-3/5 space-y-[3px] pt-[3px]">
-            <p className="text-center font-bold">CHARACTER</p>
-            <Bar w="100%" /><Bar w="70%" />
-          </div>
-          <div className="mx-auto w-3/5 space-y-[3px] pt-[2px]">
-            <p className="text-center font-bold">CHARACTER</p>
-            <Bar w="90%" />
-          </div>
-        </div>
-      </Paper>
-    )
-  }
-  if (kind === 'treatment') {
-    return (
-      <Paper>
-        <div className="space-y-[4px] text-[6px] leading-tight">
-          <p className="font-bold">Logline</p>
-          <Bar w="92%" />
-          <p className="pt-[3px] font-bold">Synopsis</p>
-          <Bar /><Bar /><Bar w="80%" />
-          <p className="pt-[3px] font-bold">Characters</p>
-          <Bar w="60%" /><Bar w="55%" />
-        </div>
-      </Paper>
-    )
-  }
-  if (kind === 'brief') {
-    return (
-      <Paper>
-        <div className="space-y-[4px] text-[6px] leading-tight">
-          <p className="font-bold">Concept Brief</p>
-          <p className="pt-[2px] font-semibold text-gray-500">Objective</p>
-          <Bar w="85%" />
-          <p className="pt-[2px] font-semibold text-gray-500">Audience</p>
-          <Bar w="70%" />
-          <p className="pt-[2px] font-semibold text-gray-500">Deliverables</p>
-          <Bar w="60%" /><Bar w="50%" />
-        </div>
-      </Paper>
-    )
-  }
-  // ad
+function BlankThumb() {
   return (
     <Paper>
-      <div className="space-y-[4px] text-[6px] leading-tight">
-        <p className="font-bold">Ad Script</p>
-        <p className="pt-[2px] font-semibold text-gray-500">Hook (0–3s)</p>
-        <Bar w="80%" />
-        <p className="pt-[2px] font-semibold text-gray-500">Body</p>
-        <Bar /><Bar w="75%" />
-        <p className="pt-[2px] font-semibold text-gray-500">Call to action</p>
-        <Bar w="55%" />
+      <div className="flex h-full items-center justify-center">
+        <Plus size={26} strokeWidth={2.5} className="text-[#4285F4]" />
       </div>
     </Paper>
+  )
+}
+// A real template "cover page": a colored header band + title, then content.
+function CoverThumb({ label, color }: { label: string; color: string }) {
+  return (
+    <div className="aspect-[85/110] w-full overflow-hidden rounded-[3px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.18)] ring-1 ring-black/5">
+      <div className="flex h-[38%] items-end p-2" style={{ background: color }}>
+        <span className="text-[8px] font-bold leading-tight text-white">{label}</span>
+      </div>
+      <div className="space-y-[4px] p-2">
+        <Bar w="92%" /><Bar /><Bar w="80%" /><Bar w="88%" /><Bar w="55%" />
+        <div className="pt-[2px]" />
+        <Bar w="72%" /><Bar w="84%" />
+      </div>
+    </div>
   )
 }
 
@@ -149,6 +107,7 @@ export default function ScriptHome() {
   const [error, setError] = useState('')
   const [view, setView] = useState<'grid' | 'list'>('grid')
   const [menuFor, setMenuFor] = useState<string | null>(null)
+  const [galleryOpen, setGalleryOpen] = useState(false)
 
   const load = useMemo(
     () => async () => {
@@ -211,18 +170,40 @@ export default function ScriptHome() {
       {/* Start a new document */}
       <div className="mb-3 flex items-end justify-between">
         <h2 className="text-sm font-semibold text-foreground">Start a new document</h2>
+        <button
+          onClick={() => setGalleryOpen(true)}
+          className="flex items-center gap-1 text-xs font-medium text-primary transition-opacity hover:opacity-80"
+        >
+          Template gallery <LayoutTemplate size={13} />
+        </button>
       </div>
       <div className="grid grid-cols-3 gap-x-5 gap-y-3 sm:grid-cols-4 lg:grid-cols-6">
-        {TEMPLATES.map((t) => (
+        {/* Blank */}
+        <button onClick={() => create('blank', 'Untitled')} disabled={creating} className="group text-left">
+          <div className="rounded-[3px] ring-1 ring-transparent transition-all group-hover:-translate-y-0.5 group-hover:ring-2 group-hover:ring-primary">
+            <BlankThumb />
+          </div>
+          <p className="mt-2 px-0.5 text-[13px] font-medium text-foreground">Blank</p>
+        </button>
+        {/* Featured templates */}
+        {TEMPLATES.filter((t) => FEATURED.includes(t.key)).map((t) => (
           <button key={t.key} onClick={() => create(t.key, t.title)} disabled={creating} className="group text-left">
-            <div className="rounded-[3px] transition-all group-hover:-translate-y-0.5">
-              <div className="rounded-[3px] ring-1 ring-transparent transition-all group-hover:ring-2 group-hover:ring-primary">
-                <TemplateThumb kind={t.key} />
-              </div>
+            <div className="rounded-[3px] ring-1 ring-transparent transition-all group-hover:-translate-y-0.5 group-hover:ring-2 group-hover:ring-primary">
+              <CoverThumb label={t.label} color={t.color} />
             </div>
-            <p className="mt-2 px-0.5 text-[13px] font-medium text-foreground">{t.label}</p>
+            <p className="mt-2 truncate px-0.5 text-[13px] font-medium text-foreground">{t.label}</p>
           </button>
         ))}
+        {/* More → gallery */}
+        <button onClick={() => setGalleryOpen(true)} className="group text-left">
+          <div className="flex aspect-[85/110] w-full items-center justify-center rounded-[3px] border-2 border-dashed border-border transition-all group-hover:-translate-y-0.5 group-hover:border-primary">
+            <div className="flex flex-col items-center gap-1.5 text-muted-foreground">
+              <LayoutTemplate size={22} />
+              <span className="text-[10px] font-semibold">More</span>
+            </div>
+          </div>
+          <p className="mt-2 px-0.5 text-[13px] font-medium text-foreground">Template gallery</p>
+        </button>
       </div>
 
       {/* Recent documents */}
@@ -347,6 +328,38 @@ export default function ScriptHome() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {galleryOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <button aria-hidden tabIndex={-1} className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setGalleryOpen(false)} />
+          <div className="relative flex max-h-[85vh] w-full max-w-3xl flex-col rounded-2xl border border-border bg-card shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border px-6 py-4">
+              <h3 className="flex items-center gap-2 font-display text-lg font-semibold text-foreground">
+                <LayoutTemplate size={18} className="text-primary" /> Template gallery
+              </h3>
+              <button onClick={() => setGalleryOpen(false)} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-x-5 gap-y-5 overflow-y-auto p-6 sm:grid-cols-3 lg:grid-cols-4">
+              <button onClick={() => { setGalleryOpen(false); create('blank', 'Untitled') }} className="group text-left">
+                <div className="rounded-[3px] ring-1 ring-transparent transition-all group-hover:-translate-y-0.5 group-hover:ring-2 group-hover:ring-primary">
+                  <BlankThumb />
+                </div>
+                <p className="mt-2 text-[13px] font-medium text-foreground">Blank</p>
+              </button>
+              {TEMPLATES.map((t) => (
+                <button key={t.key} onClick={() => { setGalleryOpen(false); create(t.key, t.title) }} className="group text-left">
+                  <div className="rounded-[3px] ring-1 ring-transparent transition-all group-hover:-translate-y-0.5 group-hover:ring-2 group-hover:ring-primary">
+                    <CoverThumb label={t.label} color={t.color} />
+                  </div>
+                  <p className="mt-2 truncate text-[13px] font-medium text-foreground">{t.label}</p>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>
