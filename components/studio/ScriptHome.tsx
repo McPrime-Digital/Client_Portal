@@ -111,14 +111,28 @@ export default function ScriptHome() {
 
   const load = useMemo(
     () => async () => {
-      const { data, error: e } = await supabase
+      const res = await supabase
         .from('documents')
         .select('id, title, preview, updated_at, last_opened_at')
         .eq('kind', 'script')
         .order('last_opened_at', { ascending: false, nullsFirst: false })
         .order('updated_at', { ascending: false })
-      if (e) setError(e.message)
-      setDocs((data as Doc[] | null) ?? [])
+      if (!res.error) {
+        setDocs((res.data as Doc[] | null) ?? [])
+        return
+      }
+      // migrations 0008/0009 not applied yet — degrade gracefully (no previews, by edit time)
+      const fb = await supabase
+        .from('documents')
+        .select('id, title, updated_at')
+        .eq('kind', 'script')
+        .order('updated_at', { ascending: false })
+      if (fb.error) {
+        setError(fb.error.message)
+        setDocs([])
+        return
+      }
+      setDocs((fb.data ?? []).map((d) => ({ ...d, preview: null, last_opened_at: null })) as Doc[])
     },
     [supabase],
   )

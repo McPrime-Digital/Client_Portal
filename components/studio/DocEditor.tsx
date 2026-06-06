@@ -235,13 +235,29 @@ export default function DocEditor({
   const curFamilyValue = (styles.fontFamily as string | undefined) ?? ''
   const curFamily = FONT_FAMILIES.find((f) => f.value === curFamilyValue)?.label ?? (curFamilyValue ? 'Custom' : 'Default')
   const curSizeNum = styles.fontSize ? parseInt(String(styles.fontSize), 10) || 16 : 16
+  // If nothing is selected, select the current block's text so font changes are visible.
+  const ensureSelection = () => {
+    const tip = editor._tiptapEditor
+    try {
+      if (tip && tip.state.selection.empty) {
+        const $from = tip.state.selection.$from
+        tip.chain().focus().setTextSelection({ from: $from.start(), to: $from.end() }).run()
+        return
+      }
+    } catch {
+      /* fall through */
+    }
+    editor.focus()
+  }
   const applyFont = (family: string) => {
+    ensureSelection()
     if (family) editor.addStyles({ fontFamily: family })
     else editor.removeStyles({ fontFamily: curFamilyValue || ' ' })
     editor.focus()
   }
   const applySize = (size: number) => {
     const n = Math.min(400, Math.max(1, size))
+    ensureSelection()
     editor.addStyles({ fontSize: `${n}px` })
     editor.focus()
   }
@@ -601,7 +617,7 @@ export default function DocEditor({
       {/* editor + outline */}
       <div className="flex min-h-0 flex-1">
         <div
-          className={`flex-1 overflow-y-auto ${layout === 'page' ? (isLight ? 'bg-[#f3f5f7]' : 'bg-[#070f24]') : ''}`}
+          className={`flex-1 overflow-y-auto ${layout === 'page' ? `px-4 pt-3 ${isLight ? 'bg-[#f3f5f7]' : 'bg-[#070f24]'}` : ''}`}
           onMouseDown={(e) => {
             const t = e.target as HTMLElement
             if (t && !t.closest('.ProseMirror') && !t.closest('button') && !t.closest('a')) {
@@ -610,21 +626,20 @@ export default function DocEditor({
             }
           }}
         >
-          {layout === 'page' ? (
-            <div className="px-4 pb-20 pt-3">
-              <Ruler isLight={isLight} />
-              <div
-                className={`tl-editor mx-auto mt-2 w-[816px] max-w-full rounded-sm px-10 py-12 shadow-xl sm:px-24 sm:py-20 ${isLight ? 'bg-white' : 'bg-[#0a1430]'}`}
-                style={{ minHeight: 1056 }}
-              >
-                {editorView}
-              </div>
-            </div>
-          ) : (
-            <div className="tl-editor mx-auto min-h-full w-full max-w-4xl px-6 py-10 sm:px-12 sm:py-14">
-              {editorView}
-            </div>
-          )}
+          {/* One persistent editor — only the wrapper changes between page / pageless,
+              so the Yjs binding is never torn down (toggling never drops edits). */}
+          {layout === 'page' && <Ruler isLight={isLight} />}
+          <div
+            key="doc-surface"
+            className={
+              layout === 'page'
+                ? `tl-editor mx-auto mb-20 mt-2 w-[816px] max-w-full rounded-sm px-10 py-12 shadow-xl sm:px-24 sm:py-20 ${isLight ? 'bg-white' : 'bg-[#0a1430]'}`
+                : 'tl-editor mx-auto min-h-full w-full max-w-4xl px-6 py-10 sm:px-12 sm:py-14'
+            }
+            style={layout === 'page' ? { minHeight: 1056 } : undefined}
+          >
+            {editorView}
+          </div>
         </div>
 
         {showOutline && (
