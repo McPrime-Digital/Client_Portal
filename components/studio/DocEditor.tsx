@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as Y from 'yjs'
 import { useCreateBlockNote } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/mantine'
@@ -10,10 +10,11 @@ import {
   Undo2, Redo2, Pilcrow, Heading1, Heading2, Heading3,
   Bold, Italic, Underline, Strikethrough, Code,
   List, ListOrdered, ListChecks, AlignLeft, AlignCenter, AlignRight, Link2, ListTree, Search, X,
-  Eye, PencilLine, Download, Upload,
+  Eye, PencilLine, Download, Upload, History, RotateCcw,
 } from 'lucide-react'
 import type { SupabaseYjsProvider } from '@/lib/collab/supabaseYjs'
 import { SCRIPT_TEMPLATES } from '@/lib/studio/scriptTemplates'
+import { createClient } from '@/lib/supabase/client'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type AnyEditor = ReturnType<typeof useCreateBlockNote>
@@ -41,7 +42,10 @@ function Sep() {
 
 // Full-page collaborative document editor: persistent formatting toolbar,
 // outline/TOC, and live word/character count. `theme` is the per-document light/dark.
+type DocVersion = { id: string; label: string | null; content: any; created_by_name: string | null; created_at: string }
+
 export default function DocEditor({
+  docId,
   ydoc,
   provider,
   userName,
@@ -49,6 +53,7 @@ export default function DocEditor({
   theme,
   template,
 }: {
+  docId: string
   ydoc: Y.Doc
   provider: SupabaseYjsProvider
   userName: string
@@ -73,6 +78,10 @@ export default function DocEditor({
   const [replace, setReplace] = useState('')
   const [mode, setMode] = useState<'editing' | 'viewing'>('editing')
   const fileRef = useRef<HTMLInputElement>(null)
+  const [showHistory, setShowHistory] = useState(false)
+  const [versions, setVersions] = useState<DocVersion[] | null>(null)
+  const [vBusy, setVBusy] = useState(false)
+  const supabase = useMemo(() => createClient(), [])
 
   useEffect(() => {
     const update = () => {
@@ -210,6 +219,42 @@ export default function DocEditor({
     editor.replaceBlocks(editor.document, blocks as any)
   }
 
+  // Version history (per tab) — manual snapshots of the block content.
+  const loadVersions = async () => {
+    setVersions(null)
+    const { data } = await supabase
+      .from('document_versions')
+      .select('id, label, content, created_by_name, created_at')
+      .eq('document_id', docId)
+      .eq('tab_key', fragmentKey)
+      .order('created_at', { ascending: false })
+    setVersions((data as DocVersion[] | null) ?? [])
+  }
+  const toggleHistory = () => {
+    setShowHistory((s) => {
+      if (!s) void loadVersions()
+      return !s
+    })
+  }
+  const saveVersion = async () => {
+    const label = window.prompt('Name this version (optional)')?.trim() || null
+    setVBusy(true)
+    await supabase.from('document_versions').insert({
+      document_id: docId,
+      tab_key: fragmentKey,
+      label,
+      content: editor.document,
+      created_by_name: userName,
+    })
+    setVBusy(false)
+    await loadVersions()
+  }
+  const restore = (v: DocVersion) => {
+    if (!window.confirm('Restore this version? The current content of this tab will be replaced.')) return
+    editor.replaceBlocks(editor.document, v.content as any)
+    editor.focus()
+  }
+
   return (
     <div className="flex h-full flex-col">
       {/* persistent formatting toolbar */}
@@ -239,6 +284,7 @@ export default function DocEditor({
         <button className={btn} title="Add link" onClick={addLink}><Link2 size={16} /></button>
         <Sep />
         <button className={`${btn} ${showFind ? on : ''}`} title="Find & replace" onClick={() => setShowFind((s) => !s)}><Search size={16} /></button>
+        <button className={`${btn} ${showHistory ? on : ''}`} title="Version history" onClick={toggleHistory}><History size={16} /></button>
         <Sep />
         <button className={btn} title="Export as Markdown" onClick={exportMarkdown}><Download size={16} /></button>
         <button className={btn} title="Import Markdown" onClick={() => fileRef.current?.click()}><Upload size={16} /></button>
@@ -329,6 +375,47 @@ export default function DocEditor({
                   {h.text}
                 </button>
               ))
+            )}
+          </aside>
+        )}
+
+        {showHistory && (
+          <aside className={`w-64 flex-shrink-0 overflow-y-auto border-l p-3 ${isLight ? 'border-black/10' : 'border-white/10'}`}>
+            <div className="mb-2 flex items-center justify-between">
+              <p className={`text-[10px] font-semibold uppercase tracking-widest ${isLight ? 'text-gray-400' : 'text-gray-500'}`}>Version history</p>
+              <button onClick={() => setShowHistory(false)} className={btn} title="Close"><X size={14} /></button>
+            </div>
+            <button
+              onClick={saveVersion}
+              disabled={vBusy}
+              className="mb-3 w-full rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              {vBusy ? 'Saving…' : 'Save current version'}
+            </button>
+            {versions === null ? (
+              <p className={`text-xs ${isLight ? 'text-gray-400' : 'text-gray-500'}`}>Loading…</p>
+            ) : versions.length === 0 ? (
+              <p className={`text-xs ${isLight ? 'text-gray-400' : 'text-gray-500'}`}>No saved versions yet. Save one to capture this draft.</p>
+            ) : (
+              <ul className="space-y-1">
+                {versions.map((v) => (
+                  <li key={v.id} className={`rounded-lg px-2.5 py-2 ${isLight ? 'hover:bg-black/5' : 'hover:bg-white/10'}`}>
+                    <p className={`truncate text-[13px] font-medium ${isLight ? 'text-gray-700' : 'text-gray-200'}`}>
+                      {v.label || new Date(v.created_at).toLocaleString()}
+                    </p>
+                    <p className={`text-[11px] ${isLight ? 'text-gray-400' : 'text-gray-500'}`}>
+                      {v.label ? `${new Date(v.created_at).toLocaleString()}` : ''}
+                      {v.created_by_name ? `${v.label ? ' · ' : ''}${v.created_by_name}` : ''}
+                    </p>
+                    <button
+                      onClick={() => restore(v)}
+                      className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
+                    >
+                      <RotateCcw size={11} /> Restore
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )}
           </aside>
         )}

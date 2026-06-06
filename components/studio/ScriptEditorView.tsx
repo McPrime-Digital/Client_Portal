@@ -353,6 +353,7 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
           {ready && (
             <DocEditor
               key={activeTab}
+              docId={docId}
               ydoc={ready.ydoc}
               provider={ready.provider}
               userName={ready.userName}
