@@ -10,11 +10,12 @@ import {
   Undo2, Redo2, Pilcrow, Heading1, Heading2, Heading3,
   Bold, Italic, Underline, Strikethrough, Code,
   List, ListOrdered, ListChecks, AlignLeft, AlignCenter, AlignRight, Link2, ListTree, Search, X,
-  Eye, PencilLine, Download, Upload, History, RotateCcw, FileCode2, Printer,
+  Eye, PencilLine, Download, Upload, History, RotateCcw, FileCode2, Printer, MessageSquare,
 } from 'lucide-react'
 import type { SupabaseYjsProvider } from '@/lib/collab/supabaseYjs'
 import { SCRIPT_TEMPLATES } from '@/lib/studio/scriptTemplates'
 import { createClient } from '@/lib/supabase/client'
+import DocComments from './DocComments'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type AnyEditor = ReturnType<typeof useCreateBlockNote>
@@ -79,6 +80,7 @@ export default function DocEditor({
   const [mode, setMode] = useState<'editing' | 'viewing'>('editing')
   const fileRef = useRef<HTMLInputElement>(null)
   const [showHistory, setShowHistory] = useState(false)
+  const [showComments, setShowComments] = useState(false)
   const [versions, setVersions] = useState<DocVersion[] | null>(null)
   const [vBusy, setVBusy] = useState(false)
   const supabase = useMemo(() => createClient(), [])
@@ -303,6 +305,7 @@ export default function DocEditor({
         <Sep />
         <button className={`${btn} ${showFind ? on : ''}`} title="Find & replace" onClick={() => setShowFind((s) => !s)}><Search size={16} /></button>
         <button className={`${btn} ${showHistory ? on : ''}`} title="Version history" onClick={toggleHistory}><History size={16} /></button>
+        <button className={`${btn} ${showComments ? on : ''}`} title="Comments" onClick={() => setShowComments((s) => !s)}><MessageSquare size={16} /></button>
         <Sep />
         <button className={btn} title="Export as Markdown" onClick={exportMarkdown}><Download size={16} /></button>
         <button className={btn} title="Export as HTML" onClick={exportHtml}><FileCode2 size={16} /></button>
@@ -438,6 +441,17 @@ export default function DocEditor({
               </ul>
             )}
           </aside>
+        )}
+
+        {showComments && (
+          <DocComments
+            docId={docId}
+            tabKey={fragmentKey}
+            userName={userName}
+            provider={provider}
+            isLight={isLight}
+            onClose={() => setShowComments(false)}
+          />
         )}
       </div>
 
