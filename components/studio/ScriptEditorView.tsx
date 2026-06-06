@@ -97,19 +97,17 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
     let cancelled = false
     ;(async () => {
       try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser()
+        // fetch session + doc in parallel (cut the open-time waterfall)
+        const [{ data: { user } }, { data: doc, error: selErr }] = await Promise.all([
+          supabase.auth.getUser(),
+          supabase.from('documents').select('id, title, ydoc').eq('id', docId).single(),
+        ])
         const userName =
           (user?.user_metadata?.name as string | undefined) ?? user?.email?.split('@')[0] ?? 'Guest'
-
-        const { data: doc, error: selErr } = await supabase
-          .from('documents')
-          .select('id, title, ydoc')
-          .eq('id', docId)
-          .single()
         if (selErr) throw selErr
         if (cancelled || !doc) return
+        // record the open (distinct from edit time) — fire and forget
+        void supabase.from('documents').update({ last_opened_at: new Date().toISOString() }).eq('id', docId)
 
         const ydoc = new Y.Doc()
         if (doc.ydoc) {

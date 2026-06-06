@@ -108,7 +108,7 @@ export default function DocEditor({
         clearTimeout(previewTimer.current)
         previewTimer.current = setTimeout(() => {
           void supabase.from('documents').update({ preview: text.slice(0, 800) }).eq('id', docId)
-        }, 1500)
+        }, 500)
       }
     }
     update()

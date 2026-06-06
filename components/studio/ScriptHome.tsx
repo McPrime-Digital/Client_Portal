@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
-type Doc = { id: string; title: string; preview: string | null; updated_at: string }
+type Doc = { id: string; title: string; preview: string | null; updated_at: string; last_opened_at: string | null }
 type TemplateKey = 'blank' | 'screenplay' | 'treatment' | 'brief' | 'ad'
 
 const TEMPLATES: { key: TemplateKey; label: string; icon: typeof Plus; title: string }[] = [
@@ -154,8 +154,9 @@ export default function ScriptHome() {
     () => async () => {
       const { data, error: e } = await supabase
         .from('documents')
-        .select('id, title, preview, updated_at')
+        .select('id, title, preview, updated_at, last_opened_at')
         .eq('kind', 'script')
+        .order('last_opened_at', { ascending: false, nullsFirst: false })
         .order('updated_at', { ascending: false })
       if (e) setError(e.message)
       setDocs((data as Doc[] | null) ?? [])
@@ -280,7 +281,7 @@ export default function ScriptHome() {
                   <button onClick={() => open(d.id)} className="block w-full truncate text-left text-[13px] font-medium text-foreground hover:underline">
                     {d.title || 'Untitled'}
                   </button>
-                  <p className="text-[11px] text-muted-foreground">Opened {rel(d.updated_at)}</p>
+                  <p className="text-[11px] text-muted-foreground">Opened {rel(d.last_opened_at ?? d.updated_at)}</p>
                 </div>
                 <div className="relative">
                   <button
@@ -321,7 +322,7 @@ export default function ScriptHome() {
               <button onClick={() => open(d.id)} className="flex-1 truncate text-left text-sm font-medium text-foreground hover:underline">
                 {d.title || 'Untitled'}
               </button>
-              <span className="w-28 text-xs text-muted-foreground">{rel(d.updated_at)}</span>
+              <span className="w-28 text-xs text-muted-foreground">{rel(d.last_opened_at ?? d.updated_at)}</span>
               <div className="relative w-8">
                 <button
                   onClick={() => setMenuFor((m) => (m === d.id ? null : d.id))}
