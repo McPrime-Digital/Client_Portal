@@ -11,6 +11,7 @@ import { getModel } from '@/lib/ai/models'
 const PROVIDER_ENV: Record<string, string> = {
   Anthropic: 'ANTHROPIC_API_KEY',
   OpenAI: 'OPENAI_API_KEY',
+  Google: 'GEMINI_API_KEY',
 }
 // registry id → provider's API model name (adjust as providers rev their names)
 const ANTHROPIC_MODEL: Record<string, string> = {
@@ -22,6 +23,10 @@ const OPENAI_MODEL: Record<string, string> = {
   'openai/gpt-5': 'gpt-5',
   'openai/gpt-4o': 'gpt-4o',
   'openai/o-series': 'o3',
+}
+const GOOGLE_MODEL: Record<string, string> = {
+  'google/gemini-pro': 'gemini-2.5-pro',
+  'google/gemini-flash': 'gemini-2.5-flash',
 }
 
 const SYSTEM =
@@ -44,7 +49,12 @@ export async function POST(req: NextRequest) {
 
   const model = getModel(modelId) ?? getModel('anthropic/claude-sonnet')!
   const envName = PROVIDER_ENV[model.provider]
-  const key = envName ? process.env[envName] : undefined
+  const key =
+    model.provider === 'Google'
+      ? process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
+      : envName
+        ? process.env[envName]
+        : undefined
 
   if (!envName) {
     return NextResponse.json({
@@ -79,6 +89,26 @@ export async function POST(req: NextRequest) {
       const j = await r.json()
       if (!r.ok) return NextResponse.json({ error: j?.error?.message ?? 'Provider error' }, { status: 502 })
       const reply = (j?.content?.[0]?.text ?? '').trim()
+      return NextResponse.json({ reply })
+    }
+
+    if (model.provider === 'Google') {
+      const contents = [
+        ...turns.map((t) => ({ role: t.role === 'assistant' ? 'model' : 'user', parts: [{ text: t.text }] })),
+        { role: 'user', parts: [{ text: userMessage }] },
+      ]
+      const gm = GOOGLE_MODEL[model.id] ?? 'gemini-2.5-flash'
+      const r = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${gm}:generateContent?key=${key}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ systemInstruction: { parts: [{ text: SYSTEM }] }, contents }),
+        },
+      )
+      const j = await r.json()
+      if (!r.ok) return NextResponse.json({ error: j?.error?.message ?? 'Provider error' }, { status: 502 })
+      const reply = (j?.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim()
       return NextResponse.json({ reply })
     }
 
