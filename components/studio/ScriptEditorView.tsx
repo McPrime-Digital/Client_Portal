@@ -6,7 +6,7 @@ import * as Y from 'yjs'
 import { ArrowLeft, Check, Loader2, Sparkle, Sun, Moon, Plus, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { SupabaseYjsProvider, toB64, fromB64 } from '@/lib/collab/supabaseYjs'
-import CollabEditor from './CollabEditor'
+import DocEditor from './DocEditor'
 
 const COLORS = ['#C8A24A', '#6366f1', '#0ea5a3', '#d97706', '#db2777', '#65a30d']
 function pickColor(seed: string): string {
@@ -336,7 +336,7 @@ export default function ScriptEditorView({ docId }: { docId: string }) {
 
         {/* document surface — per-doc light/dark */}
         <div
-          className={`flex-1 overflow-y-auto rounded-2xl border border-border shadow-sm ${
+          className={`flex-1 overflow-hidden rounded-2xl border border-border shadow-sm ${
             docTheme === 'light' ? 'bg-white' : 'bg-[#0a1430]'
           }`}
         >
@@ -351,7 +351,7 @@ export default function ScriptEditorView({ docId }: { docId: string }) {
             </div>
           )}
           {ready && (
-            <CollabEditor
+            <DocEditor
               key={activeTab}
               ydoc={ready.ydoc}
               provider={ready.provider}
