@@ -16,6 +16,7 @@ import {
   Eye, PencilLine, Download, Upload, History, RotateCcw, FileCode2, Printer, MessageSquare, FileType,
   Minus, Plus, ChevronDown, FileDown, StretchHorizontal, FileText, Aperture,
   Baseline, Highlighter, Paintbrush, AlignJustify, Subscript, Superscript, Eraser,
+  Settings2, Ruler as RulerIcon,
 } from 'lucide-react'
 import type { SupabaseYjsProvider } from '@/lib/collab/supabaseYjs'
 import { SCRIPT_TEMPLATES } from '@/lib/studio/scriptTemplates'
@@ -138,6 +139,23 @@ function PageRuler({
   )
 }
 
+// Vertical ruler attached to the left panel (not the page). Half-inch ticks.
+function VerticalRuler({ isLight }: { isLight: boolean }) {
+  const tick = isLight ? 'bg-gray-400' : 'bg-white/30'
+  return (
+    <div className={`relative w-[22px] flex-shrink-0 overflow-hidden border-r ${isLight ? 'border-black/10 bg-[#eceff1]' : 'border-white/10 bg-[#0a1530]'}`}>
+      {Array.from({ length: 44 }).map((_, i) => (
+        <div key={i} className="absolute right-0" style={{ top: i * 48 }}>
+          <span className={`absolute right-0 ${tick}`} style={{ width: i % 2 === 0 ? 8 : 4, height: 1 }} />
+          {i % 2 === 0 && i > 0 && (
+            <span className={`absolute right-[2px] top-[1px] text-[7px] leading-none ${isLight ? 'text-gray-500' : 'text-gray-400'}`}>{i / 2}</span>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // PrimeOS AI button injected into BlockNote's selection (formatting) toolbar.
 function PrimeToolbarButton({ onMuse }: { onMuse: () => void }) {
   const Components = useComponentsContext()!
@@ -203,6 +221,18 @@ export default function DocEditor({
   const [hlOpen, setHlOpen] = useState(false)
   const [gradOpen, setGradOpen] = useState(false)
   const [downloadOpen, setDownloadOpen] = useState(false)
+  const [viewOpen, setViewOpen] = useState(false)
+  const [showRuler, setShowRuler] = useState(true)
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem('tl-showruler')
+      if (v === '0') setShowRuler(false)
+    } catch { /* ignore */ }
+  }, [])
+  const toggleRuler = () => setShowRuler((s) => {
+    try { localStorage.setItem('tl-showruler', s ? '0' : '1') } catch { /* ignore */ }
+    return !s
+  })
   const [layout, setLayout] = useState<'page' | 'pageless'>('page')
 
   // remember page/pageless per document
@@ -389,6 +419,7 @@ export default function DocEditor({
   }
 
   const toggle = (s: string) => {
+    ensureSelection()
     editor.toggleStyles({ [s]: true } as any)
     editor.focus()
   }
@@ -720,13 +751,27 @@ export default function DocEditor({
         <button className={`${btn} ${showHistory ? on : ''}`} title="Version history" onClick={toggleHistory}><History size={16} /></button>
         <button className={`${btn} ${showComments ? on : ''}`} title="Comments" onClick={() => setShowComments((s) => !s)}><MessageSquare size={16} /></button>
         <Sep />
-        <button
-          className={`${btn} ${type === 'paragraph' || type ? '' : ''} ${layout === 'pageless' ? on : ''}`}
-          title={layout === 'page' ? 'Switch to pageless' : 'Switch to pages'}
-          onClick={toggleLayout}
-        >
-          {layout === 'page' ? <StretchHorizontal size={16} /> : <FileText size={16} />}
-        </button>
+        <div className="relative">
+          <button className={`${btn} ${viewOpen ? on : ''}`} title="View options" onClick={() => setViewOpen((o) => !o)}><Settings2 size={16} /></button>
+          {viewOpen && (
+            <>
+              <button aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setViewOpen(false)} />
+              <div className={`absolute right-0 top-full z-20 mt-1 w-48 overflow-hidden rounded-xl border py-1 shadow-2xl ${isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#0f1c3f]'}`}>
+                <button onClick={() => { toggleLayout(); setViewOpen(false) }} className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}>
+                  {layout === 'page' ? <StretchHorizontal size={14} className="opacity-70" /> : <FileText size={14} className="opacity-70" />}
+                  {layout === 'page' ? 'Pageless view' : 'Pages view'}
+                </button>
+                <button onClick={toggleRuler} className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}>
+                  <RulerIcon size={14} className="opacity-70" /> {showRuler ? 'Hide ruler' : 'Show ruler'}
+                </button>
+                <button onClick={() => { setMode((m) => (m === 'editing' ? 'viewing' : 'editing')); setViewOpen(false) }} className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}>
+                  {mode === 'editing' ? <Eye size={14} className="opacity-70" /> : <PencilLine size={14} className="opacity-70" />}
+                  {mode === 'editing' ? 'View mode (read-only)' : 'Edit mode'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
         <Sep />
         {/* download menu */}
         <div className="relative">
@@ -819,10 +864,20 @@ export default function DocEditor({
         </div>
       )}
 
-      {/* editor + outline */}
+      {/* horizontal ruler — attached to the upper panel, not floating on the page */}
+      {layout === 'page' && showRuler && (
+        <div className={`flex flex-shrink-0 items-center border-b py-1 ${barBg}`}>
+          <div className="flex-shrink-0" style={{ width: 22 }} />
+          <div className="min-w-0 flex-1 px-2"><PageRuler isLight={isLight} margins={margins} setMargins={setMargins} /></div>
+          <div className="flex-shrink-0" style={{ width: 44 }} />
+        </div>
+      )}
+
+      {/* body: [vertical ruler] · [canvas with real page gaps] · [panels] · [right rail] */}
       <div className="flex min-h-0 flex-1">
+        {layout === 'page' && showRuler && <VerticalRuler isLight={isLight} />}
         <div
-          className={`flex-1 overflow-y-auto ${layout === 'page' ? `px-4 pb-20 pt-3 ${isLight ? 'bg-[#f3f5f7]' : 'bg-[#070f24]'}` : ''}`}
+          className={`flex-1 overflow-y-auto ${layout === 'page' ? `px-4 pb-24 pt-5 ${isLight ? 'bg-[#f3f5f7]' : 'bg-[#070f24]'}` : ''}`}
           onMouseDown={(e) => {
             const t = e.target as HTMLElement
             if (t && !t.closest('.ProseMirror') && !t.closest('button') && !t.closest('a')) {
@@ -831,38 +886,31 @@ export default function DocEditor({
             }
           }}
         >
-          {/* premium ruler — sits in the canvas wall above the page, not on it */}
-          {layout === 'page' && (
-            <div className={`sticky top-0 z-10 -mx-4 mb-2 px-4 pb-1.5 pt-1 ${isLight ? 'bg-[#f3f5f7]' : 'bg-[#070f24]'}`}>
-              <PageRuler isLight={isLight} margins={margins} setMargins={setMargins} />
-            </div>
-          )}
-          {/* One persistent editor — the surface keeps a stable position (and key) across
+          {/* One persistent editor — content stays at a stable position (key) across
               page/pageless so the Yjs binding is never torn down (toggling never drops edits). */}
           <div className="flex justify-center">
             <div
               key="doc-surface"
               ref={surfaceRef}
-              className={
-                layout === 'page'
-                  ? `tl-editor relative w-[816px] max-w-full rounded-sm py-12 shadow-xl sm:py-20 ${isLight ? 'bg-white' : 'bg-[#0a1430]'}`
-                  : 'tl-editor relative mx-auto min-h-full w-full max-w-4xl px-6 py-10 sm:px-12 sm:py-14'
-              }
-              style={layout === 'page' ? { minHeight: PAGE_H, paddingLeft: margins.left, paddingRight: margins.right } : undefined}
+              className={layout === 'page' ? 'relative w-[816px] max-w-full' : 'relative mx-auto w-full max-w-4xl'}
+              style={layout === 'page' ? { minHeight: PAGE_H } : undefined}
             >
-              {editorView}
+              {/* discrete page sheets with real gaps between them */}
               {layout === 'page' &&
-                Array.from({ length: Math.max(0, Math.ceil(contentHeight / PAGE_H) - 1) }).map((_, i) => (
+                Array.from({ length: Math.max(1, Math.ceil(contentHeight / PAGE_H)) }).map((_, i) => (
                   <div
                     key={i}
-                    className="pointer-events-none absolute inset-x-0 flex items-center gap-2 px-3"
-                    style={{ top: (i + 1) * PAGE_H }}
-                  >
-                    <div className={`h-px flex-1 border-t border-dashed ${isLight ? 'border-gray-300' : 'border-white/15'}`} />
-                    <span className={`text-[9px] ${isLight ? 'text-gray-400' : 'text-gray-500'}`}>Page {i + 2}</span>
-                    <div className={`h-px flex-1 border-t border-dashed ${isLight ? 'border-gray-300' : 'border-white/15'}`} />
-                  </div>
+                    className={`pointer-events-none absolute inset-x-0 rounded-sm shadow-xl ${isLight ? 'bg-white' : 'bg-[#0a1430]'}`}
+                    style={{ top: i * PAGE_H, height: PAGE_H - 18 }}
+                  />
                 ))}
+              <div
+                key="content"
+                className={layout === 'page' ? 'tl-editor relative' : 'tl-editor relative px-6 py-10 sm:px-12 sm:py-14'}
+                style={layout === 'page' ? { paddingLeft: margins.left, paddingRight: margins.right, paddingTop: 72, paddingBottom: 72 } : undefined}
+              >
+                {editorView}
+              </div>
             </div>
           </div>
         </div>
@@ -942,20 +990,32 @@ export default function DocEditor({
             onClose={() => setShowComments(false)}
           />
         )}
-      </div>
 
-      {/* status bar */}
-      <div className={`flex flex-shrink-0 items-center gap-4 border-t px-4 py-1.5 text-[11px] ${barBg} ${isLight ? 'text-gray-500' : 'text-gray-400'}`}>
-        <span>{counts.words.toLocaleString()} words</span>
-        <span>{counts.chars.toLocaleString()} characters</span>
-        <button
-          className={`ml-auto flex items-center gap-1.5 rounded px-2 py-1 transition-colors ${showOutline ? on : ''} ${
-            isLight ? 'hover:bg-black/5' : 'hover:bg-white/10'
-          }`}
-          onClick={() => setShowOutline((s) => !s)}
-        >
-          <ListTree size={13} /> Outline
-        </button>
+        {/* right rail — functional tools + live counter */}
+        <div className={`flex w-11 flex-shrink-0 flex-col items-center gap-1 border-l py-2 ${isLight ? 'border-black/10 bg-black/[0.02]' : 'border-white/10 bg-white/[0.02]'}`}>
+          {[
+            { I: Aperture, title: 'PrimeOS AI — refine selection', active: !!muse, fn: openMuse },
+            { I: ListTree, title: 'Outline', active: showOutline, fn: () => setShowOutline((s) => !s) },
+            { I: MessageSquare, title: 'Comments', active: showComments, fn: () => setShowComments((s) => !s) },
+            { I: History, title: 'Version history', active: showHistory, fn: toggleHistory },
+            { I: Search, title: 'Find & replace', active: showFind, fn: () => setShowFind((s) => !s) },
+          ].map(({ I, title, active, fn }) => (
+            <button
+              key={title}
+              title={title}
+              onClick={fn}
+              className={`grid h-8 w-8 place-items-center rounded-lg transition-colors ${active ? 'bg-primary/15 text-primary' : isLight ? 'text-gray-500 hover:bg-black/5' : 'text-gray-300 hover:bg-white/10'}`}
+            >
+              <I size={16} />
+            </button>
+          ))}
+          <div className={`mt-auto flex flex-col items-center pb-1 ${isLight ? 'text-gray-500' : 'text-gray-400'}`} title={`${counts.words.toLocaleString()} words · ${counts.chars.toLocaleString()} characters`}>
+            <span className="text-[11px] font-bold leading-none">{counts.words.toLocaleString()}</span>
+            <span className="text-[7px] uppercase tracking-wider">words</span>
+            <span className="mt-1.5 text-[10px] font-semibold leading-none">{counts.chars.toLocaleString()}</span>
+            <span className="text-[7px] uppercase tracking-wider">chars</span>
+          </div>
+        </div>
       </div>
 
       {muse && (
