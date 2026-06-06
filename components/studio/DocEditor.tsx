@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as Y from 'yjs'
-import { useCreateBlockNote } from '@blocknote/react'
+import {
+  useCreateBlockNote, FormattingToolbar, FormattingToolbarController,
+  getFormattingToolbarItems, useComponentsContext,
+} from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/mantine'
 import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
@@ -11,13 +14,14 @@ import {
   Bold, Italic, Underline, Strikethrough, Code,
   List, ListOrdered, ListChecks, AlignLeft, AlignCenter, AlignRight, Link2, ListTree, Search, X,
   Eye, PencilLine, Download, Upload, History, RotateCcw, FileCode2, Printer, MessageSquare, FileType,
-  Minus, Plus, ChevronDown, FileDown, StretchHorizontal, FileText,
+  Minus, Plus, ChevronDown, FileDown, StretchHorizontal, FileText, Aperture,
 } from 'lucide-react'
 import type { SupabaseYjsProvider } from '@/lib/collab/supabaseYjs'
 import { SCRIPT_TEMPLATES } from '@/lib/studio/scriptTemplates'
-import { docSchema, FONT_FAMILIES, FONT_SIZES } from '@/lib/studio/editorSchema'
+import { docSchema, FONT_FAMILIES } from '@/lib/studio/editorSchema'
 import { createClient } from '@/lib/supabase/client'
 import DocComments from './DocComments'
+import MuseInline from './MuseInline'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type AnyEditor = any
@@ -65,9 +69,24 @@ function Ruler({ isLight }: { isLight: boolean }) {
   )
 }
 
+// Muse button injected into BlockNote's selection (formatting) toolbar.
+function MuseToolbarButton({ onMuse }: { onMuse: () => void }) {
+  const Components = useComponentsContext()!
+  return (
+    <Components.FormattingToolbar.Button
+      className="bn-muse-btn"
+      mainTooltip="Muse AI — refine the selection"
+      label="Muse"
+      onClick={onMuse}
+      icon={<Aperture size={16} />}
+    />
+  )
+}
+
 // Full-page collaborative document editor: persistent formatting toolbar,
 // outline/TOC, and live word/character count. `theme` is the per-document light/dark.
 type DocVersion = { id: string; label: string | null; content: any; created_by_name: string | null; created_at: string }
+type MuseAnchor = { text: string; rect: DOMRect | null; range: { from: number; to: number } | null }
 
 export default function DocEditor({
   docId,
@@ -357,6 +376,43 @@ export default function DocEditor({
     editor.focus()
   }
 
+  // Muse inline — open a chat anchored to the current selection, apply to it.
+  const [muse, setMuse] = useState<MuseAnchor | null>(null)
+  const openMuse = () => {
+    const text = (editor.getSelectedText?.() || window.getSelection()?.toString() || '').trim()
+    if (!text) return
+    const sel = typeof window !== 'undefined' ? window.getSelection() : null
+    const rect = sel && sel.rangeCount ? sel.getRangeAt(0).getBoundingClientRect() : null
+    const tip = editor._tiptapEditor
+    const range = tip ? { from: tip.state.selection.from, to: tip.state.selection.to } : null
+    setMuse({ text, rect, range })
+  }
+  const applyMuse = (newText: string, modeKind: 'replace' | 'after') => {
+    const tip = editor._tiptapEditor
+    if (tip && muse?.range) {
+      if (modeKind === 'replace') {
+        tip.chain().focus().insertContentAt(muse.range, newText).run()
+        setMuse((m) => (m ? { ...m, range: { from: muse.range!.from, to: muse.range!.from + newText.length }, text: newText } : m))
+      } else {
+        tip.chain().focus().insertContentAt(muse.range.to, `\n${newText}`).run()
+      }
+    } else {
+      editor.insertInlineContent([{ type: 'text', text: newText, styles: {} }] as any)
+    }
+  }
+  const editorView = (
+    <BlockNoteView editor={editor} editable={mode === 'editing'} theme={theme} formattingToolbar={false}>
+      <FormattingToolbarController
+        formattingToolbar={() => (
+          <FormattingToolbar>
+            {getFormattingToolbarItems()}
+            <MuseToolbarButton key="muse" onMuse={openMuse} />
+          </FormattingToolbar>
+        )}
+      />
+    </BlockNoteView>
+  )
+
   return (
     <div
       className="flex h-full flex-col"
@@ -561,12 +617,12 @@ export default function DocEditor({
                 className={`tl-editor mx-auto mt-2 w-[816px] max-w-full rounded-sm px-10 py-12 shadow-xl sm:px-24 sm:py-20 ${isLight ? 'bg-white' : 'bg-[#0a1430]'}`}
                 style={{ minHeight: 1056 }}
               >
-                <BlockNoteView editor={editor} editable={mode === 'editing'} theme={theme} />
+                {editorView}
               </div>
             </div>
           ) : (
             <div className="tl-editor mx-auto min-h-full w-full max-w-4xl px-6 py-10 sm:px-12 sm:py-14">
-              <BlockNoteView editor={editor} editable={mode === 'editing'} theme={theme} />
+              {editorView}
             </div>
           )}
         </div>
@@ -661,6 +717,16 @@ export default function DocEditor({
           <ListTree size={13} /> Outline
         </button>
       </div>
+
+      {muse && (
+        <MuseInline
+          selText={muse.text}
+          rect={muse.rect}
+          isLight={isLight}
+          onApply={applyMuse}
+          onClose={() => setMuse(null)}
+        />
+      )}
     </div>
   )
 }
