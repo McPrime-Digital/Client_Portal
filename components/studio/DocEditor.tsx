@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as Y from 'yjs'
 import { useCreateBlockNote } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/mantine'
@@ -10,6 +10,7 @@ import {
   Undo2, Redo2, Pilcrow, Heading1, Heading2, Heading3,
   Bold, Italic, Underline, Strikethrough, Code,
   List, ListOrdered, ListChecks, AlignLeft, AlignCenter, AlignRight, Link2, ListTree, Search, X,
+  Eye, PencilLine, Download, Upload,
 } from 'lucide-react'
 import type { SupabaseYjsProvider } from '@/lib/collab/supabaseYjs'
 
@@ -67,6 +68,8 @@ export default function DocEditor({
   const [showFind, setShowFind] = useState(false)
   const [find, setFind] = useState('')
   const [replace, setReplace] = useState('')
+  const [mode, setMode] = useState<'editing' | 'viewing'>('editing')
+  const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const update = () => {
@@ -166,6 +169,22 @@ export default function DocEditor({
     editor.focus()
   }
 
+  const download = (text: string, name: string, type: string) => {
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([text], { type }))
+    a.download = name
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+  const exportMarkdown = async () => {
+    const md = await editor.blocksToMarkdownLossy(editor.document)
+    download(md, 'document.md', 'text/markdown')
+  }
+  const importMarkdown = async (file: File) => {
+    const blocks = await editor.tryParseMarkdownToBlocks(await file.text())
+    editor.replaceBlocks(editor.document, blocks as any)
+  }
+
   return (
     <div className="flex h-full flex-col">
       {/* persistent formatting toolbar */}
@@ -195,6 +214,27 @@ export default function DocEditor({
         <button className={btn} title="Add link" onClick={addLink}><Link2 size={16} /></button>
         <Sep />
         <button className={`${btn} ${showFind ? on : ''}`} title="Find & replace" onClick={() => setShowFind((s) => !s)}><Search size={16} /></button>
+        <Sep />
+        <button className={btn} title="Export as Markdown" onClick={exportMarkdown}><Download size={16} /></button>
+        <button className={btn} title="Import Markdown" onClick={() => fileRef.current?.click()}><Upload size={16} /></button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".md,.markdown,text/markdown"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) void importMarkdown(f)
+            e.target.value = ''
+          }}
+        />
+        <button
+          className={`${btn} ${mode === 'viewing' ? on : ''}`}
+          title={mode === 'editing' ? 'Switch to View mode' : 'Switch to Edit mode'}
+          onClick={() => setMode((m) => (m === 'editing' ? 'viewing' : 'editing'))}
+        >
+          {mode === 'editing' ? <Eye size={16} /> : <PencilLine size={16} />}
+        </button>
       </div>
 
       {showFind && (
@@ -240,7 +280,7 @@ export default function DocEditor({
           }}
         >
           <div className="tl-editor mx-auto min-h-full w-full max-w-5xl px-6 py-10 sm:px-12 sm:py-14">
-            <BlockNoteView editor={editor} theme={theme} />
+            <BlockNoteView editor={editor} editable={mode === 'editing'} theme={theme} />
           </div>
         </div>
 
