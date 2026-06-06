@@ -37,9 +37,11 @@ create index if not exists storyboard_shots_board_idx on public.storyboard_shots
 
 alter table public.storyboards enable row level security;
 alter table public.storyboard_shots enable row level security;
+drop policy if exists storyboards_admin_all on public.storyboards;
 create policy storyboards_admin_all on public.storyboards for all to authenticated
   using (public.is_admin() and organization_id = public.current_org())
   with check (public.is_admin() and organization_id = public.current_org());
+drop policy if exists storyboard_shots_admin_all on public.storyboard_shots;
 create policy storyboard_shots_admin_all on public.storyboard_shots for all to authenticated
   using (public.is_admin() and organization_id = public.current_org())
   with check (public.is_admin() and organization_id = public.current_org());

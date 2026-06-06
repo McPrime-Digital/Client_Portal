@@ -26,6 +26,7 @@ create index if not exists document_comments_doc_idx
   on public.document_comments(document_id, tab_key, created_at);
 
 alter table public.document_comments enable row level security;
+drop policy if exists document_comments_admin_all on public.document_comments;
 create policy document_comments_admin_all on public.document_comments for all to authenticated
   using (public.is_admin() and organization_id = public.current_org())
   with check (public.is_admin() and organization_id = public.current_org());

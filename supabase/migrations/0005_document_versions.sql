@@ -24,6 +24,7 @@ create index if not exists document_versions_doc_idx
   on public.document_versions(document_id, tab_key, created_at desc);
 
 alter table public.document_versions enable row level security;
+drop policy if exists document_versions_admin_all on public.document_versions;
 create policy document_versions_admin_all on public.document_versions for all to authenticated
   using (public.is_admin() and organization_id = public.current_org())
   with check (public.is_admin() and organization_id = public.current_org());
