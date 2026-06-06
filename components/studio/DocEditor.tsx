@@ -70,6 +70,25 @@ function Ruler({ isLight }: { isLight: boolean }) {
   )
 }
 
+// Vertical ruler down the left of the page (Letter, inch ticks). Height tracks the page.
+function VerticalRuler({ isLight, height }: { isLight: boolean; height: number }) {
+  const line = isLight ? 'bg-gray-300' : 'bg-white/20'
+  const marginTone = isLight ? 'bg-gray-200/70' : 'bg-white/5'
+  const inches = Math.max(11, Math.ceil(height / 96))
+  return (
+    <div className={`relative mr-1 hidden flex-shrink-0 select-none sm:block ${isLight ? 'text-gray-400' : 'text-gray-500'}`} style={{ width: 18, height }}>
+      <div className={`absolute left-0 top-0 w-full ${marginTone}`} style={{ height: 96 }} />
+      {Array.from({ length: inches }).map((_, i) => (
+        <div key={i} className="absolute right-0" style={{ top: i * 96 }}>
+          <span className={`absolute right-0 ${line}`} style={{ width: 8, height: 1 }} />
+          <span className={`absolute right-0 ${line}`} style={{ top: 48, width: 4, height: 1 }} />
+          {i > 0 && <span className="absolute right-[2px] top-[2px] text-[8px] leading-none">{i}</span>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // PrimeOS AI button injected into BlockNote's selection (formatting) toolbar.
 function PrimeToolbarButton({ onMuse }: { onMuse: () => void }) {
   const Components = useComponentsContext()!
@@ -153,6 +172,19 @@ export default function DocEditor({
       }
       return next
     })
+
+  // Measure the page surface so the side ruler + page-break guides track its height.
+  const PAGE_H = 1056 // Letter @ 96dpi
+  const surfaceRef = useRef<HTMLDivElement>(null)
+  const [contentHeight, setContentHeight] = useState(PAGE_H)
+  useEffect(() => {
+    const el = surfaceRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setContentHeight(el.offsetHeight))
+    ro.observe(el)
+    setContentHeight(el.offsetHeight)
+    return () => ro.disconnect()
+  }, [layout])
   const [versions, setVersions] = useState<DocVersion[] | null>(null)
   const [vBusy, setVBusy] = useState(false)
   const supabase = useMemo(() => createClient(), [])
@@ -631,7 +663,7 @@ export default function DocEditor({
       {/* editor + outline */}
       <div className="flex min-h-0 flex-1">
         <div
-          className={`flex-1 overflow-y-auto ${layout === 'page' ? `px-4 pt-3 ${isLight ? 'bg-[#f3f5f7]' : 'bg-[#070f24]'}` : ''}`}
+          className={`flex-1 overflow-y-auto ${layout === 'page' ? `px-4 pb-20 pt-3 ${isLight ? 'bg-[#f3f5f7]' : 'bg-[#070f24]'}` : ''}`}
           onMouseDown={(e) => {
             const t = e.target as HTMLElement
             if (t && !t.closest('.ProseMirror') && !t.closest('button') && !t.closest('a')) {
@@ -640,19 +672,41 @@ export default function DocEditor({
             }
           }}
         >
-          {/* One persistent editor — only the wrapper changes between page / pageless,
-              so the Yjs binding is never torn down (toggling never drops edits). */}
-          {layout === 'page' && <Ruler isLight={isLight} />}
-          <div
-            key="doc-surface"
-            className={
-              layout === 'page'
-                ? `tl-editor mx-auto mb-20 mt-2 w-[816px] max-w-full rounded-sm px-10 py-12 shadow-xl sm:px-24 sm:py-20 ${isLight ? 'bg-white' : 'bg-[#0a1430]'}`
-                : 'tl-editor mx-auto min-h-full w-full max-w-4xl px-6 py-10 sm:px-12 sm:py-14'
-            }
-            style={layout === 'page' ? { minHeight: 1056 } : undefined}
-          >
-            {editorView}
+          {/* top ruler (aligned over the page) */}
+          {layout === 'page' && (
+            <div className="mx-auto flex w-fit">
+              <div className="hidden flex-shrink-0 sm:block" style={{ width: 22 }} />
+              <Ruler isLight={isLight} />
+            </div>
+          )}
+          {/* One persistent editor — the surface keeps a stable position (and key) across
+              page/pageless so the Yjs binding is never torn down (toggling never drops edits). */}
+          <div className="flex justify-center">
+            {layout === 'page' && <VerticalRuler isLight={isLight} height={contentHeight} />}
+            <div
+              key="doc-surface"
+              ref={surfaceRef}
+              className={
+                layout === 'page'
+                  ? `tl-editor relative mt-2 w-[816px] max-w-full rounded-sm px-10 py-12 shadow-xl sm:px-24 sm:py-20 ${isLight ? 'bg-white' : 'bg-[#0a1430]'}`
+                  : 'tl-editor relative mx-auto min-h-full w-full max-w-4xl px-6 py-10 sm:px-12 sm:py-14'
+              }
+              style={layout === 'page' ? { minHeight: PAGE_H } : undefined}
+            >
+              {editorView}
+              {layout === 'page' &&
+                Array.from({ length: Math.max(0, Math.ceil(contentHeight / PAGE_H) - 1) }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="pointer-events-none absolute inset-x-0 flex items-center gap-2 px-3"
+                    style={{ top: (i + 1) * PAGE_H }}
+                  >
+                    <div className={`h-px flex-1 border-t border-dashed ${isLight ? 'border-gray-300' : 'border-white/15'}`} />
+                    <span className={`text-[9px] ${isLight ? 'text-gray-400' : 'text-gray-500'}`}>Page {i + 2}</span>
+                    <div className={`h-px flex-1 border-t border-dashed ${isLight ? 'border-gray-300' : 'border-white/15'}`} />
+                  </div>
+                ))}
+            </div>
           </div>
         </div>
 

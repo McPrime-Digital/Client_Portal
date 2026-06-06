@@ -32,20 +32,21 @@ function previewFromYdoc(b64: string | null): string {
     return ''
   }
 }
-type Template = { key: string; label: string; color: string; title: string }
+type CoverStyle = 'centered' | 'banner' | 'sidebar' | 'table'
+type Template = { key: string; label: string; color: string; title: string; style: CoverStyle }
 
 const TEMPLATES: Template[] = [
-  { key: 'screenplay', label: 'Screenplay', color: '#3b3a78', title: 'Untitled Screenplay' },
-  { key: 'treatment', label: 'Treatment', color: '#0e7490', title: 'Untitled Treatment' },
-  { key: 'brief', label: 'Concept Brief', color: '#b45309', title: 'Untitled Brief' },
-  { key: 'ad', label: 'Ad Script', color: '#be123c', title: 'Untitled Ad Script' },
-  { key: 'shotlist', label: 'Shot List', color: '#15803d', title: 'Untitled Shot List' },
-  { key: 'callsheet', label: 'Call Sheet', color: '#1d4ed8', title: 'Untitled Call Sheet' },
-  { key: 'voiceover', label: 'Voiceover', color: '#7c3aed', title: 'Untitled VO Script' },
-  { key: 'pitch', label: 'Pitch', color: '#db2777', title: 'Untitled Pitch' },
-  { key: 'directors', label: "Director's Statement", color: '#0f766e', title: "Director's Statement" },
-  { key: 'beatsheet', label: 'Beat Sheet', color: '#c2410c', title: 'Untitled Beat Sheet' },
-  { key: 'character', label: 'Character Bible', color: '#4338ca', title: 'Character Bible' },
+  { key: 'screenplay', label: 'Screenplay', color: '#3b3a78', title: 'Untitled Screenplay', style: 'centered' },
+  { key: 'treatment', label: 'Treatment', color: '#0e7490', title: 'Untitled Treatment', style: 'banner' },
+  { key: 'brief', label: 'Concept Brief', color: '#b45309', title: 'Untitled Brief', style: 'sidebar' },
+  { key: 'ad', label: 'Ad Script', color: '#be123c', title: 'Untitled Ad Script', style: 'banner' },
+  { key: 'shotlist', label: 'Shot List', color: '#15803d', title: 'Untitled Shot List', style: 'table' },
+  { key: 'callsheet', label: 'Call Sheet', color: '#1d4ed8', title: 'Untitled Call Sheet', style: 'table' },
+  { key: 'voiceover', label: 'Voiceover', color: '#7c3aed', title: 'Untitled VO Script', style: 'banner' },
+  { key: 'pitch', label: 'Pitch', color: '#db2777', title: 'Untitled Pitch', style: 'centered' },
+  { key: 'directors', label: "Director's Statement", color: '#0f766e', title: "Director's Statement", style: 'centered' },
+  { key: 'beatsheet', label: 'Beat Sheet', color: '#c2410c', title: 'Untitled Beat Sheet', style: 'table' },
+  { key: 'character', label: 'Character Bible', color: '#4338ca', title: 'Character Bible', style: 'sidebar' },
 ]
 const FEATURED = ['screenplay', 'treatment', 'brief', 'ad']
 
@@ -79,17 +80,59 @@ function BlankThumb() {
     </Paper>
   )
 }
-// A real template "cover page": a colored header band + title, then content.
-function CoverThumb({ label, color }: { label: string; color: string }) {
+// Real template "cover pages" — distinct designed layouts per template type.
+const COVER = 'aspect-[85/110] w-full overflow-hidden rounded-[3px] shadow-[0_1px_3px_rgba(0,0,0,0.18)] ring-1 ring-black/5'
+function CoverThumb({ label, color, style }: { label: string; color: string; style: CoverStyle }) {
+  if (style === 'centered') {
+    return (
+      <div className={`${COVER} flex flex-col items-center justify-center gap-[6px] px-3`} style={{ background: color }}>
+        <div className="h-px w-7 bg-white/50" />
+        <span className="text-center text-[9px] font-bold uppercase leading-tight tracking-wide text-white">{label}</span>
+        <div className="h-px w-7 bg-white/50" />
+        <span className="mt-[3px] text-[5px] uppercase tracking-widest text-white/70">written by</span>
+      </div>
+    )
+  }
+  if (style === 'sidebar') {
+    return (
+      <div className={`${COVER} flex bg-white`}>
+        <div className="flex w-[32%] items-start p-1.5" style={{ background: color }}>
+          <span className="text-[7px] font-bold leading-tight text-white">{label}</span>
+        </div>
+        <div className="flex-1 space-y-[4px] p-2">
+          <Bar w="80%" /><Bar /><Bar w="70%" /><Bar w="85%" />
+          <div className="pt-[2px]" />
+          <Bar w="60%" /><Bar w="78%" />
+        </div>
+      </div>
+    )
+  }
+  if (style === 'table') {
+    return (
+      <div className={`${COVER} bg-white`}>
+        <div className="px-2 py-1.5 text-[8px] font-bold text-white" style={{ background: color }}>{label}</div>
+        <div className="space-y-[3px] p-1.5">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex gap-[3px]">
+              <div className="h-[5px] w-[22%] rounded-sm" style={{ background: `${color}33` }} />
+              <div className="h-[5px] flex-1 rounded-sm bg-gray-100" />
+              <div className="h-[5px] w-[18%] rounded-sm bg-gray-100" />
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+  // banner
   return (
-    <div className="aspect-[85/110] w-full overflow-hidden rounded-[3px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.18)] ring-1 ring-black/5">
+    <div className={`${COVER} bg-white`}>
       <div className="flex h-[38%] items-end p-2" style={{ background: color }}>
         <span className="text-[8px] font-bold leading-tight text-white">{label}</span>
       </div>
       <div className="space-y-[4px] p-2">
         <Bar w="92%" /><Bar /><Bar w="80%" /><Bar w="88%" /><Bar w="55%" />
         <div className="pt-[2px]" />
-        <Bar w="72%" /><Bar w="84%" />
+        <Bar w="72%" />
       </div>
     </div>
   )
@@ -235,7 +278,7 @@ export default function ScriptHome() {
         {TEMPLATES.filter((t) => FEATURED.includes(t.key)).map((t) => (
           <button key={t.key} onClick={() => create(t.key, t.title)} disabled={creating} className="group text-left">
             <div className="rounded-[3px] ring-1 ring-transparent transition-all group-hover:-translate-y-0.5 group-hover:ring-2 group-hover:ring-primary">
-              <CoverThumb label={t.label} color={t.color} />
+              <CoverThumb label={t.label} color={t.color} style={t.style} />
             </div>
             <p className="mt-2 truncate px-0.5 text-[13px] font-medium text-foreground">{t.label}</p>
           </button>
@@ -403,7 +446,7 @@ export default function ScriptHome() {
               {TEMPLATES.map((t) => (
                 <button key={t.key} onClick={() => { setGalleryOpen(false); create(t.key, t.title) }} className="group text-left">
                   <div className="rounded-[3px] ring-1 ring-transparent transition-all group-hover:-translate-y-0.5 group-hover:ring-2 group-hover:ring-primary">
-                    <CoverThumb label={t.label} color={t.color} />
+                    <CoverThumb label={t.label} color={t.color} style={t.style} />
                   </div>
                   <p className="mt-2 truncate text-[13px] font-medium text-foreground">{t.label}</p>
                 </button>
