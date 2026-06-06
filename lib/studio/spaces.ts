@@ -6,7 +6,7 @@ import {
   UsersRound, Handshake, Clapperboard,
   MessageSquare, ListChecks, GitBranchPlus, Radar, Gauge, Video, Contact,
   LayoutDashboard, FolderOpen, ScanEye, Files, MessageCircle, Receipt, Link2, Building2,
-  Film, Workflow, Bot, Sparkles, Wand2, Fingerprint, Swords, Library, ShieldCheck, NotebookPen, SlidersHorizontal,
+  Film, Workflow, Aperture, Sparkles, Wand2, Fingerprint, Swords, Library, ShieldCheck, NotebookPen, SlidersHorizontal,
   CalendarDays, Settings, Palette, FileText, Package,
 } from 'lucide-react'
 
@@ -61,8 +61,8 @@ export const SPACES: Space[] = [
       { slug: 'remaster', label: 'Remaster', icon: Wand2, phase: 3 },
       // Finishing Suite: AI-native post — edit assist, sound, VO, mastering, color.
       { slug: 'finishing', label: 'Finishing Suite', icon: SlidersHorizontal, phase: 3 },
-      // Muse: converse with a chosen AI model, switchable mid-conversation.
-      { slug: 'ai-chat', label: 'Muse', icon: Bot, phase: 3 },
+      // Muse: brainstorm → draft → architect scripts, automations, and film. Switchable model mid-chat.
+      { slug: 'ai-chat', label: 'Muse', icon: Aperture, phase: 3 },
       { slug: 'continuity', label: 'Continuity', icon: Fingerprint, phase: 2, badge: 'NEW' },
       { slug: 'arena', label: 'Model Arena', icon: Swords, phase: 3 },
       { slug: 'studio-kits', label: 'Studio Kits', icon: Package, phase: 4 },

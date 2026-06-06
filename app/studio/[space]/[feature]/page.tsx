@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { getSpace } from '@/lib/studio/spaces'
+import ScriptDesign from '@/components/studio/ScriptDesign'
 
 export default async function FeaturePage({
   params,
@@ -12,6 +13,11 @@ export default async function FeaturePage({
   const space = getSpace(spaceId)
   const feature = space?.features.find((f) => f.slug === slug)
   if (!space || !feature) notFound()
+
+  // Real features progressively replace the stub below.
+  if (space.id === 'workspace' && feature.slug === 'script') {
+    return <ScriptDesign />
+  }
 
   const Icon = feature.icon
 
