@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import * as Y from 'yjs'
-import { ArrowLeft, Loader2, Sun, Moon, Plus, X, Share2, Copy, Check, Link2 } from 'lucide-react'
+import { ArrowLeft, Loader2, Sun, Moon, Plus, X, Share2, Copy, Check, Link2, Save } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { SupabaseYjsProvider, toB64, fromB64 } from '@/lib/collab/supabaseYjs'
 import DocEditor from './DocEditor'
@@ -19,22 +19,6 @@ function pickColor(seed: string): string {
 // so the first tab ('main') points there for backward compatibility.
 function fragmentKeyFor(tabId: string): string {
   return tabId === 'main' ? 'blocknote' : `tab-${tabId}`
-}
-
-// True only if every tab is genuinely empty — no text and no media.
-function docIsBlank(ydoc: Y.Doc): boolean {
-  const fragHasContent = (key: string) => {
-    const xml = ydoc.getXmlFragment(key).toString()
-    if (/<(image|table|file|video|audio)/.test(xml)) return true
-    return xml.replace(/<[^>]+>/g, '').trim().length > 0
-  }
-  if (fragHasContent('blocknote')) return false
-  const tabs = ydoc.getArray<Y.Map<string>>('tabs')
-  for (const m of tabs.toArray()) {
-    const id = m.get('id') as string
-    if (id && id !== 'main' && fragHasContent(`tab-${id}`)) return false
-  }
-  return true
 }
 
 function Presence({ provider }: { provider: SupabaseYjsProvider }) {
@@ -88,8 +72,8 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
   const cleanup = useRef<() => void>(() => {})
   const firstLines = useRef<Record<string, string>>({}) // latest first line per tab
   const prevTab = useRef('main')
-  const hadContent = useRef(false) // did this doc ever hold real content this session?
-  const latestTitle = useRef('')
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const saveNow = useRef<() => void>(() => {})
 
   // Per-document theme (independent of the app theme), remembered per doc.
   useEffect(() => {
@@ -148,17 +132,25 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
             .update({ ydoc: toB64(Y.encodeStateAsUpdate(ydoc)), updated_at: new Date().toISOString() })
             .eq('id', doc.id)
 
-        // Silent background autosave — always persist; the blank check only gates
-        // the auto-cleanup on exit (never the save itself, or tabs/edits get dropped).
+        // Always-on autosave — persist on idle, on manual save, and on exit. No
+        // conditional skipping or deletion (that dropped new docs + tabs).
         let t: ReturnType<typeof setTimeout>
+        const doPersist = async () => {
+          setSaveState('saving')
+          await persist()
+          if (!cancelled) setSaveState('saved')
+        }
         const save = () => {
-          if (!docIsBlank(ydoc)) hadContent.current = true
           clearTimeout(t)
           t = setTimeout(() => {
-            void persist()
-          }, 600)
+            void doPersist()
+          }, 500)
         }
         ydoc.on('update', save)
+        saveNow.current = () => {
+          clearTimeout(t)
+          void doPersist()
+        }
         const onBeforeUnload = () => {
           void persist()
         }
@@ -167,20 +159,12 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
         cleanup.current = () => {
           ydoc.off('update', save)
           clearTimeout(t)
-          const titleStr = latestTitle.current.trim()
-          const isDefaultTitle = !titleStr || titleStr === 'Untitled'
-          if (docIsBlank(ydoc) && isDefaultTitle && !hadContent.current) {
-            // a blank, untitled doc that never got content — don't leave clutter
-            void supabase.from('documents').delete().eq('id', doc.id)
-          } else {
-            void persist()
-          }
+          void persist()
           window.removeEventListener('beforeunload', onBeforeUnload)
           provider.destroy()
         }
 
         if (!cancelled) {
-          latestTitle.current = doc.title ?? 'Untitled'
           setTitle(doc.title ?? 'Untitled')
           setReady({ userName, ydoc, provider })
         }
@@ -247,7 +231,7 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
     if (activeTab === id) setActiveTab('main')
   }
 
-  // Auto-name a tab from its first line when you leave it — unless it was renamed.
+  // Auto-name a tab from its first line — live as you type, unless manually renamed.
   function autoNameTab(id: string) {
     const arr = yTabsArray()
     if (!arr) return
@@ -256,9 +240,10 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
     const current = (arr.get(idx).get('name') as string) || ''
     const isDefault = current === '' || current === 'Untitled' || /^Tab \d+$/.test(current)
     const line = (firstLines.current[id] || '').trim()
-    if (isDefault && line) arr.get(idx).set('name', line.slice(0, 32))
+    const next = line ? line.slice(0, 32) : ''
+    if (isDefault && next && next !== current) arr.get(idx).set('name', next)
   }
-  // When the active tab changes, auto-name the one we just left.
+  // When the active tab changes, auto-name the one we just left too.
   useEffect(() => {
     if (prevTab.current !== activeTab) {
       autoNameTab(prevTab.current)
@@ -270,15 +255,12 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
   // Persist the title (debounced).
   useEffect(() => {
     if (!ready) return
-    latestTitle.current = title
     const t = setTimeout(() => {
-      // don't write a default title onto an otherwise-blank doc
-      if (docIsBlank(ready.ydoc) && (!title.trim() || title.trim() === 'Untitled')) return
       void supabase
         .from('documents')
         .update({ title: title.trim() || 'Untitled', updated_at: new Date().toISOString() })
         .eq('id', docId)
-    }, 700)
+    }, 600)
     return () => clearTimeout(t)
   }, [title, ready, supabase, docId])
 
@@ -309,6 +291,20 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
             {docTheme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
           </button>
           {ready && <Presence provider={ready.provider} />}
+          <button
+            type="button"
+            onClick={() => saveNow.current()}
+            title="Save now (also autosaves)"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            {saveState === 'saving' ? (
+              <><Loader2 size={13} className="animate-spin" /> Saving…</>
+            ) : saveState === 'saved' ? (
+              <><Check size={13} style={{ color: 'hsl(var(--status-green))' }} /> Saved</>
+            ) : (
+              <><Save size={13} /> Save</>
+            )}
+          </button>
           <button
             type="button"
             onClick={() => setShareOpen(true)}
@@ -405,6 +401,7 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
               template={activeTab === 'main' ? template : undefined}
               onFirstLine={(t) => {
                 firstLines.current[activeTab] = t
+                autoNameTab(activeTab)
               }}
             />
           )}
