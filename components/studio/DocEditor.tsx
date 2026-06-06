@@ -11,14 +11,16 @@ import {
   Bold, Italic, Underline, Strikethrough, Code,
   List, ListOrdered, ListChecks, AlignLeft, AlignCenter, AlignRight, Link2, ListTree, Search, X,
   Eye, PencilLine, Download, Upload, History, RotateCcw, FileCode2, Printer, MessageSquare, FileType,
+  Minus, Plus, ChevronDown,
 } from 'lucide-react'
 import type { SupabaseYjsProvider } from '@/lib/collab/supabaseYjs'
 import { SCRIPT_TEMPLATES } from '@/lib/studio/scriptTemplates'
+import { docSchema, FONT_FAMILIES, FONT_SIZES } from '@/lib/studio/editorSchema'
 import { createClient } from '@/lib/supabase/client'
 import DocComments from './DocComments'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-type AnyEditor = ReturnType<typeof useCreateBlockNote>
+type AnyEditor = any
 
 function blockText(block: any): string {
   return Array.isArray(block?.content)
@@ -53,6 +55,7 @@ export default function DocEditor({
   fragmentKey,
   theme,
   template,
+  onFirstLine,
 }: {
   docId: string
   ydoc: Y.Doc
@@ -61,14 +64,17 @@ export default function DocEditor({
   fragmentKey: string
   theme: 'light' | 'dark'
   template?: string
+  onFirstLine?: (text: string) => void
 }) {
   const editor = useCreateBlockNote({
+    schema: docSchema,
     collaboration: {
       provider,
       fragment: ydoc.getXmlFragment(fragmentKey),
       user: { name: userName, color: provider.userColor },
     },
-  })
+  }) as any
+  const isPrimary = fragmentKey === 'blocknote'
 
   const [, force] = useState(0)
   const [outline, setOutline] = useState<Heading[]>([])
@@ -81,9 +87,11 @@ export default function DocEditor({
   const fileRef = useRef<HTMLInputElement>(null)
   const [showHistory, setShowHistory] = useState(false)
   const [showComments, setShowComments] = useState(false)
+  const [fontOpen, setFontOpen] = useState(false)
   const [versions, setVersions] = useState<DocVersion[] | null>(null)
   const [vBusy, setVBusy] = useState(false)
   const supabase = useMemo(() => createClient(), [])
+  const previewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => {
     const update = () => {
@@ -94,6 +102,14 @@ export default function DocEditor({
       })
       setOutline(getHeadings(editor))
       force((n) => n + 1)
+      const firstLine = text.split('\n').map((l) => l.trim()).find(Boolean) ?? ''
+      onFirstLine?.(firstLine)
+      if (isPrimary) {
+        clearTimeout(previewTimer.current)
+        previewTimer.current = setTimeout(() => {
+          void supabase.from('documents').update({ preview: text.slice(0, 800) }).eq('id', docId)
+        }, 1500)
+      }
     }
     update()
     const off = editor.onChange(update)
@@ -151,6 +167,21 @@ export default function DocEditor({
   const type = block?.type
   const level = block?.props?.level
   const align = block?.props?.textAlignment
+
+  // font family + size (Google-Docs-style)
+  const curFamilyValue = (styles.fontFamily as string | undefined) ?? ''
+  const curFamily = FONT_FAMILIES.find((f) => f.value === curFamilyValue)?.label ?? (curFamilyValue ? 'Custom' : 'Default')
+  const curSizeNum = styles.fontSize ? parseInt(String(styles.fontSize), 10) || 16 : 16
+  const applyFont = (family: string) => {
+    if (family) editor.addStyles({ fontFamily: family })
+    else editor.removeStyles({ fontFamily: curFamilyValue || ' ' })
+    editor.focus()
+  }
+  const applySize = (size: number) => {
+    const n = Math.min(400, Math.max(1, size))
+    editor.addStyles({ fontSize: `${n}px` })
+    editor.focus()
+  }
 
   const toggle = (s: string) => {
     editor.toggleStyles({ [s]: true } as any)
@@ -301,6 +332,50 @@ export default function DocEditor({
         <button className={`${btn} ${type === 'heading' && level === 1 ? on : ''}`} title="Heading 1" onClick={() => setBlock('heading', { level: 1 })}><Heading1 size={16} /></button>
         <button className={`${btn} ${type === 'heading' && level === 2 ? on : ''}`} title="Heading 2" onClick={() => setBlock('heading', { level: 2 })}><Heading2 size={16} /></button>
         <button className={`${btn} ${type === 'heading' && level === 3 ? on : ''}`} title="Heading 3" onClick={() => setBlock('heading', { level: 3 })}><Heading3 size={16} /></button>
+        <Sep />
+        {/* font family */}
+        <div className="relative">
+          <button
+            type="button"
+            title="Font"
+            onClick={() => setFontOpen((o) => !o)}
+            className={`flex h-8 items-center gap-1 rounded-md px-2 text-sm transition-colors ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}
+          >
+            <span className="max-w-[7.5rem] truncate" style={{ fontFamily: curFamilyValue || undefined }}>{curFamily}</span>
+            <ChevronDown size={13} className="opacity-60" />
+          </button>
+          {fontOpen && (
+            <>
+              <button aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setFontOpen(false)} />
+              <div className={`absolute left-0 top-full z-20 mt-1 max-h-80 w-52 overflow-y-auto rounded-xl border py-1 shadow-2xl ${isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#0f1c3f]'}`}>
+                {FONT_FAMILIES.map((f) => (
+                  <button
+                    key={f.label}
+                    onClick={() => { applyFont(f.value); setFontOpen(false) }}
+                    style={{ fontFamily: f.value || undefined }}
+                    className={`block w-full truncate px-3 py-1.5 text-left text-sm transition-colors ${curFamily === f.label ? 'text-primary' : isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+        {/* font size */}
+        <div className="flex items-center gap-0.5">
+          <button className={btn} title="Decrease font size" onClick={() => applySize(curSizeNum - 1)}><Minus size={14} /></button>
+          <input
+            key={curSizeNum}
+            defaultValue={curSizeNum}
+            inputMode="numeric"
+            aria-label="Font size"
+            onBlur={(e) => { const n = parseInt(e.target.value, 10); if (!Number.isNaN(n)) applySize(n) }}
+            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+            className={`h-7 w-9 rounded-md border text-center text-sm outline-none ${isLight ? 'border-black/10 bg-white text-gray-800' : 'border-white/10 bg-white/5 text-gray-100'}`}
+          />
+          <button className={btn} title="Increase font size" onClick={() => applySize(curSizeNum + 1)}><Plus size={14} /></button>
+        </div>
         <Sep />
         <button className={`${btn} ${styles.bold ? on : ''}`} title="Bold" onClick={() => toggle('bold')}><Bold size={16} /></button>
         <button className={`${btn} ${styles.italic ? on : ''}`} title="Italic" onClick={() => toggle('italic')}><Italic size={16} /></button>

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import * as Y from 'yjs'
-import { ArrowLeft, Check, Loader2, Sparkle, Sun, Moon, Plus, X } from 'lucide-react'
+import { ArrowLeft, Loader2, Sun, Moon, Plus, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { SupabaseYjsProvider, toB64, fromB64 } from '@/lib/collab/supabaseYjs'
 import DocEditor from './DocEditor'
@@ -62,13 +62,14 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
   const [ready, setReady] = useState<Ready | null>(null)
   const [error, setError] = useState('')
   const [title, setTitle] = useState('')
-  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [docTheme, setDocTheme] = useState<'light' | 'dark'>('dark')
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeTab, setActiveTab] = useState('main')
   const [editingTab, setEditingTab] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const cleanup = useRef<() => void>(() => {})
+  const firstLines = useRef<Record<string, string>>({}) // latest first line per tab
+  const prevTab = useRef('main')
 
   // Per-document theme (independent of the app theme), remembered per doc.
   useEffect(() => {
@@ -129,14 +130,13 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
             .update({ ydoc: toB64(Y.encodeStateAsUpdate(ydoc)), updated_at: new Date().toISOString() })
             .eq('id', doc.id)
 
+        // Silent background autosave — no save indicator, just persist on idle.
         let t: ReturnType<typeof setTimeout>
         const save = () => {
-          setSaveState('saving')
           clearTimeout(t)
-          t = setTimeout(async () => {
-            await persist()
-            if (!cancelled) setSaveState('saved')
-          }, 1000)
+          t = setTimeout(() => {
+            void persist()
+          }, 600)
         }
         ydoc.on('update', save)
         const onBeforeUnload = () => {
@@ -219,6 +219,26 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
     if (activeTab === id) setActiveTab('main')
   }
 
+  // Auto-name a tab from its first line when you leave it — unless it was renamed.
+  function autoNameTab(id: string) {
+    const arr = yTabsArray()
+    if (!arr) return
+    const idx = arr.toArray().findIndex((m) => m.get('id') === id)
+    if (idx < 0) return
+    const current = (arr.get(idx).get('name') as string) || ''
+    const isDefault = current === '' || current === 'Untitled' || /^Tab \d+$/.test(current)
+    const line = (firstLines.current[id] || '').trim()
+    if (isDefault && line) arr.get(idx).set('name', line.slice(0, 32))
+  }
+  // When the active tab changes, auto-name the one we just left.
+  useEffect(() => {
+    if (prevTab.current !== activeTab) {
+      autoNameTab(prevTab.current)
+      prevTab.current = activeTab
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab])
+
   // Persist the title (debounced).
   useEffect(() => {
     if (!ready) return
@@ -258,21 +278,6 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
             {docTheme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
           </button>
           {ready && <Presence provider={ready.provider} />}
-          <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-            {saveState === 'saving' ? (
-              <>
-                <Loader2 size={13} className="animate-spin" /> Saving…
-              </>
-            ) : saveState === 'saved' ? (
-              <>
-                <Check size={13} style={{ color: 'hsl(var(--status-green))' }} /> Saved
-              </>
-            ) : (
-              <>
-                <Sparkle size={13} className="text-primary" /> Live
-              </>
-            )}
-          </span>
         </div>
       </div>
 
@@ -360,6 +365,9 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
               fragmentKey={fragmentKeyFor(activeTab)}
               theme={docTheme}
               template={activeTab === 'main' ? template : undefined}
+              onFirstLine={(t) => {
+                firstLines.current[activeTab] = t
+              }}
             />
           )}
         </div>
