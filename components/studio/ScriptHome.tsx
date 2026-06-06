@@ -32,19 +32,20 @@ function previewFromYdoc(b64: string | null): string {
     return ''
   }
 }
-type CoverStyle = 'centered' | 'banner' | 'sidebar' | 'table'
-type Template = { key: string; label: string; color: string; title: string; style: CoverStyle }
+type CoverStyle = 'centered' | 'banner' | 'sidebar' | 'table' | 'image'
+type Scene = 'film' | 'mesh' | 'sunset' | 'spotlight'
+type Template = { key: string; label: string; color: string; title: string; style: CoverStyle; scene?: Scene }
 
 const TEMPLATES: Template[] = [
-  { key: 'screenplay', label: 'Screenplay', color: '#3b3a78', title: 'Untitled Screenplay', style: 'centered' },
-  { key: 'treatment', label: 'Treatment', color: '#0e7490', title: 'Untitled Treatment', style: 'banner' },
+  { key: 'screenplay', label: 'Screenplay', color: '#3b3a78', title: 'Untitled Screenplay', style: 'image', scene: 'film' },
+  { key: 'treatment', label: 'Treatment', color: '#0e7490', title: 'Untitled Treatment', style: 'image', scene: 'mesh' },
   { key: 'brief', label: 'Concept Brief', color: '#b45309', title: 'Untitled Brief', style: 'sidebar' },
   { key: 'ad', label: 'Ad Script', color: '#be123c', title: 'Untitled Ad Script', style: 'banner' },
   { key: 'shotlist', label: 'Shot List', color: '#15803d', title: 'Untitled Shot List', style: 'table' },
   { key: 'callsheet', label: 'Call Sheet', color: '#1d4ed8', title: 'Untitled Call Sheet', style: 'table' },
   { key: 'voiceover', label: 'Voiceover', color: '#7c3aed', title: 'Untitled VO Script', style: 'banner' },
-  { key: 'pitch', label: 'Pitch', color: '#db2777', title: 'Untitled Pitch', style: 'centered' },
-  { key: 'directors', label: "Director's Statement", color: '#0f766e', title: "Director's Statement", style: 'centered' },
+  { key: 'pitch', label: 'Pitch', color: '#db2777', title: 'Untitled Pitch', style: 'image', scene: 'sunset' },
+  { key: 'directors', label: "Director's Statement", color: '#0f766e', title: "Director's Statement", style: 'image', scene: 'spotlight' },
   { key: 'beatsheet', label: 'Beat Sheet', color: '#c2410c', title: 'Untitled Beat Sheet', style: 'table' },
   { key: 'character', label: 'Character Bible', color: '#4338ca', title: 'Character Bible', style: 'sidebar' },
 ]
@@ -80,9 +81,92 @@ function BlankThumb() {
     </Paper>
   )
 }
+// Bespoke SVG "cover photos" so image templates read like real designed covers.
+function CoverArt({ scene }: { scene: Scene }) {
+  if (scene === 'film') {
+    return (
+      <svg viewBox="0 0 100 130" preserveAspectRatio="xMidYMid slice" className="h-full w-full">
+        <defs>
+          <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#f59e0b" /><stop offset="0.5" stopColor="#db2777" /><stop offset="1" stopColor="#4c1d95" />
+          </linearGradient>
+        </defs>
+        <rect width="100" height="130" fill="url(#sky)" />
+        <circle cx="50" cy="44" r="15" fill="#fff" opacity="0.85" />
+        <path d="M0 95 L22 70 L40 90 L60 62 L80 88 L100 72 L100 130 L0 130 Z" fill="#1f2937" />
+        <path d="M0 110 L30 92 L55 108 L78 95 L100 110 L100 130 L0 130 Z" fill="#0f172a" />
+        <g fill="#0f172a">
+          <rect x="0" y="0" width="6" height="130" /><rect x="94" y="0" width="6" height="130" />
+        </g>
+        <g fill="#fff" opacity="0.9">
+          {[8, 24, 40, 56, 72, 88, 104, 120].map((y) => (<g key={y}><rect x="1.5" y={y} width="3" height="6" rx="0.6" /><rect x="95.5" y={y} width="3" height="6" rx="0.6" /></g>))}
+        </g>
+      </svg>
+    )
+  }
+  if (scene === 'sunset') {
+    return (
+      <svg viewBox="0 0 100 130" preserveAspectRatio="xMidYMid slice" className="h-full w-full">
+        <defs>
+          <linearGradient id="ss" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor="#db2777" /><stop offset="0.5" stopColor="#f97316" /><stop offset="1" stopColor="#facc15" />
+          </linearGradient>
+        </defs>
+        <rect width="100" height="130" fill="url(#ss)" />
+        <circle cx="68" cy="36" r="40" fill="#fff" opacity="0.18" />
+        <circle cx="68" cy="36" r="24" fill="#fff" opacity="0.25" />
+        <path d="M0 96 C30 80 70 112 100 90 L100 130 L0 130 Z" fill="#7c2d12" opacity="0.55" />
+      </svg>
+    )
+  }
+  if (scene === 'spotlight') {
+    return (
+      <svg viewBox="0 0 100 130" preserveAspectRatio="xMidYMid slice" className="h-full w-full">
+        <defs>
+          <radialGradient id="sp" cx="0.5" cy="0.35" r="0.7">
+            <stop offset="0" stopColor="#0f766e" /><stop offset="1" stopColor="#042f2e" />
+          </radialGradient>
+        </defs>
+        <rect width="100" height="130" fill="url(#sp)" />
+        <circle cx="50" cy="40" r="26" fill="#fff" opacity="0.10" />
+        <g transform="translate(34 60)" fill="#0b1f1d" stroke="#5eead4" strokeWidth="0.8">
+          <rect x="0" y="6" width="32" height="20" rx="1.5" />
+          <path d="M0 6 L32 1 L32 7 L0 12 Z" fill="#5eead4" stroke="none" opacity="0.85" />
+          <g fill="#0b1f1d"><rect x="3" y="1.5" width="6" height="5" transform="rotate(-9 6 4)" /><rect x="13" y="0.4" width="6" height="5" transform="rotate(-9 16 3)" /></g>
+        </g>
+      </svg>
+    )
+  }
+  // mesh
+  return (
+    <svg viewBox="0 0 100 130" preserveAspectRatio="xMidYMid slice" className="h-full w-full">
+      <defs>
+        <filter id="b"><feGaussianBlur stdDeviation="9" /></filter>
+      </defs>
+      <rect width="100" height="130" fill="#0e7490" />
+      <g filter="url(#b)">
+        <circle cx="20" cy="30" r="30" fill="#22d3ee" />
+        <circle cx="80" cy="50" r="34" fill="#6366f1" />
+        <circle cx="45" cy="105" r="32" fill="#0ea5e9" />
+        <circle cx="90" cy="115" r="22" fill="#a78bfa" />
+      </g>
+    </svg>
+  )
+}
+
 // Real template "cover pages" — distinct designed layouts per template type.
 const COVER = 'aspect-[85/110] w-full overflow-hidden rounded-[3px] shadow-[0_1px_3px_rgba(0,0,0,0.18)] ring-1 ring-black/5'
-function CoverThumb({ label, color, style }: { label: string; color: string; style: CoverStyle }) {
+function CoverThumb({ label, color, style, scene }: { label: string; color: string; style: CoverStyle; scene?: Scene }) {
+  if (style === 'image') {
+    return (
+      <div className={`${COVER} relative`}>
+        <CoverArt scene={scene ?? 'mesh'} />
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 via-black/30 to-transparent px-2 pb-1.5 pt-4">
+          <span className="text-[8px] font-bold leading-tight text-white drop-shadow">{label}</span>
+        </div>
+      </div>
+    )
+  }
   if (style === 'centered') {
     return (
       <div className={`${COVER} flex flex-col items-center justify-center gap-[6px] px-3`} style={{ background: color }}>
@@ -278,7 +362,7 @@ export default function ScriptHome() {
         {TEMPLATES.filter((t) => FEATURED.includes(t.key)).map((t) => (
           <button key={t.key} onClick={() => create(t.key, t.title)} disabled={creating} className="group text-left">
             <div className="rounded-[3px] ring-1 ring-transparent transition-all group-hover:-translate-y-0.5 group-hover:ring-2 group-hover:ring-primary">
-              <CoverThumb label={t.label} color={t.color} style={t.style} />
+              <CoverThumb label={t.label} color={t.color} style={t.style} scene={t.scene} />
             </div>
             <p className="mt-2 truncate px-0.5 text-[13px] font-medium text-foreground">{t.label}</p>
           </button>
@@ -446,7 +530,7 @@ export default function ScriptHome() {
               {TEMPLATES.map((t) => (
                 <button key={t.key} onClick={() => { setGalleryOpen(false); create(t.key, t.title) }} className="group text-left">
                   <div className="rounded-[3px] ring-1 ring-transparent transition-all group-hover:-translate-y-0.5 group-hover:ring-2 group-hover:ring-primary">
-                    <CoverThumb label={t.label} color={t.color} style={t.style} />
+                    <CoverThumb label={t.label} color={t.color} style={t.style} scene={t.scene} />
                   </div>
                   <p className="mt-2 truncate text-[13px] font-medium text-foreground">{t.label}</p>
                 </button>
