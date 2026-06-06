@@ -10,7 +10,7 @@ import {
   Undo2, Redo2, Pilcrow, Heading1, Heading2, Heading3,
   Bold, Italic, Underline, Strikethrough, Code,
   List, ListOrdered, ListChecks, AlignLeft, AlignCenter, AlignRight, Link2, ListTree, Search, X,
-  Eye, PencilLine, Download, Upload, History, RotateCcw,
+  Eye, PencilLine, Download, Upload, History, RotateCcw, FileCode2, Printer,
 } from 'lucide-react'
 import type { SupabaseYjsProvider } from '@/lib/collab/supabaseYjs'
 import { SCRIPT_TEMPLATES } from '@/lib/studio/scriptTemplates'
@@ -218,6 +218,24 @@ export default function DocEditor({
     const blocks = await editor.tryParseMarkdownToBlocks(await file.text())
     editor.replaceBlocks(editor.document, blocks as any)
   }
+  const exportHtml = async () => {
+    const html = await editor.blocksToHTMLLossy(editor.document)
+    download(html, 'document.html', 'text/html')
+  }
+  const printDoc = async () => {
+    const html = await editor.blocksToHTMLLossy(editor.document)
+    const w = window.open('', '_blank')
+    if (!w) return
+    w.document.write(
+      `<!doctype html><html><head><meta charset="utf-8"><title>Document</title>` +
+        `<style>body{font-family:Inter,system-ui,-apple-system,sans-serif;max-width:46rem;margin:2.5rem auto;padding:0 1.5rem;line-height:1.7;color:#111}` +
+        `h1,h2,h3{line-height:1.25;margin:1.4em 0 .5em}img{max-width:100%}blockquote{border-left:3px solid #ddd;margin:1em 0;padding-left:1em;color:#555}` +
+        `pre,code{font-family:ui-monospace,Menlo,monospace}</style></head><body>${html}</body></html>`,
+    )
+    w.document.close()
+    w.focus()
+    w.print()
+  }
 
   // Version history (per tab) — manual snapshots of the block content.
   const loadVersions = async () => {
@@ -287,6 +305,8 @@ export default function DocEditor({
         <button className={`${btn} ${showHistory ? on : ''}`} title="Version history" onClick={toggleHistory}><History size={16} /></button>
         <Sep />
         <button className={btn} title="Export as Markdown" onClick={exportMarkdown}><Download size={16} /></button>
+        <button className={btn} title="Export as HTML" onClick={exportHtml}><FileCode2 size={16} /></button>
+        <button className={btn} title="Print / Save as PDF" onClick={printDoc}><Printer size={16} /></button>
         <button className={btn} title="Import Markdown" onClick={() => fileRef.current?.click()}><Upload size={16} /></button>
         <input
           ref={fileRef}
