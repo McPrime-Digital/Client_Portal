@@ -78,7 +78,7 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
   const [ready, setReady] = useState<Ready | null>(null)
   const [error, setError] = useState('')
   const [title, setTitle] = useState('')
-  const [docTheme, setDocTheme] = useState<'light' | 'dark'>('dark')
+  const [docTheme, setDocTheme] = useState<'light' | 'dark'>('light')
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeTab, setActiveTab] = useState('main')
   const [editingTab, setEditingTab] = useState<string | null>(null)
@@ -148,11 +148,11 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
             .update({ ydoc: toB64(Y.encodeStateAsUpdate(ydoc)), updated_at: new Date().toISOString() })
             .eq('id', doc.id)
 
-        // Silent background autosave — only ever persist a doc with real content.
+        // Silent background autosave — always persist; the blank check only gates
+        // the auto-cleanup on exit (never the save itself, or tabs/edits get dropped).
         let t: ReturnType<typeof setTimeout>
         const save = () => {
-          if (docIsBlank(ydoc)) return
-          hadContent.current = true
+          if (!docIsBlank(ydoc)) hadContent.current = true
           clearTimeout(t)
           t = setTimeout(() => {
             void persist()
@@ -160,7 +160,7 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
         }
         ydoc.on('update', save)
         const onBeforeUnload = () => {
-          if (!docIsBlank(ydoc)) void persist()
+          void persist()
         }
         window.addEventListener('beforeunload', onBeforeUnload)
 
