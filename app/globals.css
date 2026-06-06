@@ -217,3 +217,15 @@
   }
   .progress-slider:disabled { opacity: 0.5; cursor: not-allowed; }
 }
+
+/* ── Throughline collaborative editor (BlockNote) — premium full-page surface ──
+   Let our page surface (white in light, deep navy in dark) show through, and give
+   the document comfortable typographic rhythm. */
+.tl-editor .bn-container,
+.tl-editor .bn-editor,
+.tl-editor .ProseMirror {
+  background-color: transparent !important;
+}
+.tl-editor { min-height: 100%; }
+.tl-editor .bn-editor { padding-inline: 0 !important; }
+.tl-editor .ProseMirror { min-height: 66vh; font-size: 1.05rem; line-height: 1.75; }

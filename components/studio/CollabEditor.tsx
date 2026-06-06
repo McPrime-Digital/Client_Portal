@@ -8,8 +8,9 @@ import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
 import type { SupabaseYjsProvider } from '@/lib/collab/supabaseYjs'
 
-// The BlockNote editor bound to a shared Y.Doc + sync provider. Renders live
-// remote cursors via the provider's awareness.
+// BlockNote editor bound to a shared Y.Doc + sync provider. Owns the writing
+// surface: wide, tall, transparent (page shows through), and clicking anywhere
+// in the surface focuses the editor (so the cursor activates over the whole page).
 export default function CollabEditor({
   ydoc,
   provider,
@@ -29,10 +30,18 @@ export default function CollabEditor({
   })
 
   return (
-    <BlockNoteView
-      editor={editor}
-      theme={resolvedTheme === 'light' ? 'light' : 'dark'}
-      className="min-h-[58vh]"
-    />
+    <div
+      className="tl-editor mx-auto min-h-full w-full max-w-5xl px-6 py-10 sm:px-12 sm:py-14"
+      onMouseDown={(e) => {
+        // Clicking the margins / empty space focuses the editor instead of dead-ending.
+        const t = e.target as HTMLElement
+        if (t && !t.closest('.ProseMirror') && !t.closest('button') && !t.closest('a')) {
+          e.preventDefault()
+          editor.focus()
+        }
+      }}
+    >
+      <BlockNoteView editor={editor} theme={resolvedTheme === 'light' ? 'light' : 'dark'} />
+    </div>
   )
 }
