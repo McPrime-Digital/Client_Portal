@@ -9,8 +9,13 @@ import ScriptEditorView from './ScriptEditorView'
 // Script Design entry: the docs home (recent + templates) by default; the
 // full-page collaborative editor when a ?doc=<id> is selected.
 function ScriptDesignInner() {
-  const docId = useSearchParams().get('doc')
-  return docId ? <ScriptEditorView docId={docId} /> : <ScriptHome />
+  const params = useSearchParams()
+  const docId = params.get('doc')
+  return docId ? (
+    <ScriptEditorView docId={docId} template={params.get('template') ?? undefined} />
+  ) : (
+    <ScriptHome />
+  )
 }
 
 export default function ScriptDesign() {

@@ -57,7 +57,7 @@ function Presence({ provider }: { provider: SupabaseYjsProvider }) {
 type Tab = { id: string; name: string }
 type Ready = { userName: string; ydoc: Y.Doc; provider: SupabaseYjsProvider }
 
-export default function ScriptEditorView({ docId }: { docId: string }) {
+export default function ScriptEditorView({ docId, template }: { docId: string; template?: string }) {
   const supabase = useMemo(() => createClient(), [])
   const [ready, setReady] = useState<Ready | null>(null)
   const [error, setError] = useState('')
@@ -358,6 +358,7 @@ export default function ScriptEditorView({ docId }: { docId: string }) {
               userName={ready.userName}
               fragmentKey={fragmentKeyFor(activeTab)}
               theme={docTheme}
+              template={activeTab === 'main' ? template : undefined}
             />
           )}
         </div>

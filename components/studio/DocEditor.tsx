@@ -13,6 +13,7 @@ import {
   Eye, PencilLine, Download, Upload,
 } from 'lucide-react'
 import type { SupabaseYjsProvider } from '@/lib/collab/supabaseYjs'
+import { SCRIPT_TEMPLATES } from '@/lib/studio/scriptTemplates'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type AnyEditor = ReturnType<typeof useCreateBlockNote>
@@ -46,12 +47,14 @@ export default function DocEditor({
   userName,
   fragmentKey,
   theme,
+  template,
 }: {
   ydoc: Y.Doc
   provider: SupabaseYjsProvider
   userName: string
   fragmentKey: string
   theme: 'light' | 'dark'
+  template?: string
 }) {
   const editor = useCreateBlockNote({
     collaboration: {
@@ -90,6 +93,28 @@ export default function DocEditor({
       document.removeEventListener('selectionchange', onSel)
     }
   }, [editor])
+
+  // Seed a brand-new doc with its template's starter content (once, only if empty).
+  const seeded = useRef(false)
+  useEffect(() => {
+    if (seeded.current || !template) return
+    const md = SCRIPT_TEMPLATES[template]
+    if (!md) {
+      seeded.current = true
+      return
+    }
+    const docBlocks = editor.document as any[]
+    const empty = docBlocks.length <= 1 && !blockText(docBlocks[0] ?? {})
+    if (!empty) {
+      seeded.current = true
+      return
+    }
+    seeded.current = true
+    void (async () => {
+      const blocks = await editor.tryParseMarkdownToBlocks(md)
+      editor.replaceBlocks(editor.document, blocks as any)
+    })()
+  }, [editor, template])
 
   const isLight = theme === 'light'
   const barBg = isLight ? 'border-black/10 bg-black/[0.02]' : 'border-white/10 bg-white/[0.03]'

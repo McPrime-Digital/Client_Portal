@@ -51,7 +51,7 @@ export default function ScriptHome() {
     }
   }, [supabase])
 
-  async function create(title: string) {
+  async function create(templateKey: string, title: string) {
     setCreating(true)
     const { data, error: e } = await supabase
       .from('documents')
@@ -63,7 +63,8 @@ export default function ScriptHome() {
       setCreating(false)
       return
     }
-    router.push(`/studio/workspace/script?doc=${data.id}`)
+    const tpl = templateKey && templateKey !== 'blank' ? `&template=${templateKey}` : ''
+    router.push(`/studio/workspace/script?doc=${data.id}${tpl}`)
   }
 
   return (
@@ -83,7 +84,7 @@ export default function ScriptHome() {
           return (
             <button
               key={t.key}
-              onClick={() => create(t.title)}
+              onClick={() => create(t.key, t.title)}
               disabled={creating}
               className="group flex flex-col items-center gap-3 rounded-2xl border border-border bg-card p-5 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg disabled:opacity-60"
             >
