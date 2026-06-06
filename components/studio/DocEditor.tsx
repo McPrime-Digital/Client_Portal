@@ -21,7 +21,7 @@ import { SCRIPT_TEMPLATES } from '@/lib/studio/scriptTemplates'
 import { docSchema, FONT_FAMILIES } from '@/lib/studio/editorSchema'
 import { createClient } from '@/lib/supabase/client'
 import DocComments from './DocComments'
-import MuseInline from './MuseInline'
+import PrimeOSAssistant from './PrimeOSAssistant'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type AnyEditor = any
@@ -69,14 +69,14 @@ function Ruler({ isLight }: { isLight: boolean }) {
   )
 }
 
-// Muse button injected into BlockNote's selection (formatting) toolbar.
-function MuseToolbarButton({ onMuse }: { onMuse: () => void }) {
+// PrimeOS AI button injected into BlockNote's selection (formatting) toolbar.
+function PrimeToolbarButton({ onMuse }: { onMuse: () => void }) {
   const Components = useComponentsContext()!
   return (
     <Components.FormattingToolbar.Button
-      className="bn-muse-btn"
-      mainTooltip="Muse AI — refine the selection"
-      label="Muse"
+      className="bn-prime-btn"
+      mainTooltip="PrimeOS AI — refine the selection"
+      label="PrimeOS AI"
       onClick={onMuse}
       icon={<Aperture size={16} />}
     />
@@ -422,7 +422,7 @@ export default function DocEditor({
         formattingToolbar={() => (
           <FormattingToolbar>
             {getFormattingToolbarItems()}
-            <MuseToolbarButton key="muse" onMuse={openMuse} />
+            <PrimeToolbarButton key="primeos" onMuse={openMuse} />
           </FormattingToolbar>
         )}
       />
@@ -734,7 +734,7 @@ export default function DocEditor({
       </div>
 
       {muse && (
-        <MuseInline
+        <PrimeOSAssistant
           selText={muse.text}
           rect={muse.rect}
           isLight={isLight}

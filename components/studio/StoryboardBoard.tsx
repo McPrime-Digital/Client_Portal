@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Plus, Trash2, ChevronLeft, ChevronRight, ImageIcon, Loader2, Sparkles, Aperture } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import MuseInline from './MuseInline'
+import PrimeOSAssistant from './PrimeOSAssistant'
 
 type MuseField = { shotId: string; field: 'description' | 'prompt'; text: string; rect: DOMRect | null; isLight: boolean }
 
@@ -238,7 +238,7 @@ export default function StoryboardBoard({ boardId }: { boardId: string }) {
                   />
                   <button
                     onClick={(e) => openFieldMuse(shot, 'description', e)}
-                    title="Muse — refine this with AI"
+                    title="PrimeOS AI — refine this with AI"
                     className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
                   >
                     <Aperture size={13} />
@@ -255,7 +255,7 @@ export default function StoryboardBoard({ boardId }: { boardId: string }) {
                   />
                   <button
                     onClick={(e) => openFieldMuse(shot, 'prompt', e)}
-                    title="Muse — refine this prompt with AI"
+                    title="PrimeOS AI — refine this prompt with AI"
                     className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
                   >
                     <Aperture size={13} />
@@ -294,7 +294,7 @@ export default function StoryboardBoard({ boardId }: { boardId: string }) {
       )}
 
       {museField && (
-        <MuseInline
+        <PrimeOSAssistant
           selText={museField.text}
           rect={museField.rect}
           isLight={museField.isLight}

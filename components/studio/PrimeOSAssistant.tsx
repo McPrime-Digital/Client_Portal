@@ -7,7 +7,7 @@ import { modelsByModality } from '@/lib/ai/models'
 type Turn = { role: 'user' | 'assistant'; text: string; applicable?: boolean }
 const QUICK = ['Improve writing', 'Make it shorter', 'Make it longer', 'Fix spelling & grammar', 'More formal', 'More casual', 'Rephrase']
 
-export default function MuseInline({
+export default function PrimeOSAssistant({
   selText,
   rect,
   isLight,
@@ -56,7 +56,7 @@ export default function MuseInline({
       const j = await res.json()
       let reply: string
       let applicable = false
-      if (j.needsKey) reply = `Add a ${j.needsKey} to enable ${modelLabel}. Muse is fully wired — it answers the moment a key is set.`
+      if (j.needsKey) reply = `Add a ${j.needsKey} to enable ${modelLabel}. PrimeOS AI is fully wired — it answers the moment a key is set.`
       else if (j.unsupported) reply = j.message
       else if (j.error) reply = `Couldn’t reach the model: ${j.error}`
       else { reply = j.reply || '(empty response)'; applicable = true }
@@ -85,7 +85,7 @@ export default function MuseInline({
       {/* header */}
       <div className={`flex items-center gap-2 border-b px-3 py-2 ${isLight ? 'border-black/10' : 'border-white/10'}`}>
         <Aperture size={16} className="text-primary" />
-        <span className={`text-sm font-semibold ${isLight ? 'text-gray-800' : 'text-gray-100'}`}>Muse</span>
+        <span className={`text-sm font-semibold ${isLight ? 'text-gray-800' : 'text-gray-100'}`}>PrimeOS AI</span>
         <div className="relative ml-auto">
           <button
             onClick={() => setModelOpen((o) => !o)}
@@ -168,7 +168,7 @@ export default function MuseInline({
           ))}
           {loading && (
             <div className={`inline-flex items-center gap-1.5 text-[12px] ${subtle}`}>
-              <Loader2 size={13} className="animate-spin" /> Muse is thinking…
+              <Loader2 size={13} className="animate-spin" /> PrimeOS AI is thinking…
             </div>
           )}
         </div>
@@ -182,7 +182,7 @@ export default function MuseInline({
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(input) } }}
           rows={1}
-          placeholder="Tell Muse what to do…"
+          placeholder="Tell PrimeOS AI what to do…"
           className={`max-h-24 min-h-[34px] flex-1 resize-none rounded-lg border px-2.5 py-1.5 text-sm outline-none ${isLight ? 'border-black/10 bg-white text-gray-800 placeholder:text-gray-400' : 'border-white/10 bg-white/5 text-gray-100 placeholder:text-gray-500'}`}
         />
         <button
