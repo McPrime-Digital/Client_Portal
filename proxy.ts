@@ -44,7 +44,7 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith(route)
   )
 
-  const isAdminRoute = pathname.startsWith('/admin')
+  const isAdminRoute = pathname.startsWith('/admin') || pathname.startsWith('/studio')
   const isPortalRoute =
     pathname.startsWith('/dashboard') ||
     pathname.startsWith('/projects') ||

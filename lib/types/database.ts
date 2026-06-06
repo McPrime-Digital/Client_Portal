@@ -1,3 +1,14 @@
+export type Organization = {
+  id: string
+  name: string
+  subdomain: string | null
+  logo_url: string | null
+  branding: Record<string, unknown>
+  plan: string
+  created_at: string
+  updated_at: string
+}
+
 export type Client = {
   id: string
   user_id: string

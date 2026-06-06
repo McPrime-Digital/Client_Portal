@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { createClient as createServerClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
-import { isAdmin } from '@/lib/auth/role'
+import { isAdmin, userOrgId } from '@/lib/auth/role'
 
 export async function POST(req: NextRequest) {
   try {
@@ -143,6 +143,7 @@ export async function POST(req: NextRequest) {
       app_metadata: {
         role: 'client',
         client_id: client.id,
+        organization_id: userOrgId(user),
       },
     })
 

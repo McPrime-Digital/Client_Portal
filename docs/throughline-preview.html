@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Throughline — Studio OS (Preview)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest"></script>
+<style>
+/* ── Theme tokens — mirrored from app/globals.css ─────────────────── */
+[data-theme="light"]{
+  color-scheme:light;
+  --background:210 36% 98%; --foreground:216 22% 12%;
+  --card:208 26% 92%; --card-2:0 0% 100%;
+  --primary:40 57% 45%; --primary-foreground:226 60% 10%;
+  --secondary:208 24% 87%; --muted-foreground:211 13% 37%;
+  --border:208 20% 78%; --faint:210 10% 48%;
+  --status-blue:205 60% 50%; --status-amber:24 73% 50%; --status-violet:265 55% 62%; --status-green:98 45% 38%;
+  --shadow:216 22% 12%;
+}
+[data-theme="dark"]{
+  color-scheme:dark;
+  --background:228 90% 9%; --foreground:226 39% 92%;
+  --card:225 70% 19%; --card-2:225 60% 15%;
+  --primary:42 55% 55%; --primary-foreground:226 60% 8%;
+  --secondary:225 68% 25%; --muted-foreground:226 29% 69%;
+  --border:226 45% 30%; --faint:227 23% 49%;
+  --status-blue:205 65% 62%; --status-amber:30 80% 60%; --status-violet:265 60% 70%; --status-green:98 42% 52%;
+  --shadow:0 0% 0%;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:'Hanken Grotesk',system-ui,sans-serif;
+  background:hsl(var(--background));
+  color:hsl(var(--foreground));
+  -webkit-font-smoothing:antialiased;
+  overflow:hidden;
+}
+/* atmospheric depth */
+body::before{
+  content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(900px 500px at 78% -8%, hsl(var(--primary)/0.10), transparent 60%),
+    radial-gradient(700px 600px at -5% 110%, hsl(var(--status-violet)/0.08), transparent 55%);
+}
+h1,h2,h3,.serif{font-family:'Fraunces',Georgia,serif;letter-spacing:-0.01em}
+.app{position:relative;z-index:1;display:grid;grid-template-columns:264px 1fr;height:100vh}
+
+/* ── Sidebar ──────────────────────────────────────────────────────── */
+.side{display:flex;flex-direction:column;background:hsl(var(--card));border-right:1px solid hsl(var(--border));min-height:0}
+.brand{display:flex;align-items:center;gap:12px;height:64px;padding:0 18px;border-bottom:1px solid hsl(var(--border));flex-shrink:0}
+.brand-tile{width:40px;height:40px;border-radius:12px;background:hsl(var(--card-2));border:1px solid hsl(var(--border));display:grid;place-items:center;color:hsl(var(--primary));flex-shrink:0;box-shadow:inset 0 1px 0 hsl(0 0% 100%/0.06)}
+.brand-name{font-family:'Fraunces',serif;font-weight:600;font-size:18px;line-height:1}
+.brand-sub{font-size:10px;letter-spacing:3px;color:hsl(var(--faint));text-transform:uppercase;margin-top:3px}
+
+/* space switcher */
+.spaces{display:flex;gap:4px;padding:14px 14px 6px}
+.space-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 4px;border:1px solid transparent;border-radius:10px;background:transparent;color:hsl(var(--muted-foreground));cursor:pointer;transition:.16s;font:inherit;font-size:11px;font-weight:600}
+.space-btn svg{width:18px;height:18px}
+.space-btn:hover{background:hsl(var(--secondary)/0.5);color:hsl(var(--foreground))}
+.space-btn.active{background:hsl(var(--primary)/0.12);border-color:hsl(var(--primary)/0.35);color:hsl(var(--primary))}
+.space-meta{padding:6px 20px 10px}
+.space-meta .label{font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:hsl(var(--faint))}
+.space-meta .desc{font-size:11.5px;color:hsl(var(--muted-foreground));margin-top:3px;line-height:1.45}
+
+/* feature list */
+.nav{flex:1;overflow-y:auto;padding:6px 12px 12px;min-height:0}
+.nav::-webkit-scrollbar{width:4px}
+.nav::-webkit-scrollbar-thumb{background:hsl(var(--border));border-radius:9px}
+.navitem{display:flex;align-items:center;gap:11px;padding:8px 11px;border-radius:8px;color:hsl(var(--muted-foreground));font-size:13px;cursor:pointer;transition:.14s;position:relative}
+.navitem svg{width:16px;height:16px;flex-shrink:0}
+.navitem:hover{background:hsl(var(--secondary)/0.6);color:hsl(var(--foreground))}
+.navitem.active{background:hsl(var(--primary)/0.10);color:hsl(var(--primary));font-weight:600}
+.navitem .badge{margin-left:auto;font-size:10px;font-weight:700;padding:1px 7px;border-radius:99px;background:hsl(var(--primary));color:hsl(var(--primary-foreground))}
+.navitem .badge.alt{background:hsl(var(--status-blue));color:#fff}
+.navitem .star{margin-left:auto;color:hsl(var(--primary));font-size:10px;letter-spacing:.5px;opacity:.9;font-weight:700}
+.navitem.elev::after{content:"";position:absolute;left:0;top:7px;bottom:7px;width:2px;border-radius:9px;background:hsl(var(--primary)/0.7)}
+
+/* presence + user */
+.side-foot{border-top:1px solid hsl(var(--border));padding:12px 14px;flex-shrink:0}
+.presence{display:flex;align-items:center;gap:8px;font-size:11px;color:hsl(var(--faint));margin-bottom:10px}
+.dot{width:7px;height:7px;border-radius:99px;background:hsl(var(--status-green));box-shadow:0 0 0 3px hsl(var(--status-green)/0.18)}
+.avatars{display:flex;margin-left:auto}
+.avatars span{width:22px;height:22px;border-radius:99px;border:2px solid hsl(var(--card));margin-left:-7px;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff}
+.user{display:flex;align-items:center;gap:10px;padding:7px;border-radius:10px;cursor:pointer}
+.user:hover{background:hsl(var(--secondary)/0.6)}
+.user .av{width:30px;height:30px;border-radius:99px;background:linear-gradient(135deg,hsl(var(--primary)),hsl(var(--status-amber)));display:grid;place-items:center;color:#1a1a1a;font-weight:700;font-size:12px}
+.user .nm{font-size:12.5px;font-weight:600}
+.user .rl{font-size:10px;color:hsl(var(--faint))}
+
+/* ── Topbar ───────────────────────────────────────────────────────── */
+.main{display:flex;flex-direction:column;min-width:0;min-height:0}
+.top{height:64px;display:flex;align-items:center;gap:16px;padding:0 22px;border-bottom:1px solid hsl(var(--border));flex-shrink:0;background:hsl(var(--background)/0.6);backdrop-filter:blur(8px)}
+.crumb{display:flex;align-items:center;gap:8px;font-size:13px;color:hsl(var(--muted-foreground))}
+.crumb b{color:hsl(var(--foreground));font-weight:600}
+.search{margin-left:8px;flex:1;max-width:420px;display:flex;align-items:center;gap:9px;padding:8px 13px;border:1px solid hsl(var(--border));border-radius:10px;background:hsl(var(--card)/0.5);color:hsl(var(--faint));font-size:12.5px}
+.search svg{width:15px;height:15px}
+.search .k{margin-left:auto;font-size:10px;border:1px solid hsl(var(--border));border-radius:5px;padding:1px 5px}
+.top-actions{margin-left:auto;display:flex;align-items:center;gap:6px}
+.iconbtn{width:36px;height:36px;border-radius:9px;border:1px solid transparent;background:transparent;color:hsl(var(--muted-foreground));display:grid;place-items:center;cursor:pointer;transition:.15s;position:relative}
+.iconbtn:hover{background:hsl(var(--secondary)/0.6);color:hsl(var(--foreground))}
+.iconbtn svg{width:17px;height:17px}
+.iconbtn .ping{position:absolute;top:7px;right:8px;width:7px;height:7px;border-radius:99px;background:hsl(var(--primary));border:2px solid hsl(var(--card))}
+
+/* ── Main content ─────────────────────────────────────────────────── */
+.content{flex:1;overflow-y:auto;padding:26px;min-height:0}
+.content::-webkit-scrollbar{width:7px}
+.content::-webkit-scrollbar-thumb{background:hsl(var(--border));border-radius:9px}
+.page-h{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:20px}
+.page-h h1{font-size:26px;font-weight:600}
+.page-h .sub{color:hsl(var(--muted-foreground));font-size:13px;margin-top:4px}
+.btn{display:inline-flex;align-items:center;gap:7px;padding:9px 15px;border-radius:9px;border:1px solid hsl(var(--border));background:hsl(var(--card));color:hsl(var(--foreground));font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;transition:.15s}
+.btn svg{width:15px;height:15px}
+.btn.gold{background:hsl(var(--primary));color:hsl(var(--primary-foreground));border-color:transparent}
+.btn:hover{transform:translateY(-1px)}
+
+.grid{display:grid;gap:16px}
+.cols-3{grid-template-columns:repeat(3,1fr)}
+.cols-2{grid-template-columns:1.6fr 1fr}
+.card{background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:14px;padding:18px;transition:.18s}
+.card.lift:hover{transform:translateY(-3px);border-color:hsl(var(--primary)/0.35);box-shadow:0 14px 34px -18px hsl(var(--shadow)/0.5)}
+.kpi .k{font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:hsl(var(--faint))}
+.kpi .v{font-family:'Fraunces',serif;font-size:30px;font-weight:600;margin-top:8px}
+.kpi .d{font-size:11.5px;margin-top:6px;color:hsl(var(--status-green));font-weight:600}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:99px}
+.c-blue{background:hsl(var(--status-blue)/0.16);color:hsl(var(--status-blue))}
+.c-amber{background:hsl(var(--status-amber)/0.16);color:hsl(var(--status-amber))}
+.c-green{background:hsl(var(--status-green)/0.16);color:hsl(var(--status-green))}
+.c-violet{background:hsl(var(--status-violet)/0.16);color:hsl(var(--status-violet))}
+.card-title{font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px;margin-bottom:14px}
+.card-title svg{width:16px;height:16px;color:hsl(var(--primary))}
+.muted{color:hsl(var(--muted-foreground));font-size:12.5px;line-height:1.5}
+
+/* storyboard / workflow split (workspace hero) */
+.split{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid hsl(var(--border));border-radius:14px;overflow:hidden;min-height:300px}
+.split .pane{padding:16px}
+.split .pane+.pane{border-left:1px solid hsl(var(--border))}
+.pane-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.pane-h .t{font-size:12px;font-weight:700;letter-spacing:.3px;display:flex;align-items:center;gap:7px}
+.pane-h .t svg{width:15px;height:15px;color:hsl(var(--primary))}
+.frames{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.frame{aspect-ratio:16/10;border-radius:10px;border:1px solid hsl(var(--border));background:linear-gradient(135deg,hsl(var(--secondary)),hsl(var(--card-2)));position:relative;overflow:hidden;display:grid;place-items:center;color:hsl(var(--faint));font-size:11px}
+.frame .n{position:absolute;top:7px;left:8px;font-size:9px;font-weight:700;color:hsl(var(--primary))}
+.frame .eye{position:absolute;bottom:7px;right:8px;color:hsl(var(--muted-foreground))}
+.frame svg{width:18px;height:18px}
+.flow{display:flex;flex-direction:column;gap:9px}
+.node{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid hsl(var(--border));border-radius:10px;background:hsl(var(--card-2));font-size:12px;font-weight:600;position:relative}
+.node .ic{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;flex-shrink:0}
+.node .ic svg{width:13px;height:13px;color:#fff}
+.node .meta{margin-left:auto;font-size:10px;color:hsl(var(--faint));font-weight:500}
+.node::before{content:"";position:absolute;left:23px;top:-9px;height:9px;width:1.5px;background:hsl(var(--border))}
+.node:first-child::before{display:none}
+
+/* timeline (review) */
+.tl{height:42px;border-radius:9px;background:hsl(var(--card-2));border:1px solid hsl(var(--border));position:relative;margin-top:6px}
+.tl .play{position:absolute;left:38%;top:-4px;bottom:-4px;width:2px;background:hsl(var(--primary))}
+.tl .cm{position:absolute;top:50%;transform:translateX(-50%);width:14px;height:14px;border-radius:99px;background:hsl(var(--status-amber));border:2px solid hsl(var(--card));margin-top:-7px}
+.list .row{display:flex;align-items:center;gap:11px;padding:10px 2px;border-top:1px solid hsl(var(--border));font-size:12.5px}
+.list .row:first-child{border-top:0}
+.list .ic{width:30px;height:30px;border-radius:8px;background:hsl(var(--secondary));display:grid;place-items:center;color:hsl(var(--primary));flex-shrink:0}
+.list .ic svg{width:15px;height:15px}
+.list .row .meta{margin-left:auto;color:hsl(var(--faint));font-size:11px}
+.progress{height:6px;border-radius:99px;background:hsl(var(--secondary));overflow:hidden;margin-top:10px}
+.progress i{display:block;height:100%;background:linear-gradient(90deg,hsl(var(--primary)),hsl(var(--status-amber)))}
+
+/* page-in-view floating dock */
+.pip{position:fixed;right:22px;bottom:22px;width:248px;border-radius:14px;border:1px solid hsl(var(--primary)/0.4);background:hsl(var(--card));box-shadow:0 24px 60px -20px hsl(var(--shadow)/0.6);overflow:hidden;z-index:30}
+.pip .bar{display:flex;align-items:center;gap:8px;padding:9px 11px;border-bottom:1px solid hsl(var(--border));font-size:11px;font-weight:700}
+.pip .bar svg{width:13px;height:13px;color:hsl(var(--primary))}
+.pip .bar .x{margin-left:auto;display:flex;gap:6px;color:hsl(var(--faint))}
+.pip .body{aspect-ratio:16/9;background:linear-gradient(135deg,hsl(var(--secondary)),hsl(var(--card-2)));display:grid;place-items:center;color:hsl(var(--faint));font-size:11px;position:relative}
+.pip .body .tag{position:absolute;left:9px;bottom:8px;font-size:9px;font-weight:700;color:hsl(var(--primary))}
+.pip .body svg{width:26px;height:26px;opacity:.5}
+.kb{font-size:9px;border:1px solid hsl(var(--border));border-radius:4px;padding:1px 4px;color:hsl(var(--muted-foreground))}
+
+.tag-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ════════════ SIDEBAR ════════════ -->
+  <aside class="side">
+    <div class="brand">
+      <div class="brand-tile">
+        <svg viewBox="0 0 48 48" fill="none" style="width:26px;height:26px">
+          <path d="M3 31 C 11 31, 13 13, 24 13 S 37 31, 45 31" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+          <circle cx="3" cy="31" r="2.7" fill="currentColor"/><circle cx="24" cy="13" r="3.1" fill="currentColor"/><circle cx="45" cy="31" r="2.7" fill="currentColor"/>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-name">Throughline</div>
+        <div class="brand-sub">Studio OS</div>
+      </div>
+    </div>
+
+    <div class="spaces" id="spaces">
+      <button class="space-btn" data-space="crew"><i data-lucide="users-round"></i>Crew</button>
+      <button class="space-btn" data-space="client"><i data-lucide="handshake"></i>Client</button>
+      <button class="space-btn active" data-space="workspace"><i data-lucide="clapperboard"></i>Workspace</button>
+    </div>
+    <div class="space-meta"><div class="label" id="spaceLabel">Workspace</div><div class="desc" id="spaceDesc"></div></div>
+
+    <nav class="nav" id="nav"></nav>
+
+    <div class="side-foot">
+      <div class="presence">
+        <span class="dot"></span> 4 of 6 online
+        <div class="avatars">
+          <span style="background:#6366f1">JP</span>
+          <span style="background:#0ea5a3">AE</span>
+          <span style="background:#d97706">MK</span>
+          <span style="background:hsl(var(--primary));color:#1a1a1a">+1</span>
+        </div>
+      </div>
+      <div class="user">
+        <div class="av">CN</div>
+        <div style="line-height:1.3"><div class="nm">Clinton N.</div><div class="rl">Owner · McPrime</div></div>
+        <i data-lucide="chevrons-up-down" style="margin-left:auto;width:15px;height:15px;color:hsl(var(--faint))"></i>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ════════════ MAIN ════════════ -->
+  <div class="main">
+    <header class="top">
+      <div class="crumb"><span id="crumbSpace">Workspace</span><i data-lucide="chevron-right" style="width:14px;height:14px"></i><b id="crumbPage">Storyboard ⇄ Workflow</b></div>
+      <div class="search"><i data-lucide="search"></i> Search projects, assets, people… <span class="k">⌘K</span></div>
+      <div class="top-actions">
+        <button class="iconbtn" id="themeToggle" title="Toggle theme"><i data-lucide="moon"></i></button>
+        <button class="iconbtn" title="Generate"><i data-lucide="sparkles"></i></button>
+        <button class="iconbtn" title="Notifications"><span class="ping"></span><i data-lucide="bell"></i></button>
+        <button class="iconbtn" title="Help"><i data-lucide="life-buoy"></i></button>
+      </div>
+    </header>
+    <div class="content" id="content"></div>
+  </div>
+</div>
+
+<!-- persistent page-in-view dock -->
+<div class="pip" id="pip">
+  <div class="bar"><i data-lucide="picture-in-picture-2"></i> Session · Brand Film v3 <span class="x"><span class="kb">F</span><i data-lucide="maximize-2"></i><i data-lucide="x"></i></span></div>
+  <div class="body"><i data-lucide="play-circle"></i><span class="tag">SB ⇄ WF · stays through navigation</span></div>
+</div>
+
+<script>
+/* ── Space + feature definitions ─────────────────────────────────── */
+const SPACES = {
+  crew: {
+    label:'Crew', icon:'users-round',
+    desc:'Your team only — collaboration, pipeline, and the AI control tower clients never see.',
+    page:'Control Tower',
+    items:[
+      {i:'message-square',  t:'Team Chat',           tag:'internal', b:'3', balt:1},
+      {i:'list-checks',     t:'Tasks & Assignments'},
+      {i:'git-branch-plus', t:'CRM · Pipeline'},
+      {i:'radar',           t:'Lead-Gen Pipelines',  meta:'on the Graph'},
+      {i:'gauge',           t:'Control Tower',        star:'COST', active:true},
+      {i:'video',           t:'Meetings',            meta:'LiveKit'},
+      {i:'contact',         t:'Team Directory'},
+    ],
+  },
+  client: {
+    label:'Client', icon:'handshake',
+    desc:'Everything client-facing — projects, frame-accurate review, deliverables, and billing.',
+    page:'Projects',
+    items:[
+      {i:'layout-dashboard',t:'Overview'},
+      {i:'folder-open',     t:'Projects', active:true},
+      {i:'scan-eye',        t:'Review & Approvals', star:'LIVE'},
+      {i:'files',           t:'Deliverables · Vault'},
+      {i:'message-circle',  t:'Messages', b:'2'},
+      {i:'receipt',         t:'Invoices & Payments', b:'1', balt:1},
+      {i:'link',            t:'Guest Review Links'},
+      {i:'building-2',      t:'Companies & Contacts'},
+    ],
+  },
+  workspace: {
+    label:'Workspace', icon:'clapperboard',
+    desc:'Where the work is made — storyboard, the pipeline graph, and the AI production engine.',
+    page:'Storyboard ⇄ Workflow',
+    items:[
+      {i:'columns-2',       t:'Storyboard ⇄ Workflow', active:true, elev:true},
+      {i:'workflow',        t:'The Graph', star:'CORE', elev:true},
+      {i:'sparkles',        t:'Generation Hub', meta:'12 models'},
+      {i:'wand-2',          t:'Remaster', meta:'upscale'},
+      {i:'fingerprint',     t:'Continuity', star:'NEW'},
+      {i:'swords',          t:'Model Arena'},
+      {i:'library',         t:'Asset Library · DAM'},
+      {i:'shield-check',    t:'Provenance & Rights'},
+    ],
+  },
+};
+
+/* ── Main-panel mock per space ───────────────────────────────────── */
+const ICON = (n,cls='')=>`<i data-lucide="${n}" class="${cls}"></i>`;
+
+function workspacePanel(){return `
+  <div class="page-h">
+    <div><h1>Brand Film — “Aurora” v3</h1><div class="sub">Workspace · maximize the session, minimize to a tab, or hover to dock it — it follows you everywhere.</div></div>
+    <div style="display:flex;gap:10px">
+      <button class="btn"><i data-lucide="maximize"></i> Full session</button>
+      <button class="btn gold"><i data-lucide="sparkles"></i> Generate shot</button>
+    </div>
+  </div>
+  <div class="split">
+    <div class="pane">
+      <div class="pane-h"><div class="t">${ICON('clapperboard')} Storyboard</div><span class="chip c-violet">client view: on</span></div>
+      <div class="frames">
+        ${[['01','sunrise est.'],['02','hero close-up'],['03','logo reveal'],['04','tag-out']].map(([n,l])=>`
+          <div class="frame"><span class="n">${n}</span>${ICON('image')}<span style="position:absolute;bottom:7px;left:8px;font-size:10px">${l}</span><span class="eye">${ICON('eye')}</span></div>`).join('')}
+      </div>
+    </div>
+    <div class="pane">
+      <div class="pane-h"><div class="t">${ICON('workflow')} Workflow · The Graph</div><span class="chip c-green">running</span></div>
+      <div class="flow">
+        ${[['Prompt → Shot','image-plus','var(--status-blue)','Kling · 5s'],
+           ['Continuity lock','fingerprint','var(--status-violet)','char + LUT'],
+           ['Remaster · 4K','wand-2','var(--primary)','Topaz'],
+           ['Provenance sign','shield-check','var(--status-green)','C2PA'],
+           ['Publish → Review','scan-eye','var(--status-amber)','client']].map(([t,ic,c,m])=>`
+          <div class="node"><span class="ic" style="background:hsl(${c})">${ICON(ic)}</span>${t}<span class="meta">${m}</span></div>`).join('')}
+      </div>
+    </div>
+  </div>
+  <div class="grid cols-3" style="margin-top:16px">
+    <div class="card lift"><div class="card-title">${ICON('swords')} Model Arena</div><div class="muted">Same shot across <b>Kling · Runway · Higgsfield</b> — pick the winner, route the rest.</div><div class="tag-row"><span class="chip c-blue">Kling ✓</span><span class="chip c-amber">Runway</span><span class="chip c-violet">Higgsfield</span></div></div>
+    <div class="card lift"><div class="card-title">${ICON('fingerprint')} Continuity</div><div class="muted">Locked: <b>“Mara”</b> character, wardrobe, golden-hour LUT — held across all 14 shots.</div><div class="progress"><i style="width:88%"></i></div></div>
+    <div class="card lift"><div class="card-title">${ICON('shield-check')} Provenance</div><div class="muted">Every asset signed & ledgered — origin, model, prompt, who. Broadcast-cleared.</div><div class="tag-row"><span class="chip c-green">C2PA signed</span><span class="chip c-blue">rights ✓</span></div></div>
+  </div>`;}
+
+function clientPanel(){return `
+  <div class="page-h"><div><h1>Projects</h1><div class="sub">Client space · what your clients see — live progress, review, and deliverables.</div></div><button class="btn gold">${ICON('plus')} New project</button></div>
+  <div class="grid cols-3">
+    ${[['Aurora — Brand Film','In Review','c-amber',72],['Q3 Social Cutdowns','In Production','c-blue',45],['Automation Audit','Completed','c-green',100]].map(([t,s,c,p])=>`
+      <div class="card lift"><div style="display:flex;justify-content:space-between;align-items:start"><div class="card-title" style="margin:0">${ICON('folder-open')} ${t}</div><span class="chip ${c}">${s}</span></div><div class="progress"><i style="width:${p}%"></i></div><div class="muted" style="margin-top:10px">${p}% · next: ${s==='Completed'?'delivered':'cut review'}</div></div>`).join('')}
+  </div>
+  <div class="grid cols-2" style="margin-top:16px">
+    <div class="card"><div class="card-title">${ICON('scan-eye')} Frame-accurate review — Aurora v3</div>
+      <div class="muted">Timecoded comments + on-frame markup, synced live with the producer.</div>
+      <div class="tl"><div class="play"></div><div class="cm" style="left:24%"></div><div class="cm" style="left:58%"></div><div class="cm" style="left:80%"></div></div>
+      <div class="list" style="margin-top:8px">
+        <div class="row"><span class="ic">${ICON('message-square')}</span><div><b>00:02:14:08</b> — “trim 3 frames before the cut”</div><span class="meta">Brand mgr</span></div>
+        <div class="row"><span class="ic">${ICON('pen-tool')}</span><div><b>00:00:31:02</b> — circled the boom in frame</div><span class="meta">Legal</span></div>
+      </div>
+    </div>
+    <div class="card"><div class="card-title">${ICON('lock')} Release on payment</div>
+      <div class="muted">Final 4K master unlocks the moment the invoice clears.</div>
+      <div class="list" style="margin-top:6px">
+        <div class="row"><span class="ic">${ICON('file-check')}</span><div>Cut approved · e-signed</div><span class="meta c-green">✓</span></div>
+        <div class="row"><span class="ic">${ICON('credit-card')}</span><div>Invoice #1042 · $18,500</div><span class="chip c-amber">awaiting</span></div>
+        <div class="row"><span class="ic">${ICON('download')}</span><div>master_aurora_4k.mov</div><span class="chip c-blue">locked</span></div>
+      </div>
+    </div>
+  </div>`;}
+
+function crewPanel(){return `
+  <div class="page-h"><div><h1>Control Tower</h1><div class="sub">Crew space · internal only — cost governance, pipeline, and team ops.</div></div><button class="btn">${ICON('sliders-horizontal')} Budgets</button></div>
+  <div class="grid cols-3">
+    <div class="card kpi lift"><div class="k">AI spend · this month</div><div class="v">$2,418</div><div class="d">62% of $3,900 cap</div></div>
+    <div class="card kpi lift"><div class="k">Pipeline value</div><div class="v">$214k</div><div class="d">▲ 11 new leads</div></div>
+    <div class="card kpi lift"><div class="k">Margin · active work</div><div class="v">68%</div><div class="d">across 7 projects</div></div>
+  </div>
+  <div class="grid cols-2" style="margin-top:16px">
+    <div class="card"><div class="card-title">${ICON('radar')} Lead-Gen Pipeline <span class="chip c-blue" style="margin-left:auto">on the Graph</span></div>
+      <div class="flow">
+        ${[['Scrape · sources','globe','var(--status-blue)','1,240'],['Enrich','sparkles','var(--status-violet)','Clay-style'],['Qualify · score','filter','var(--primary)','ICP fit'],['Outreach','send','var(--status-amber)','Instantly'],['→ CRM deal','git-branch-plus','var(--status-green)','auto']].map(([t,ic,c,m])=>`
+          <div class="node"><span class="ic" style="background:hsl(${c})">${ICON(ic)}</span>${t}<span class="meta">${m}</span></div>`).join('')}
+      </div>
+    </div>
+    <div class="card"><div class="card-title">${ICON('message-square')} Team Chat <span class="chip c-violet" style="margin-left:auto">internal</span></div>
+      <div class="list">
+        <div class="row"><span class="ic">${ICON('user')}</span><div><b>Producer</b> — Mara’s LUT locked, regenerating 03–05</div><span class="meta">2m</span></div>
+        <div class="row"><span class="ic">${ICON('user')}</span><div><b>Editor</b> — Aurora v3 pushed to client review</div><span class="meta">9m</span></div>
+        <div class="row"><span class="ic">${ICON('bot')}</span><div><b>Throughline</b> — render queue cleared · 4 shots ready</div><span class="meta">12m</span></div>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px"><button class="btn" style="flex:1">${ICON('video')} Start meeting</button><button class="btn gold" style="flex:1">${ICON('list-checks')} Assign task</button></div>
+    </div>
+  </div>`;}
+
+const PANELS = {workspace:workspacePanel, client:clientPanel, crew:crewPanel};
+
+/* ── Render + interactivity ──────────────────────────────────────── */
+let current='workspace';
+function render(space){
+  current=space; const s=SPACES[space];
+  document.querySelectorAll('.space-btn').forEach(b=>b.classList.toggle('active',b.dataset.space===space));
+  document.getElementById('spaceLabel').textContent=s.label;
+  document.getElementById('spaceDesc').textContent=s.desc;
+  document.getElementById('crumbSpace').textContent=s.label;
+  document.getElementById('crumbPage').textContent=s.page;
+  document.getElementById('nav').innerHTML=s.items.map(it=>`
+    <div class="navitem ${it.active?'active':''} ${it.elev?'elev':''}">
+      <i data-lucide="${it.i}"></i><span>${it.t}</span>
+      ${it.star?`<span class="star">★ ${it.star}</span>`:it.b?`<span class="badge ${it.balt?'alt':''}">${it.b}</span>`:it.meta?`<span class="meta" style="margin-left:auto;font-size:10px;color:hsl(var(--faint))">${it.meta}</span>`:''}
+    </div>`).join('');
+  document.getElementById('content').innerHTML=PANELS[space]();
+  document.getElementById('pip').style.display = space==='workspace' ? 'block':'block';
+  lucide.createIcons();
+}
+document.getElementById('spaces').addEventListener('click',e=>{const b=e.target.closest('.space-btn');if(b)render(b.dataset.space);});
+document.querySelectorAll('.nav').forEach(()=>{});
+document.getElementById('nav').addEventListener('click',e=>{const it=e.target.closest('.navitem');if(!it)return;document.querySelectorAll('#nav .navitem').forEach(x=>x.classList.remove('active'));it.classList.add('active');document.getElementById('crumbPage').innerHTML='<b>'+it.querySelector('span').textContent+'</b>';});
+
+const tt=document.getElementById('themeToggle');
+tt.addEventListener('click',()=>{
+  const html=document.documentElement;
+  const dark=html.getAttribute('data-theme')==='dark';
+  html.setAttribute('data-theme',dark?'light':'dark');
+  tt.innerHTML=`<i data-lucide="${dark?'sun':'moon'}"></i>`;lucide.createIcons();
+});
+
+render('workspace');
+lucide.createIcons();
+</script>
+</body>
+</html>

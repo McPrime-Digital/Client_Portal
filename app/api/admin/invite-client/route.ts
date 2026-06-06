@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { isAdmin } from '@/lib/auth/role'
+import { isAdmin, userOrgId } from '@/lib/auth/role'
 
 export async function POST(request: NextRequest) {
   try {
@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
     // 2b. Bind the invited auth user to its client + role in app_metadata
     // (service-role only, never user-editable) so authorization is secure.
     await supabaseAdmin.auth.admin.updateUserById(inviteData.user.id, {
-      app_metadata: { role: 'client', client_id: clientRecord.id },
+      app_metadata: { role: 'client', client_id: clientRecord.id, organization_id: userOrgId(user) },
     })
 
     // 3. Link to project if provided
