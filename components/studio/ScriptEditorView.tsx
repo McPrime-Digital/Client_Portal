@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import * as Y from 'yjs'
-import { ArrowLeft, Check, Loader2, Sparkle } from 'lucide-react'
+import { ArrowLeft, Check, Loader2, Sparkle, Sun, Moon, Plus, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { SupabaseYjsProvider, toB64, fromB64 } from '@/lib/collab/supabaseYjs'
 import CollabEditor from './CollabEditor'
@@ -13,6 +13,12 @@ function pickColor(seed: string): string {
   let h = 0
   for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
   return COLORS[h % COLORS.length]
+}
+
+// A tab maps to a Y.Doc fragment. The original content lives under 'blocknote',
+// so the first tab ('main') points there for backward compatibility.
+function fragmentKeyFor(tabId: string): string {
+  return tabId === 'main' ? 'blocknote' : `tab-${tabId}`
 }
 
 function Presence({ provider }: { provider: SupabaseYjsProvider }) {
@@ -48,6 +54,7 @@ function Presence({ provider }: { provider: SupabaseYjsProvider }) {
   )
 }
 
+type Tab = { id: string; name: string }
 type Ready = { userName: string; ydoc: Y.Doc; provider: SupabaseYjsProvider }
 
 export default function ScriptEditorView({ docId }: { docId: string }) {
@@ -56,8 +63,35 @@ export default function ScriptEditorView({ docId }: { docId: string }) {
   const [error, setError] = useState('')
   const [title, setTitle] = useState('')
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [docTheme, setDocTheme] = useState<'light' | 'dark'>('dark')
+  const [tabs, setTabs] = useState<Tab[]>([])
+  const [activeTab, setActiveTab] = useState('main')
+  const [editingTab, setEditingTab] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
   const cleanup = useRef<() => void>(() => {})
 
+  // Per-document theme (independent of the app theme), remembered per doc.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`tl-doctheme-${docId}`)
+      if (saved === 'light' || saved === 'dark') setDocTheme(saved)
+    } catch {
+      /* ignore */
+    }
+  }, [docId])
+  function toggleDocTheme() {
+    setDocTheme((prev) => {
+      const next = prev === 'light' ? 'dark' : 'light'
+      try {
+        localStorage.setItem(`tl-doctheme-${docId}`, next)
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
+  }
+
+  // Load the document + set up the collaborative session with durable persistence.
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -89,7 +123,6 @@ export default function ScriptEditorView({ docId }: { docId: string }) {
           color: pickColor(userName),
         })
 
-        // Durable persistence: debounced on edits, AND flushed on unmount / tab close.
         const persist = () =>
           supabase
             .from('documents')
@@ -114,7 +147,7 @@ export default function ScriptEditorView({ docId }: { docId: string }) {
         cleanup.current = () => {
           ydoc.off('update', save)
           clearTimeout(t)
-          void persist() // flush the latest state when leaving the editor
+          void persist()
           window.removeEventListener('beforeunload', onBeforeUnload)
           provider.destroy()
         }
@@ -133,6 +166,58 @@ export default function ScriptEditorView({ docId }: { docId: string }) {
       cleanup.current()
     }
   }, [supabase, docId])
+
+  // Document tabs — a Y.Array of {id,name}, synced across collaborators.
+  useEffect(() => {
+    if (!ready) return
+    const yTabs = ready.ydoc.getArray<Y.Map<string>>('tabs')
+    const sync = () => {
+      if (yTabs.length === 0) {
+        ready.ydoc.transact(() => {
+          const m = new Y.Map<string>()
+          m.set('id', 'main')
+          m.set('name', 'Tab 1')
+          yTabs.push([m])
+        })
+        return
+      }
+      const list = yTabs.toArray().map((m) => ({ id: m.get('id') as string, name: (m.get('name') as string) || 'Untitled' }))
+      setTabs(list)
+      setActiveTab((prev) => (list.some((x) => x.id === prev) ? prev : list[0].id))
+    }
+    yTabs.observeDeep(sync)
+    sync()
+    return () => yTabs.unobserveDeep(sync)
+  }, [ready])
+
+  function yTabsArray() {
+    return ready?.ydoc.getArray<Y.Map<string>>('tabs')
+  }
+  function addTab() {
+    const arr = yTabsArray()
+    if (!arr) return
+    const id = crypto.randomUUID()
+    const m = new Y.Map<string>()
+    m.set('id', id)
+    m.set('name', `Tab ${arr.length + 1}`)
+    arr.push([m])
+    setActiveTab(id)
+  }
+  function commitRename(id: string) {
+    const arr = yTabsArray()
+    if (arr) {
+      const idx = arr.toArray().findIndex((m) => m.get('id') === id)
+      if (idx >= 0) arr.get(idx).set('name', editName.trim() || 'Untitled')
+    }
+    setEditingTab(null)
+  }
+  function deleteTab(id: string) {
+    const arr = yTabsArray()
+    if (!arr || arr.length <= 1) return
+    const idx = arr.toArray().findIndex((m) => m.get('id') === id)
+    if (idx >= 0) arr.delete(idx, 1)
+    if (activeTab === id) setActiveTab('main')
+  }
 
   // Persist the title (debounced).
   useEffect(() => {
@@ -163,7 +248,15 @@ export default function ScriptEditorView({ docId }: { docId: string }) {
           aria-label="Document title"
           className="min-w-0 flex-1 bg-transparent font-display text-2xl font-semibold text-foreground outline-none placeholder:text-faint"
         />
-        <div className="flex flex-shrink-0 items-center gap-4">
+        <div className="flex flex-shrink-0 items-center gap-3">
+          <button
+            type="button"
+            onClick={toggleDocTheme}
+            title="Page light / dark (this document only)"
+            className="grid h-8 w-8 place-items-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            {docTheme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
+          </button>
           {ready && <Presence provider={ready.provider} />}
           <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
             {saveState === 'saving' ? (
@@ -176,25 +269,98 @@ export default function ScriptEditorView({ docId }: { docId: string }) {
               </>
             ) : (
               <>
-                <Sparkle size={13} className="text-primary" /> Live · Co-Direction
+                <Sparkle size={13} className="text-primary" /> Live
               </>
             )}
           </span>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto rounded-2xl border border-border bg-white shadow-sm dark:bg-[#0a1430]">
-        {error && (
-          <div className="m-8 rounded-xl border border-destructive/40 p-4 text-sm text-destructive">
-            Couldn’t open: {error}
+      <div className="flex min-h-0 flex-1 gap-4">
+        {/* document tabs (left rail) */}
+        {ready && tabs.length > 0 && (
+          <div className="flex w-44 flex-shrink-0 flex-col gap-0.5 overflow-y-auto">
+            <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-widest text-faint">Tabs</p>
+            {tabs.map((tab) => (
+              <div
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                onDoubleClick={() => {
+                  setEditingTab(tab.id)
+                  setEditName(tab.name)
+                }}
+                className={`group flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-sm transition-colors ${
+                  tab.id === activeTab
+                    ? 'bg-primary/10 font-medium text-primary'
+                    : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground'
+                }`}
+              >
+                {editingTab === tab.id ? (
+                  <input
+                    autoFocus
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    onBlur={() => commitRename(tab.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') commitRename(tab.id)
+                      if (e.key === 'Escape') setEditingTab(null)
+                    }}
+                    className="min-w-0 flex-1 bg-transparent outline-none"
+                  />
+                ) : (
+                  <span className="min-w-0 flex-1 truncate">{tab.name}</span>
+                )}
+                {tabs.length > 1 && editingTab !== tab.id && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      deleteTab(tab.id)
+                    }}
+                    className="opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                    title="Delete tab"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addTab}
+              className="mt-1 flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+            >
+              <Plus size={14} /> Add tab
+            </button>
           </div>
         )}
-        {!error && !ready && (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            <Loader2 size={18} className="mr-2 animate-spin" /> Opening document…
-          </div>
-        )}
-        {ready && <CollabEditor ydoc={ready.ydoc} provider={ready.provider} userName={ready.userName} />}
+
+        {/* document surface — per-doc light/dark */}
+        <div
+          className={`flex-1 overflow-y-auto rounded-2xl border border-border shadow-sm ${
+            docTheme === 'light' ? 'bg-white' : 'bg-[#0a1430]'
+          }`}
+        >
+          {error && (
+            <div className="m-8 rounded-xl border border-destructive/40 p-4 text-sm text-destructive">
+              Couldn’t open: {error}
+            </div>
+          )}
+          {!error && !ready && (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              <Loader2 size={18} className="mr-2 animate-spin" /> Opening document…
+            </div>
+          )}
+          {ready && (
+            <CollabEditor
+              key={activeTab}
+              ydoc={ready.ydoc}
+              provider={ready.provider}
+              userName={ready.userName}
+              fragmentKey={fragmentKeyFor(activeTab)}
+              theme={docTheme}
+            />
+          )}
+        </div>
       </div>
     </div>
   )
