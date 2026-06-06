@@ -15,6 +15,7 @@ import {
   List, ListOrdered, ListChecks, AlignLeft, AlignCenter, AlignRight, Link2, ListTree, Search, X,
   Eye, PencilLine, Download, Upload, History, RotateCcw, FileCode2, Printer, MessageSquare, FileType,
   Minus, Plus, ChevronDown, FileDown, StretchHorizontal, FileText, Aperture,
+  Baseline, Highlighter, Paintbrush, AlignJustify, Subscript, Superscript, Eraser,
 } from 'lucide-react'
 import type { SupabaseYjsProvider } from '@/lib/collab/supabaseYjs'
 import { SCRIPT_TEMPLATES } from '@/lib/studio/scriptTemplates'
@@ -47,6 +48,24 @@ function getHeadings(editor: AnyEditor): Heading[] {
 function Sep() {
   return <span className="mx-1 h-5 w-px bg-current opacity-10" />
 }
+
+const TEXT_PALETTE = [
+  '#000000', '#434343', '#666666', '#999999', '#cccccc', '#ffffff',
+  '#e11d48', '#f97316', '#f59e0b', '#eab308', '#22c55e', '#10b981',
+  '#06b6d4', '#3b82f6', '#6366f1', '#8b5cf6', '#d946ef', '#ec4899',
+  '#7f1d1d', '#7c2d12', '#713f12', '#365314', '#0c4a6e', '#1e1b4b',
+]
+const HIGHLIGHTS = ['', '#fef08a', '#bbf7d0', '#bfdbfe', '#fbcfe8', '#fed7aa', '#e9d5ff', '#fecaca', '#a7f3d0', '#bae6fd', '#ddd6fe']
+const GRADIENTS = [
+  'linear-gradient(90deg,#f97316,#db2777)',
+  'linear-gradient(90deg,#6366f1,#06b6d4)',
+  'linear-gradient(90deg,#10b981,#3b82f6)',
+  'linear-gradient(90deg,#f59e0b,#ef4444)',
+  'linear-gradient(90deg,#8b5cf6,#ec4899)',
+  'linear-gradient(90deg,#0ea5e9,#22d3ee)',
+  'linear-gradient(90deg,#facc15,#f97316,#db2777)',
+  'linear-gradient(90deg,#22d3ee,#818cf8,#c084fc)',
+]
 
 // Horizontal ruler over the page (Letter, 1in margins) — inch + half-inch ticks.
 function Ruler({ isLight }: { isLight: boolean }) {
@@ -150,6 +169,9 @@ export default function DocEditor({
   const [showComments, setShowComments] = useState(false)
   const [fontOpen, setFontOpen] = useState(false)
   const [sizeOpen, setSizeOpen] = useState(false)
+  const [colorOpen, setColorOpen] = useState(false)
+  const [hlOpen, setHlOpen] = useState(false)
+  const [gradOpen, setGradOpen] = useState(false)
   const [downloadOpen, setDownloadOpen] = useState(false)
   const [layout, setLayout] = useState<'page' | 'pageless'>('page')
 
@@ -287,6 +309,31 @@ export default function DocEditor({
     const n = Math.min(400, Math.max(1, size))
     ensureSelection()
     editor.addStyles({ fontSize: `${n}px` })
+    editor.focus()
+  }
+  const applyColor = (c: string) => {
+    ensureSelection()
+    if (c) editor.addStyles({ color: c })
+    else editor.removeStyles({ color: styles.color || ' ' })
+    editor.focus()
+  }
+  const applyHighlight = (c: string) => {
+    ensureSelection()
+    if (c) editor.addStyles({ highlight: c })
+    else editor.removeStyles({ highlight: styles.highlight || ' ' })
+    editor.focus()
+  }
+  const applyGradient = (g: string) => {
+    ensureSelection()
+    if (g) editor.addStyles({ gradient: g })
+    else editor.removeStyles({ gradient: styles.gradient || ' ' })
+    editor.focus()
+  }
+  const clearFormatting = () => {
+    ensureSelection()
+    try { editor.removeStyles(editor.getActiveStyles()) } catch { /* noop */ }
+    const b = editor.getTextCursorPosition?.().block
+    if (b) editor.updateBlock(b, { type: 'paragraph', props: { textAlignment: 'left' } } as any)
     editor.focus()
   }
 
@@ -546,6 +593,66 @@ export default function DocEditor({
         <button className={`${btn} ${styles.underline ? on : ''}`} title="Underline" onClick={() => toggle('underline')}><Underline size={16} /></button>
         <button className={`${btn} ${styles.strike ? on : ''}`} title="Strikethrough" onClick={() => toggle('strike')}><Strikethrough size={16} /></button>
         <button className={`${btn} ${styles.code ? on : ''}`} title="Inline code" onClick={() => toggle('code')}><Code size={16} /></button>
+        <button className={`${btn} ${styles.sup ? on : ''}`} title="Superscript" onClick={() => toggle('sup')}><Superscript size={16} /></button>
+        <button className={`${btn} ${styles.sub ? on : ''}`} title="Subscript" onClick={() => toggle('sub')}><Subscript size={16} /></button>
+        <Sep />
+        {/* text color */}
+        <div className="relative">
+          <button className={btn} title="Text color" onMouseDown={(e) => e.preventDefault()} onClick={() => setColorOpen((o) => !o)}><Baseline size={16} style={{ color: (styles.color as string) || undefined }} /></button>
+          {colorOpen && (
+            <>
+              <button aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setColorOpen(false)} />
+              <div className={`absolute left-0 top-full z-20 mt-1 w-44 rounded-xl border p-2 shadow-2xl ${isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#0f1c3f]'}`}>
+                <div className="grid grid-cols-6 gap-1">
+                  {TEXT_PALETTE.map((c) => (
+                    <button key={c} title={c} onMouseDown={(e) => e.preventDefault()} onClick={() => { applyColor(c); setColorOpen(false) }} className="h-5 w-5 rounded ring-1 ring-black/10" style={{ background: c }} />
+                  ))}
+                </div>
+                <div className="mt-2 flex items-center justify-between">
+                  <input type="color" aria-label="Custom text color" onChange={(e) => applyColor(e.target.value)} className="h-6 w-8 cursor-pointer rounded border-0 bg-transparent p-0" />
+                  <button onMouseDown={(e) => e.preventDefault()} onClick={() => { applyColor(''); setColorOpen(false) }} className={`text-[11px] font-medium ${isLight ? 'text-gray-600 hover:text-gray-900' : 'text-gray-300 hover:text-white'}`}>Reset</button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+        {/* highlight */}
+        <div className="relative">
+          <button className={btn} title="Highlight" onMouseDown={(e) => e.preventDefault()} onClick={() => setHlOpen((o) => !o)}><Highlighter size={16} style={{ color: (styles.highlight as string) || undefined }} /></button>
+          {hlOpen && (
+            <>
+              <button aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setHlOpen(false)} />
+              <div className={`absolute left-0 top-full z-20 mt-1 w-44 rounded-xl border p-2 shadow-2xl ${isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#0f1c3f]'}`}>
+                <div className="grid grid-cols-6 gap-1">
+                  {HIGHLIGHTS.map((c, i) => (
+                    <button key={i} title={c || 'None'} onMouseDown={(e) => e.preventDefault()} onClick={() => { applyHighlight(c); setHlOpen(false) }} className="grid h-5 w-5 place-items-center rounded ring-1 ring-black/10" style={{ background: c || 'transparent' }}>
+                      {!c && <X size={11} className="text-gray-400" />}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-2 flex items-center">
+                  <input type="color" aria-label="Custom highlight" onChange={(e) => applyHighlight(e.target.value)} className="h-6 w-8 cursor-pointer rounded border-0 bg-transparent p-0" />
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+        {/* gradient text */}
+        <div className="relative">
+          <button className={btn} title="Gradient text" onMouseDown={(e) => e.preventDefault()} onClick={() => setGradOpen((o) => !o)}><Paintbrush size={16} /></button>
+          {gradOpen && (
+            <>
+              <button aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setGradOpen(false)} />
+              <div className={`absolute left-0 top-full z-20 mt-1 w-48 space-y-1 rounded-xl border p-2 shadow-2xl ${isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#0f1c3f]'}`}>
+                {GRADIENTS.map((g, i) => (
+                  <button key={i} onMouseDown={(e) => e.preventDefault()} onClick={() => { applyGradient(g); setGradOpen(false) }} className="h-6 w-full rounded ring-1 ring-black/10" style={{ backgroundImage: g }} />
+                ))}
+                <button onMouseDown={(e) => e.preventDefault()} onClick={() => { applyGradient(''); setGradOpen(false) }} className={`pt-0.5 text-[11px] font-medium ${isLight ? 'text-gray-600 hover:text-gray-900' : 'text-gray-300 hover:text-white'}`}>Remove gradient</button>
+              </div>
+            </>
+          )}
+        </div>
+        <button className={btn} title="Clear formatting" onClick={clearFormatting}><Eraser size={16} /></button>
         <Sep />
         <button className={`${btn} ${type === 'bulletListItem' ? on : ''}`} title="Bulleted list" onClick={() => setBlock('bulletListItem')}><List size={16} /></button>
         <button className={`${btn} ${type === 'numberedListItem' ? on : ''}`} title="Numbered list" onClick={() => setBlock('numberedListItem')}><ListOrdered size={16} /></button>
@@ -554,6 +661,7 @@ export default function DocEditor({
         <button className={`${btn} ${align === 'left' || !align ? on : ''}`} title="Align left" onClick={() => setAlign('left')}><AlignLeft size={16} /></button>
         <button className={`${btn} ${align === 'center' ? on : ''}`} title="Align center" onClick={() => setAlign('center')}><AlignCenter size={16} /></button>
         <button className={`${btn} ${align === 'right' ? on : ''}`} title="Align right" onClick={() => setAlign('right')}><AlignRight size={16} /></button>
+        <button className={`${btn} ${align === 'justify' ? on : ''}`} title="Justify" onClick={() => setAlign('justify')}><AlignJustify size={16} /></button>
         <Sep />
         <button className={btn} title="Add link" onClick={addLink}><Link2 size={16} /></button>
         <Sep />
