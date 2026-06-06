@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import * as Y from 'yjs'
-import { ArrowLeft, Loader2, Sun, Moon, Plus, X } from 'lucide-react'
+import { ArrowLeft, Loader2, Sun, Moon, Plus, X, Share2, Copy, Check, Link2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { SupabaseYjsProvider, toB64, fromB64 } from '@/lib/collab/supabaseYjs'
 import DocEditor from './DocEditor'
@@ -67,6 +67,8 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
   const [activeTab, setActiveTab] = useState('main')
   const [editingTab, setEditingTab] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
+  const [shareOpen, setShareOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
   const cleanup = useRef<() => void>(() => {})
   const firstLines = useRef<Record<string, string>>({}) // latest first line per tab
   const prevTab = useRef('main')
@@ -276,6 +278,13 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
             {docTheme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
           </button>
           {ready && <Presence provider={ready.provider} />}
+          <button
+            type="button"
+            onClick={() => setShareOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-1.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+          >
+            <Share2 size={14} /> Share
+          </button>
         </div>
       </div>
 
@@ -370,6 +379,49 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
           )}
         </div>
       </div>
+
+      {shareOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <button aria-hidden tabIndex={-1} className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShareOpen(false)} />
+          <div className="relative w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 font-display text-lg font-semibold text-foreground">
+                <Share2 size={18} className="text-primary" /> Share “{title || 'Untitled'}”
+              </h3>
+              <button onClick={() => setShareOpen(false)} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
+                <X size={16} />
+              </button>
+            </div>
+            <p className="mb-2 text-xs font-medium text-muted-foreground">Anyone on your team with the link can open this document.</p>
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-background p-2">
+              <Link2 size={15} className="ml-1 flex-shrink-0 text-muted-foreground" />
+              <input
+                readOnly
+                value={typeof window !== 'undefined' ? `${window.location.origin}/studio/workspace/script?doc=${docId}` : ''}
+                className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none"
+                onFocus={(e) => e.currentTarget.select()}
+              />
+              <button
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(`${window.location.origin}/studio/workspace/script?doc=${docId}`)
+                    setCopied(true)
+                    setTimeout(() => setCopied(false), 1800)
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+                className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+              >
+                {copied ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy link</>}
+              </button>
+            </div>
+            <p className="mt-4 text-[11px] text-faint">
+              Granular per-person permissions arrive with the team/RBAC layer.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

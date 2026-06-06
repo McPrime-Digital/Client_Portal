@@ -11,7 +11,7 @@ import {
   Bold, Italic, Underline, Strikethrough, Code,
   List, ListOrdered, ListChecks, AlignLeft, AlignCenter, AlignRight, Link2, ListTree, Search, X,
   Eye, PencilLine, Download, Upload, History, RotateCcw, FileCode2, Printer, MessageSquare, FileType,
-  Minus, Plus, ChevronDown,
+  Minus, Plus, ChevronDown, FileDown, StretchHorizontal, FileText,
 } from 'lucide-react'
 import type { SupabaseYjsProvider } from '@/lib/collab/supabaseYjs'
 import { SCRIPT_TEMPLATES } from '@/lib/studio/scriptTemplates'
@@ -41,6 +41,28 @@ function getHeadings(editor: AnyEditor): Heading[] {
 
 function Sep() {
   return <span className="mx-1 h-5 w-px bg-current opacity-10" />
+}
+
+// Horizontal ruler over the page (Letter, 1in margins) — inch + half-inch ticks.
+function Ruler({ isLight }: { isLight: boolean }) {
+  const line = isLight ? 'bg-gray-300' : 'bg-white/20'
+  const marginTone = isLight ? 'bg-gray-200/70' : 'bg-white/5'
+  return (
+    <div className="mx-auto hidden w-[816px] max-w-full select-none px-0 sm:block">
+      <div className={`relative flex h-5 items-end ${isLight ? 'text-gray-400' : 'text-gray-500'}`}>
+        {/* margins (1in each side) */}
+        <div className={`absolute left-0 top-0 h-full w-24 ${marginTone}`} />
+        <div className={`absolute right-0 top-0 h-full w-24 ${marginTone}`} />
+        {Array.from({ length: 9 }).map((_, i) => (
+          <div key={i} className="relative" style={{ width: 96 }}>
+            <span className={`absolute bottom-0 left-0 ${line}`} style={{ width: 1, height: 8 }} />
+            <span className={`absolute bottom-0 ${line}`} style={{ left: 48, width: 1, height: 4 }} />
+            <span className="absolute bottom-[9px] left-[3px] text-[9px] leading-none">{i || ''}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 // Full-page collaborative document editor: persistent formatting toolbar,
@@ -88,6 +110,28 @@ export default function DocEditor({
   const [showHistory, setShowHistory] = useState(false)
   const [showComments, setShowComments] = useState(false)
   const [fontOpen, setFontOpen] = useState(false)
+  const [downloadOpen, setDownloadOpen] = useState(false)
+  const [layout, setLayout] = useState<'page' | 'pageless'>('page')
+
+  // remember page/pageless per document
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem(`tl-doclayout-${docId}`)
+      if (v === 'page' || v === 'pageless') setLayout(v)
+    } catch {
+      /* ignore */
+    }
+  }, [docId])
+  const toggleLayout = () =>
+    setLayout((p) => {
+      const next = p === 'page' ? 'pageless' : 'page'
+      try {
+        localStorage.setItem(`tl-doclayout-${docId}`, next)
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
   const [versions, setVersions] = useState<DocVersion[] | null>(null)
   const [vBusy, setVBusy] = useState(false)
   const supabase = useMemo(() => createClient(), [])
@@ -338,6 +382,7 @@ export default function DocEditor({
           <button
             type="button"
             title="Font"
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => setFontOpen((o) => !o)}
             className={`flex h-8 items-center gap-1 rounded-md px-2 text-sm transition-colors ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}
           >
@@ -351,6 +396,7 @@ export default function DocEditor({
                 {FONT_FAMILIES.map((f) => (
                   <button
                     key={f.label}
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => { applyFont(f.value); setFontOpen(false) }}
                     style={{ fontFamily: f.value || undefined }}
                     className={`block w-full truncate px-3 py-1.5 text-left text-sm transition-colors ${curFamily === f.label ? 'text-primary' : isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}
@@ -364,7 +410,7 @@ export default function DocEditor({
         </div>
         {/* font size */}
         <div className="flex items-center gap-0.5">
-          <button className={btn} title="Decrease font size" onClick={() => applySize(curSizeNum - 1)}><Minus size={14} /></button>
+          <button className={btn} title="Decrease font size" onMouseDown={(e) => e.preventDefault()} onClick={() => applySize(curSizeNum - 1)}><Minus size={14} /></button>
           <input
             key={curSizeNum}
             defaultValue={curSizeNum}
@@ -374,7 +420,7 @@ export default function DocEditor({
             onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
             className={`h-7 w-9 rounded-md border text-center text-sm outline-none ${isLight ? 'border-black/10 bg-white text-gray-800' : 'border-white/10 bg-white/5 text-gray-100'}`}
           />
-          <button className={btn} title="Increase font size" onClick={() => applySize(curSizeNum + 1)}><Plus size={14} /></button>
+          <button className={btn} title="Increase font size" onMouseDown={(e) => e.preventDefault()} onClick={() => applySize(curSizeNum + 1)}><Plus size={14} /></button>
         </div>
         <Sep />
         <button className={`${btn} ${styles.bold ? on : ''}`} title="Bold" onClick={() => toggle('bold')}><Bold size={16} /></button>
@@ -397,11 +443,55 @@ export default function DocEditor({
         <button className={`${btn} ${showHistory ? on : ''}`} title="Version history" onClick={toggleHistory}><History size={16} /></button>
         <button className={`${btn} ${showComments ? on : ''}`} title="Comments" onClick={() => setShowComments((s) => !s)}><MessageSquare size={16} /></button>
         <Sep />
-        <button className={btn} title="Export as Markdown" onClick={exportMarkdown}><Download size={16} /></button>
-        <button className={btn} title="Export as HTML" onClick={exportHtml}><FileCode2 size={16} /></button>
-        <button className={btn} title="Export as Word (.doc)" onClick={exportWord}><FileType size={16} /></button>
-        <button className={btn} title="Print / Save as PDF" onClick={printDoc}><Printer size={16} /></button>
-        <button className={btn} title="Import Markdown" onClick={() => fileRef.current?.click()}><Upload size={16} /></button>
+        <button
+          className={`${btn} ${type === 'paragraph' || type ? '' : ''} ${layout === 'pageless' ? on : ''}`}
+          title={layout === 'page' ? 'Switch to pageless' : 'Switch to pages'}
+          onClick={toggleLayout}
+        >
+          {layout === 'page' ? <StretchHorizontal size={16} /> : <FileText size={16} />}
+        </button>
+        <Sep />
+        {/* download menu */}
+        <div className="relative">
+          <button
+            className={`${btn} ${downloadOpen ? on : ''}`}
+            title="Download"
+            onClick={() => setDownloadOpen((o) => !o)}
+          >
+            <FileDown size={16} />
+          </button>
+          {downloadOpen && (
+            <>
+              <button aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setDownloadOpen(false)} />
+              <div className={`absolute right-0 top-full z-20 mt-1 w-52 overflow-hidden rounded-xl border py-1 shadow-2xl ${isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#0f1c3f]'}`}>
+                {[
+                  { label: 'PDF (Print)', icon: Printer, fn: printDoc },
+                  { label: 'Microsoft Word (.doc)', icon: FileType, fn: exportWord },
+                  { label: 'Web page (.html)', icon: FileCode2, fn: exportHtml },
+                  { label: 'Markdown (.md)', icon: Download, fn: exportMarkdown },
+                ].map((it) => {
+                  const I = it.icon
+                  return (
+                    <button
+                      key={it.label}
+                      onClick={() => { setDownloadOpen(false); void it.fn() }}
+                      className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] transition-colors ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}
+                    >
+                      <I size={14} className="opacity-70" /> {it.label}
+                    </button>
+                  )
+                })}
+                <div className={`my-1 h-px ${isLight ? 'bg-black/10' : 'bg-white/10'}`} />
+                <button
+                  onClick={() => { setDownloadOpen(false); fileRef.current?.click() }}
+                  className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] transition-colors ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}
+                >
+                  <Upload size={14} className="opacity-70" /> Import Markdown…
+                </button>
+              </div>
+            </>
+          )}
+        </div>
         <input
           ref={fileRef}
           type="file"
@@ -455,7 +545,7 @@ export default function DocEditor({
       {/* editor + outline */}
       <div className="flex min-h-0 flex-1">
         <div
-          className="flex-1 overflow-y-auto"
+          className={`flex-1 overflow-y-auto ${layout === 'page' ? (isLight ? 'bg-[#f3f5f7]' : 'bg-[#070f24]') : ''}`}
           onMouseDown={(e) => {
             const t = e.target as HTMLElement
             if (t && !t.closest('.ProseMirror') && !t.closest('button') && !t.closest('a')) {
@@ -464,9 +554,21 @@ export default function DocEditor({
             }
           }}
         >
-          <div className="tl-editor mx-auto min-h-full w-full max-w-5xl px-6 py-10 sm:px-12 sm:py-14">
-            <BlockNoteView editor={editor} editable={mode === 'editing'} theme={theme} />
-          </div>
+          {layout === 'page' ? (
+            <div className="px-4 pb-20 pt-3">
+              <Ruler isLight={isLight} />
+              <div
+                className={`tl-editor mx-auto mt-2 w-[816px] max-w-full rounded-sm px-10 py-12 shadow-xl sm:px-24 sm:py-20 ${isLight ? 'bg-white' : 'bg-[#0a1430]'}`}
+                style={{ minHeight: 1056 }}
+              >
+                <BlockNoteView editor={editor} editable={mode === 'editing'} theme={theme} />
+              </div>
+            </div>
+          ) : (
+            <div className="tl-editor mx-auto min-h-full w-full max-w-4xl px-6 py-10 sm:px-12 sm:py-14">
+              <BlockNoteView editor={editor} editable={mode === 'editing'} theme={theme} />
+            </div>
+          )}
         </div>
 
         {showOutline && (
