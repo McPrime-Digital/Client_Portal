@@ -2,8 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Plus, Trash2, ChevronLeft, ChevronRight, ImageIcon, Loader2, Sparkles } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, ChevronLeft, ChevronRight, ImageIcon, Loader2, Sparkles, Aperture } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import MuseInline from './MuseInline'
+
+type MuseField = { shotId: string; field: 'description' | 'prompt'; text: string; rect: DOMRect | null; isLight: boolean }
 
 type Shot = {
   id: string
@@ -115,6 +118,28 @@ export default function StoryboardBoard({ boardId }: { boardId: string }) {
     await loadShots()
   }
 
+  // Muse on a shot field (description / prompt)
+  const [museField, setMuseField] = useState<MuseField | null>(null)
+  const openFieldMuse = (shot: Shot, field: 'description' | 'prompt', e: React.MouseEvent) => {
+    setMuseField({
+      shotId: shot.id,
+      field,
+      text: (field === 'description' ? shot.description : shot.prompt) ?? '',
+      rect: (e.currentTarget as HTMLElement).getBoundingClientRect(),
+      isLight: typeof document !== 'undefined' && !document.documentElement.classList.contains('dark'),
+    })
+  }
+  const applyFieldMuse = (text: string, mode: 'replace' | 'after') => {
+    if (!museField) return
+    const cur = (museField.field === 'description'
+      ? shots?.find((s) => s.id === museField.shotId)?.description
+      : shots?.find((s) => s.id === museField.shotId)?.prompt) ?? ''
+    const next = mode === 'after' ? `${cur}${cur ? '\n' : ''}${text}` : text
+    patchLocal(museField.shotId, { [museField.field]: next } as Partial<Shot>)
+    void saveShot(museField.shotId, { [museField.field]: next } as Partial<Shot>)
+    setMuseField((m) => (m ? { ...m, text: next } : m))
+  }
+
   const ordered = (shots ?? []).slice().sort((a, b) => a.idx - b.idx)
 
   return (
@@ -202,22 +227,40 @@ export default function StoryboardBoard({ boardId }: { boardId: string }) {
                   />
                 </div>
 
-                <textarea
-                  value={shot.description ?? ''}
-                  onChange={(e) => patchLocal(shot.id, { description: e.target.value })}
-                  onBlur={(e) => void saveShot(shot.id, { description: e.target.value })}
-                  rows={2}
-                  placeholder="Action — what happens in frame"
-                  className="w-full resize-none rounded-lg border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-faint focus:border-primary/40"
-                />
-                <textarea
-                  value={shot.prompt ?? ''}
-                  onChange={(e) => patchLocal(shot.id, { prompt: e.target.value })}
-                  onBlur={(e) => void saveShot(shot.id, { prompt: e.target.value })}
-                  rows={2}
-                  placeholder="Generation prompt for this frame"
-                  className="w-full resize-none rounded-lg border border-border bg-background px-2.5 py-1.5 text-[12px] text-muted-foreground outline-none placeholder:text-faint focus:border-primary/40"
-                />
+                <div className="relative">
+                  <textarea
+                    value={shot.description ?? ''}
+                    onChange={(e) => patchLocal(shot.id, { description: e.target.value })}
+                    onBlur={(e) => void saveShot(shot.id, { description: e.target.value })}
+                    rows={2}
+                    placeholder="Action — what happens in frame"
+                    className="w-full resize-none rounded-lg border border-border bg-background px-2.5 py-1.5 pr-7 text-[13px] text-foreground outline-none placeholder:text-faint focus:border-primary/40"
+                  />
+                  <button
+                    onClick={(e) => openFieldMuse(shot, 'description', e)}
+                    title="Muse — refine this with AI"
+                    className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                  >
+                    <Aperture size={13} />
+                  </button>
+                </div>
+                <div className="relative">
+                  <textarea
+                    value={shot.prompt ?? ''}
+                    onChange={(e) => patchLocal(shot.id, { prompt: e.target.value })}
+                    onBlur={(e) => void saveShot(shot.id, { prompt: e.target.value })}
+                    rows={2}
+                    placeholder="Generation prompt for this frame"
+                    className="w-full resize-none rounded-lg border border-border bg-background px-2.5 py-1.5 pr-7 text-[12px] text-muted-foreground outline-none placeholder:text-faint focus:border-primary/40"
+                  />
+                  <button
+                    onClick={(e) => openFieldMuse(shot, 'prompt', e)}
+                    title="Muse — refine this prompt with AI"
+                    className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                  >
+                    <Aperture size={13} />
+                  </button>
+                </div>
 
                 <div className="mt-auto flex items-center gap-1 pt-1">
                   <button
@@ -248,6 +291,16 @@ export default function StoryboardBoard({ boardId }: { boardId: string }) {
             </div>
           ))}
         </div>
+      )}
+
+      {museField && (
+        <MuseInline
+          selText={museField.text}
+          rect={museField.rect}
+          isLight={museField.isLight}
+          onApply={applyFieldMuse}
+          onClose={() => setMuseField(null)}
+        />
       )}
     </div>
   )
