@@ -67,43 +67,73 @@ const GRADIENTS = [
   'linear-gradient(90deg,#22d3ee,#818cf8,#c084fc)',
 ]
 
-// Horizontal ruler over the page (Letter, 1in margins) — inch + half-inch ticks.
-function Ruler({ isLight }: { isLight: boolean }) {
-  const line = isLight ? 'bg-gray-300' : 'bg-white/20'
-  const marginTone = isLight ? 'bg-gray-200/70' : 'bg-white/5'
-  return (
-    <div className="mx-auto hidden w-[816px] max-w-full select-none px-0 sm:block">
-      <div className={`relative flex h-5 items-end ${isLight ? 'text-gray-400' : 'text-gray-500'}`}>
-        {/* margins (1in each side) */}
-        <div className={`absolute left-0 top-0 h-full w-24 ${marginTone}`} />
-        <div className={`absolute right-0 top-0 h-full w-24 ${marginTone}`} />
-        {Array.from({ length: 9 }).map((_, i) => (
-          <div key={i} className="relative" style={{ width: 96 }}>
-            <span className={`absolute bottom-0 left-0 ${line}`} style={{ width: 1, height: 8 }} />
-            <span className={`absolute bottom-0 ${line}`} style={{ left: 48, width: 1, height: 4 }} />
-            <span className="absolute bottom-[9px] left-[3px] text-[9px] leading-none">{i || ''}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
+// Premium Google-Docs-style ruler — sits in the canvas above the page (not on it),
+// inch + half-inch ticks, shaded margins, and DRAGGABLE left/right margin stops.
+const PAGE_W = 816 // Letter @ 96dpi
+function PageRuler({
+  isLight,
+  margins,
+  setMargins,
+}: {
+  isLight: boolean
+  margins: { left: number; right: number }
+  setMargins: (fn: (m: { left: number; right: number }) => { left: number; right: number }) => void
+}) {
+  const PPI = 96
+  const ref = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<'left' | 'right' | null>(null)
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      if (!dragRef.current || !ref.current) return
+      const rect = ref.current.getBoundingClientRect()
+      const scale = rect.width / PAGE_W
+      const x = Math.max(0, Math.min(PAGE_W, (e.clientX - rect.left) / scale))
+      if (dragRef.current === 'left') setMargins((m) => ({ ...m, left: Math.round(Math.max(0, Math.min(PAGE_W - m.right - 96, x))) }))
+      else setMargins((m) => ({ ...m, right: Math.round(Math.max(0, Math.min(PAGE_W - m.left - 96, PAGE_W - x))) }))
+    }
+    const onUp = () => { dragRef.current = null }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    return () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp) }
+  }, [setMargins])
 
-// Vertical ruler down the left of the page (Letter, inch ticks). Height tracks the page.
-function VerticalRuler({ isLight, height }: { isLight: boolean; height: number }) {
-  const line = isLight ? 'bg-gray-300' : 'bg-white/20'
-  const marginTone = isLight ? 'bg-gray-200/70' : 'bg-white/5'
-  const inches = Math.max(11, Math.ceil(height / 96))
+  const tick = isLight ? 'bg-gray-400' : 'bg-white/35'
+  const marginBg = isLight ? 'bg-gray-300/70' : 'bg-white/[0.08]'
+  const barBg = isLight ? 'bg-white' : 'bg-[#0e1a3a]'
+  const num = isLight ? 'text-gray-500' : 'text-gray-400'
   return (
-    <div className={`relative mr-1 hidden flex-shrink-0 select-none sm:block ${isLight ? 'text-gray-400' : 'text-gray-500'}`} style={{ width: 18, height }}>
-      <div className={`absolute left-0 top-0 w-full ${marginTone}`} style={{ height: 96 }} />
-      {Array.from({ length: inches }).map((_, i) => (
-        <div key={i} className="absolute right-0" style={{ top: i * 96 }}>
-          <span className={`absolute right-0 ${line}`} style={{ width: 8, height: 1 }} />
-          <span className={`absolute right-0 ${line}`} style={{ top: 48, width: 4, height: 1 }} />
-          {i > 0 && <span className="absolute right-[2px] top-[2px] text-[8px] leading-none">{i}</span>}
+    <div
+      ref={ref}
+      className={`relative mx-auto hidden h-6 w-[816px] max-w-full select-none overflow-hidden rounded ${barBg} ring-1 ${isLight ? 'ring-black/10' : 'ring-white/10'} sm:block`}
+    >
+      <div className={`absolute inset-y-0 left-0 ${marginBg}`} style={{ width: margins.left }} />
+      <div className={`absolute inset-y-0 right-0 ${marginBg}`} style={{ width: margins.right }} />
+      {Array.from({ length: 9 }).map((_, i) => (
+        <div key={i} className="absolute bottom-0" style={{ left: i * PPI }}>
+          <span className={`absolute bottom-0 left-0 ${tick}`} style={{ width: 1, height: 8 }} />
+          {i < 8 && <span className={`absolute bottom-0 ${tick}`} style={{ left: PPI / 2, width: 1, height: 4 }} />}
+          {i > 0 && i < 8 && <span className={`absolute bottom-[8px] left-[3px] text-[8px] leading-none ${num}`}>{i}</span>}
         </div>
       ))}
+      {/* draggable margin stops */}
+      <div
+        onPointerDown={(e) => { e.preventDefault(); dragRef.current = 'left' }}
+        title="Left margin — drag to adjust"
+        className="absolute top-0 z-10 h-full w-3 -translate-x-1/2 cursor-ew-resize"
+        style={{ left: margins.left }}
+      >
+        <div className="mx-auto h-0 w-0 border-x-[5px] border-t-[7px] border-x-transparent" style={{ borderTopColor: 'hsl(var(--primary))' }} />
+        <div className="mx-auto mt-px h-2 w-px" style={{ background: 'hsl(var(--primary))' }} />
+      </div>
+      <div
+        onPointerDown={(e) => { e.preventDefault(); dragRef.current = 'right' }}
+        title="Right margin — drag to adjust"
+        className="absolute top-0 z-10 h-full w-3 -translate-x-1/2 cursor-ew-resize"
+        style={{ left: PAGE_W - margins.right }}
+      >
+        <div className="mx-auto h-0 w-0 border-x-[5px] border-t-[7px] border-x-transparent" style={{ borderTopColor: 'hsl(var(--primary))' }} />
+        <div className="mx-auto mt-px h-2 w-px" style={{ background: 'hsl(var(--primary))' }} />
+      </div>
     </div>
   )
 }
@@ -195,7 +225,7 @@ export default function DocEditor({
       return next
     })
 
-  // Measure the page surface so the side ruler + page-break guides track its height.
+  // Measure the page surface so the page-break guides track its height.
   const PAGE_H = 1056 // Letter @ 96dpi
   const surfaceRef = useRef<HTMLDivElement>(null)
   const [contentHeight, setContentHeight] = useState(PAGE_H)
@@ -207,6 +237,27 @@ export default function DocEditor({
     setContentHeight(el.offsetHeight)
     return () => ro.disconnect()
   }, [layout])
+
+  // Page margins (adjustable via the ruler), remembered per doc.
+  const [margins, setMargins] = useState({ left: 96, right: 96 })
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem(`tl-docmargins-${docId}`)
+      if (v) {
+        const p = JSON.parse(v)
+        if (typeof p?.left === 'number' && typeof p?.right === 'number') setMargins(p)
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [docId])
+  useEffect(() => {
+    try {
+      localStorage.setItem(`tl-docmargins-${docId}`, JSON.stringify(margins))
+    } catch {
+      /* ignore */
+    }
+  }, [margins, docId])
   const [versions, setVersions] = useState<DocVersion[] | null>(null)
   const [vBusy, setVBusy] = useState(false)
   const supabase = useMemo(() => createClient(), [])
@@ -780,26 +831,24 @@ export default function DocEditor({
             }
           }}
         >
-          {/* top ruler (aligned over the page) */}
+          {/* premium ruler — sits in the canvas wall above the page, not on it */}
           {layout === 'page' && (
-            <div className="mx-auto flex w-fit">
-              <div className="hidden flex-shrink-0 sm:block" style={{ width: 22 }} />
-              <Ruler isLight={isLight} />
+            <div className={`sticky top-0 z-10 -mx-4 mb-2 px-4 pb-1.5 pt-1 ${isLight ? 'bg-[#f3f5f7]' : 'bg-[#070f24]'}`}>
+              <PageRuler isLight={isLight} margins={margins} setMargins={setMargins} />
             </div>
           )}
           {/* One persistent editor — the surface keeps a stable position (and key) across
               page/pageless so the Yjs binding is never torn down (toggling never drops edits). */}
           <div className="flex justify-center">
-            {layout === 'page' && <VerticalRuler isLight={isLight} height={contentHeight} />}
             <div
               key="doc-surface"
               ref={surfaceRef}
               className={
                 layout === 'page'
-                  ? `tl-editor relative mt-2 w-[816px] max-w-full rounded-sm px-10 py-12 shadow-xl sm:px-24 sm:py-20 ${isLight ? 'bg-white' : 'bg-[#0a1430]'}`
+                  ? `tl-editor relative w-[816px] max-w-full rounded-sm py-12 shadow-xl sm:py-20 ${isLight ? 'bg-white' : 'bg-[#0a1430]'}`
                   : 'tl-editor relative mx-auto min-h-full w-full max-w-4xl px-6 py-10 sm:px-12 sm:py-14'
               }
-              style={layout === 'page' ? { minHeight: PAGE_H } : undefined}
+              style={layout === 'page' ? { minHeight: PAGE_H, paddingLeft: margins.left, paddingRight: margins.right } : undefined}
             >
               {editorView}
               {layout === 'page' &&
