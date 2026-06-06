@@ -9,7 +9,7 @@ import '@blocknote/mantine/style.css'
 import {
   Undo2, Redo2, Pilcrow, Heading1, Heading2, Heading3,
   Bold, Italic, Underline, Strikethrough, Code,
-  List, ListOrdered, ListChecks, AlignLeft, AlignCenter, AlignRight, Link2, ListTree,
+  List, ListOrdered, ListChecks, AlignLeft, AlignCenter, AlignRight, Link2, ListTree, Search, X,
 } from 'lucide-react'
 import type { SupabaseYjsProvider } from '@/lib/collab/supabaseYjs'
 
@@ -64,6 +64,9 @@ export default function DocEditor({
   const [outline, setOutline] = useState<Heading[]>([])
   const [counts, setCounts] = useState({ words: 0, chars: 0 })
   const [showOutline, setShowOutline] = useState(false)
+  const [showFind, setShowFind] = useState(false)
+  const [find, setFind] = useState('')
+  const [replace, setReplace] = useState('')
 
   useEffect(() => {
     const update = () => {
@@ -133,6 +136,36 @@ export default function DocEditor({
     }
   }
 
+  const matchCount = (() => {
+    if (!find) return 0
+    let n = 0
+    for (const b of editor.document as any[]) {
+      const text = blockText(b)
+      let i = 0
+      while ((i = text.indexOf(find, i)) !== -1) {
+        n++
+        i += find.length
+      }
+    }
+    return n
+  })()
+  const replaceAll = () => {
+    if (!find) return
+    for (const b of editor.document as any[]) {
+      if (!Array.isArray(b.content)) continue
+      let changed = false
+      const content = b.content.map((node: any) => {
+        if (node?.type === 'text' && typeof node.text === 'string' && node.text.includes(find)) {
+          changed = true
+          return { ...node, text: node.text.split(find).join(replace) }
+        }
+        return node
+      })
+      if (changed) editor.updateBlock(b, { content } as any)
+    }
+    editor.focus()
+  }
+
   return (
     <div className="flex h-full flex-col">
       {/* persistent formatting toolbar */}
@@ -160,7 +193,39 @@ export default function DocEditor({
         <button className={`${btn} ${align === 'right' ? on : ''}`} title="Align right" onClick={() => setAlign('right')}><AlignRight size={16} /></button>
         <Sep />
         <button className={btn} title="Add link" onClick={addLink}><Link2 size={16} /></button>
+        <Sep />
+        <button className={`${btn} ${showFind ? on : ''}`} title="Find & replace" onClick={() => setShowFind((s) => !s)}><Search size={16} /></button>
       </div>
+
+      {showFind && (
+        <div className={`flex flex-shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2 ${barBg}`}>
+          <input
+            value={find}
+            onChange={(e) => setFind(e.target.value)}
+            placeholder="Find"
+            className={`w-44 rounded-md border px-2 py-1 text-sm outline-none ${isLight ? 'border-black/10 bg-white text-gray-800' : 'border-white/10 bg-white/5 text-gray-100'}`}
+          />
+          <input
+            value={replace}
+            onChange={(e) => setReplace(e.target.value)}
+            placeholder="Replace with"
+            className={`w-44 rounded-md border px-2 py-1 text-sm outline-none ${isLight ? 'border-black/10 bg-white text-gray-800' : 'border-white/10 bg-white/5 text-gray-100'}`}
+          />
+          <button
+            onClick={replaceAll}
+            disabled={!find}
+            className="rounded-md bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            Replace all
+          </button>
+          <span className={`text-xs ${isLight ? 'text-gray-500' : 'text-gray-400'}`}>
+            {matchCount} match{matchCount === 1 ? '' : 'es'}
+          </span>
+          <button onClick={() => setShowFind(false)} className={`ml-auto ${btn}`} title="Close">
+            <X size={15} />
+          </button>
+        </div>
+      )}
 
       {/* editor + outline */}
       <div className="flex min-h-0 flex-1">
