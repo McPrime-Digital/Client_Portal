@@ -2,13 +2,36 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import * as Y from 'yjs'
 import {
   Plus, FileText, Loader2, MoreVertical, LayoutGrid, List as ListIcon,
   Trash2, PencilLine, ChevronDown, LayoutTemplate, X,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { fromB64 } from '@/lib/collab/supabaseYjs'
 
-type Doc = { id: string; title: string; preview: string | null; updated_at: string; last_opened_at: string | null }
+type Doc = { id: string; title: string; ydoc: string | null; updated_at: string; last_opened_at: string | null }
+
+// Definitive first-page preview: decode the stored Yjs snapshot and extract the
+// document's leading text — works for any doc, no cached column required.
+function previewFromYdoc(b64: string | null): string {
+  if (!b64) return ''
+  try {
+    const d = new Y.Doc()
+    Y.applyUpdate(d, fromB64(b64))
+    let xml = d.getXmlFragment('blocknote').toString()
+    d.destroy()
+    xml = xml.replace(/<\/blockContainer>/g, '\n') // one line per block
+    return xml
+      .replace(/<[^>]+>/g, '')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n{2,}/g, '\n')
+      .trim()
+      .slice(0, 700)
+  } catch {
+    return ''
+  }
+}
 type Template = { key: string; label: string; color: string; title: string }
 
 const TEMPLATES: Template[] = [
@@ -72,10 +95,10 @@ function CoverThumb({ label, color }: { label: string; color: string }) {
   )
 }
 
-function DocThumb({ preview }: { preview: string | null }) {
-  const text = (preview ?? '').trim()
+function DocThumb({ text: raw }: { text: string }) {
+  const text = (raw ?? '').trim()
   if (!text) {
-    // no cached preview yet (fills in on next open/save) — show a neutral page
+    // genuinely empty document — show a neutral page
     return (
       <Paper>
         <div className="space-y-[5px] pt-[2px]">
@@ -108,31 +131,38 @@ export default function ScriptHome() {
   const [view, setView] = useState<'grid' | 'list'>('grid')
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [galleryOpen, setGalleryOpen] = useState(false)
+  const previews = useMemo(() => {
+    const m: Record<string, string> = {}
+    ;(docs ?? []).forEach((d) => { m[d.id] = previewFromYdoc(d.ydoc) })
+    return m
+  }, [docs])
 
   const load = useMemo(
     () => async () => {
       const res = await supabase
         .from('documents')
-        .select('id, title, preview, updated_at, last_opened_at')
+        .select('id, title, ydoc, updated_at, last_opened_at')
         .eq('kind', 'script')
         .order('last_opened_at', { ascending: false, nullsFirst: false })
         .order('updated_at', { ascending: false })
+        .limit(60)
       if (!res.error) {
         setDocs((res.data as Doc[] | null) ?? [])
         return
       }
-      // migrations 0008/0009 not applied yet — degrade gracefully (no previews, by edit time)
+      // migration 0009 (last_opened_at) not applied yet — degrade gracefully (by edit time)
       const fb = await supabase
         .from('documents')
-        .select('id, title, updated_at')
+        .select('id, title, ydoc, updated_at')
         .eq('kind', 'script')
         .order('updated_at', { ascending: false })
+        .limit(60)
       if (fb.error) {
         setError(fb.error.message)
         setDocs([])
         return
       }
-      setDocs((fb.data ?? []).map((d) => ({ ...d, preview: null, last_opened_at: null })) as Doc[])
+      setDocs((fb.data ?? []).map((d) => ({ ...d, last_opened_at: null })) as Doc[])
     },
     [supabase],
   )
@@ -180,8 +210,10 @@ export default function ScriptHome() {
   const open = (id: string) => router.push(`/studio/workspace/script?doc=${id}`)
 
   return (
-    <div className="mx-auto max-w-6xl">
-      {/* Start a new document */}
+    <div>
+      {/* Start a new document — full-width deeper band, like Google Docs */}
+      <div className="-mx-6 -mt-6 mb-8 bg-secondary/40 px-6 py-6 lg:-mx-8 lg:-mt-8 lg:px-8">
+        <div className="mx-auto max-w-6xl">
       <div className="mb-3 flex items-end justify-between">
         <h2 className="text-sm font-semibold text-foreground">Start a new document</h2>
         <button
@@ -219,9 +251,12 @@ export default function ScriptHome() {
           <p className="mt-2 px-0.5 text-[13px] font-medium text-foreground">Template gallery</p>
         </button>
       </div>
+        </div>
+      </div>
 
+      <div className="mx-auto max-w-6xl">
       {/* Recent documents */}
-      <div className="mt-10 mb-3 flex items-center justify-between">
+      <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-foreground">Recent documents</h2>
           {creating && <Loader2 size={13} className="animate-spin text-muted-foreground" />}
@@ -267,7 +302,7 @@ export default function ScriptHome() {
             <div key={d.id} className="group">
               <button onClick={() => open(d.id)} className="block w-full text-left">
                 <div className="rounded-[3px] ring-1 ring-transparent transition-all group-hover:-translate-y-0.5 group-hover:ring-2 group-hover:ring-primary">
-                  <DocThumb preview={d.preview} />
+                  <DocThumb text={previews[d.id] ?? ''} />
                 </div>
               </button>
               <div className="mt-2 flex items-start gap-1.5">
@@ -344,6 +379,7 @@ export default function ScriptHome() {
           ))}
         </div>
       )}
+      </div>
 
       {galleryOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">

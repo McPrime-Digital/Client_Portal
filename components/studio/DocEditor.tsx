@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as Y from 'yjs'
 import {
-  useCreateBlockNote, FormattingToolbar, FormattingToolbarController,
+  useCreateBlockNote, useActiveStyles, FormattingToolbar, FormattingToolbarController,
   getFormattingToolbarItems, useComponentsContext,
 } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/mantine'
@@ -18,7 +18,8 @@ import {
 } from 'lucide-react'
 import type { SupabaseYjsProvider } from '@/lib/collab/supabaseYjs'
 import { SCRIPT_TEMPLATES } from '@/lib/studio/scriptTemplates'
-import { docSchema, FONT_FAMILIES } from '@/lib/studio/editorSchema'
+import { docSchema } from '@/lib/studio/editorSchema'
+import { FONT_FAMILIES, FONT_SIZES } from '@/lib/studio/fonts'
 import { createClient } from '@/lib/supabase/client'
 import DocComments from './DocComments'
 import PrimeOSAssistant from './PrimeOSAssistant'
@@ -129,6 +130,7 @@ export default function DocEditor({
   const [showHistory, setShowHistory] = useState(false)
   const [showComments, setShowComments] = useState(false)
   const [fontOpen, setFontOpen] = useState(false)
+  const [sizeOpen, setSizeOpen] = useState(false)
   const [downloadOpen, setDownloadOpen] = useState(false)
   const [layout, setLayout] = useState<'page' | 'pageless'>('page')
 
@@ -213,13 +215,7 @@ export default function DocEditor({
   }`
   const on = 'bg-primary/15 text-primary'
 
-  const styles: any = (() => {
-    try {
-      return editor.getActiveStyles()
-    } catch {
-      return {}
-    }
-  })()
+  const styles: any = useActiveStyles(editor)
   const block: any = (() => {
     try {
       return editor.getTextCursorPosition().block
@@ -481,7 +477,7 @@ export default function DocEditor({
           )}
         </div>
         {/* font size */}
-        <div className="flex items-center gap-0.5">
+        <div className="relative flex items-center gap-0.5">
           <button className={btn} title="Decrease font size" onMouseDown={(e) => e.preventDefault()} onClick={() => applySize(curSizeNum - 1)}><Minus size={14} /></button>
           <input
             key={curSizeNum}
@@ -490,9 +486,27 @@ export default function DocEditor({
             aria-label="Font size"
             onBlur={(e) => { const n = parseInt(e.target.value, 10); if (!Number.isNaN(n)) applySize(n) }}
             onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-            className={`h-7 w-9 rounded-md border text-center text-sm outline-none ${isLight ? 'border-black/10 bg-white text-gray-800' : 'border-white/10 bg-white/5 text-gray-100'}`}
+            className={`h-7 w-10 rounded-md border text-center text-sm outline-none ${isLight ? 'border-black/10 bg-white text-gray-800' : 'border-white/10 bg-white/5 text-gray-100'}`}
           />
+          <button className={`grid h-8 w-4 place-items-center rounded-md transition-colors ${isLight ? 'text-gray-500 hover:bg-black/5' : 'text-gray-300 hover:bg-white/10'}`} title="Font sizes" onMouseDown={(e) => e.preventDefault()} onClick={() => setSizeOpen((o) => !o)}><ChevronDown size={12} /></button>
           <button className={btn} title="Increase font size" onMouseDown={(e) => e.preventDefault()} onClick={() => applySize(curSizeNum + 1)}><Plus size={14} /></button>
+          {sizeOpen && (
+            <>
+              <button aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setSizeOpen(false)} />
+              <div className={`absolute left-0 top-full z-20 mt-1 max-h-72 w-16 overflow-y-auto rounded-xl border py-1 shadow-2xl ${isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#0f1c3f]'}`}>
+                {FONT_SIZES.map((s) => (
+                  <button
+                    key={s}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => { applySize(s); setSizeOpen(false) }}
+                    className={`block w-full px-3 py-1 text-left text-sm transition-colors ${s === curSizeNum ? 'text-primary' : isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
         <Sep />
         <button className={`${btn} ${styles.bold ? on : ''}`} title="Bold" onClick={() => toggle('bold')}><Bold size={16} /></button>

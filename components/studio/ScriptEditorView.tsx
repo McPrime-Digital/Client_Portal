@@ -21,6 +21,22 @@ function fragmentKeyFor(tabId: string): string {
   return tabId === 'main' ? 'blocknote' : `tab-${tabId}`
 }
 
+// True only if every tab is genuinely empty — no text and no media.
+function docIsBlank(ydoc: Y.Doc): boolean {
+  const fragHasContent = (key: string) => {
+    const xml = ydoc.getXmlFragment(key).toString()
+    if (/<(image|table|file|video|audio)/.test(xml)) return true
+    return xml.replace(/<[^>]+>/g, '').trim().length > 0
+  }
+  if (fragHasContent('blocknote')) return false
+  const tabs = ydoc.getArray<Y.Map<string>>('tabs')
+  for (const m of tabs.toArray()) {
+    const id = m.get('id') as string
+    if (id && id !== 'main' && fragHasContent(`tab-${id}`)) return false
+  }
+  return true
+}
+
 function Presence({ provider }: { provider: SupabaseYjsProvider }) {
   const [peers, setPeers] = useState<{ name: string; color: string }[]>([])
   useEffect(() => {
@@ -72,6 +88,8 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
   const cleanup = useRef<() => void>(() => {})
   const firstLines = useRef<Record<string, string>>({}) // latest first line per tab
   const prevTab = useRef('main')
+  const hadContent = useRef(false) // did this doc ever hold real content this session?
+  const latestTitle = useRef('')
 
   // Per-document theme (independent of the app theme), remembered per doc.
   useEffect(() => {
@@ -130,9 +148,11 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
             .update({ ydoc: toB64(Y.encodeStateAsUpdate(ydoc)), updated_at: new Date().toISOString() })
             .eq('id', doc.id)
 
-        // Silent background autosave — no save indicator, just persist on idle.
+        // Silent background autosave — only ever persist a doc with real content.
         let t: ReturnType<typeof setTimeout>
         const save = () => {
+          if (docIsBlank(ydoc)) return
+          hadContent.current = true
           clearTimeout(t)
           t = setTimeout(() => {
             void persist()
@@ -140,19 +160,27 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
         }
         ydoc.on('update', save)
         const onBeforeUnload = () => {
-          void persist()
+          if (!docIsBlank(ydoc)) void persist()
         }
         window.addEventListener('beforeunload', onBeforeUnload)
 
         cleanup.current = () => {
           ydoc.off('update', save)
           clearTimeout(t)
-          void persist()
+          const titleStr = latestTitle.current.trim()
+          const isDefaultTitle = !titleStr || titleStr === 'Untitled'
+          if (docIsBlank(ydoc) && isDefaultTitle && !hadContent.current) {
+            // a blank, untitled doc that never got content — don't leave clutter
+            void supabase.from('documents').delete().eq('id', doc.id)
+          } else {
+            void persist()
+          }
           window.removeEventListener('beforeunload', onBeforeUnload)
           provider.destroy()
         }
 
         if (!cancelled) {
+          latestTitle.current = doc.title ?? 'Untitled'
           setTitle(doc.title ?? 'Untitled')
           setReady({ userName, ydoc, provider })
         }
@@ -242,7 +270,10 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
   // Persist the title (debounced).
   useEffect(() => {
     if (!ready) return
+    latestTitle.current = title
     const t = setTimeout(() => {
+      // don't write a default title onto an otherwise-blank doc
+      if (docIsBlank(ready.ydoc) && (!title.trim() || title.trim() === 'Untitled')) return
       void supabase
         .from('documents')
         .update({ title: title.trim() || 'Untitled', updated_at: new Date().toISOString() })

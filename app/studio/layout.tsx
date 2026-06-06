@@ -5,6 +5,7 @@ import { isAdmin } from '@/lib/auth/role'
 import StudioSidebar from '@/components/studio/StudioSidebar'
 import StudioTopbar from '@/components/studio/StudioTopbar'
 import SessionDock from '@/components/studio/SessionDock'
+import { GOOGLE_FONTS_HREF } from '@/lib/studio/fonts'
 
 // Throughline internal/studio shell — team-only (admins). The external client
 // portal stays at /dashboard; this is the 3-space (Crew/Client/Workspace) home.
@@ -34,6 +35,10 @@ export default async function StudioLayout({ children }: { children: React.React
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
+      {/* editor font library (Script Design font picker) */}
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+      <link rel="stylesheet" href={GOOGLE_FONTS_HREF} />
       <StudioSidebar userName={userName} orgName={orgName} />
       <div className="flex flex-1 flex-col overflow-hidden">
         <StudioTopbar />
