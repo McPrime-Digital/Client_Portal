@@ -321,8 +321,13 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
       <div className="flex min-h-0 flex-1 gap-4">
         {/* document tabs (left rail) */}
         {ready && tabs.length > 0 && (
-          <div className="flex w-44 flex-shrink-0 flex-col gap-0.5 overflow-y-auto">
-            <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-widest text-faint">Tabs</p>
+          <div className="flex w-48 flex-shrink-0 flex-col gap-0.5 overflow-y-auto">
+            <div className="mb-1 flex items-center justify-between px-2">
+              <p className="text-[11px] font-semibold text-foreground">Document tabs</p>
+              <button type="button" onClick={addTab} title="Add tab" className="grid h-6 w-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
+                <Plus size={14} />
+              </button>
+            </div>
             {tabs.map((tab) => (
               <div
                 key={tab.id}
@@ -337,6 +342,7 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
                     : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground'
                 }`}
               >
+                <FileText size={14} className="flex-shrink-0 opacity-70" />
                 {editingTab === tab.id ? (
                   <input
                     autoFocus
