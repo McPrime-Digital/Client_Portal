@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getModel } from '@/lib/ai/models'
+import { userOrgId } from '@/lib/auth/role'
+import { getCreditState, chargeCredits, estimateCostCents } from '@/lib/credits'
 
 // Muse inline assistant. Takes the selected text + an instruction (+ short history)
 // and returns revised text. Provider keys come from env for now (per-org key
@@ -67,21 +69,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ needsKey: envName, provider: model.provider })
   }
 
+  // SaaS credit gate — block only when the org has a hard stop AND no balance.
+  const orgId = userOrgId(user as never)
+  const credit = await getCreditState(orgId)
+  if (credit.hardStop && credit.balanceCents <= 0) {
+    return NextResponse.json({ outOfCredits: true, message: 'You’re out of credits — top up to keep using PrimeOS AI.' })
+  }
+
   const turns: Turn[] = Array.isArray(history) ? history.slice(-8) : []
   const userMessage =
     `Selected text:\n"""\n${(selection ?? '').slice(0, 8000)}\n"""\n\nInstruction: ${instruction}`
+  const inChars = system.length + userMessage.length + turns.reduce((a, t) => a + t.text.length, 0)
+  const charge = (outChars: number) => {
+    void chargeCredits(orgId, estimateCostCents(model.id, inChars, outChars), 'primeos', { model: model.id, user: user.id })
+  }
 
   const ENC = new TextEncoder()
   // Convert a provider SSE body into a plain-text token stream the client appends.
-  const sseToText = (body: ReadableStream<Uint8Array>, extract: (j: any) => string | undefined) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const sseToText = (body: ReadableStream<Uint8Array>, extract: (j: any) => string | undefined, onDone?: (outChars: number) => void) => { // eslint-disable-line @typescript-eslint/no-explicit-any
     const reader = body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
+    let outChars = 0
     return new ReadableStream<Uint8Array>({
       async pull(controller) {
         const { done, value } = await reader.read()
         if (done) {
           controller.close()
+          onDone?.(outChars)
           return
         }
         buffer += decoder.decode(value, { stream: true })
@@ -94,7 +109,7 @@ export async function POST(req: NextRequest) {
           if (!data || data === '[DONE]') continue
           try {
             const t = extract(JSON.parse(data))
-            if (t) controller.enqueue(ENC.encode(t))
+            if (t) { outChars += t.length; controller.enqueue(ENC.encode(t)) }
           } catch {
             /* partial / keep-alive line */
           }
@@ -102,6 +117,7 @@ export async function POST(req: NextRequest) {
       },
       cancel() {
         void reader.cancel()
+        onDone?.(outChars)
       },
     })
   }
@@ -125,7 +141,7 @@ export async function POST(req: NextRequest) {
         }),
       })
       if (!r.ok || !r.body) return providerError(r)
-      return new Response(sseToText(r.body, (j) => (j?.type === 'content_block_delta' ? j?.delta?.text : '')), { headers: streamHeaders })
+      return new Response(sseToText(r.body, (j) => (j?.type === "content_block_delta" ? j?.delta?.text : ""), charge), { headers: streamHeaders })
     }
 
     if (model.provider === 'Google') {
@@ -139,7 +155,7 @@ export async function POST(req: NextRequest) {
         { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents }) },
       )
       if (!r.ok || !r.body) return providerError(r)
-      return new Response(sseToText(r.body, (j) => j?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''), { headers: streamHeaders })
+      return new Response(sseToText(r.body, (j) => j?.candidates?.[0]?.content?.parts?.[0]?.text ?? '', charge), { headers: streamHeaders })
     }
 
     // OpenAI
@@ -153,7 +169,7 @@ export async function POST(req: NextRequest) {
       }),
     })
     if (!r.ok || !r.body) return providerError(r)
-    return new Response(sseToText(r.body, (j) => j?.choices?.[0]?.delta?.content ?? ''), { headers: streamHeaders })
+    return new Response(sseToText(r.body, (j) => j?.choices?.[0]?.delta?.content ?? '', charge), { headers: streamHeaders })
   } catch (e) {
     return NextResponse.json({ error: (e as Error)?.message ?? 'Request failed' }, { status: 500 })
   }

@@ -59,8 +59,13 @@ export default function PrimeOSAssistant({
   const [cmdOpen, setCmdOpen] = useState(false)
   const personaLabel = PERSONAS.find((p) => p.id === persona)?.label ?? 'Screenwriter'
   const [saved, setSaved] = useState<string[]>([])
+  const [balance, setBalance] = useState<number | null>(null)
+  const fetchBalance = () => {
+    fetch('/api/studio/credits').then((r) => r.json()).then((j) => { if (typeof j.balanceCents === 'number') setBalance(j.balanceCents) }).catch(() => {})
+  }
   useEffect(() => {
     try { const s = JSON.parse(localStorage.getItem('tl-primeos-prompts') || '[]'); if (Array.isArray(s)) setSaved(s) } catch { /* ignore */ }
+    fetchBalance()
   }, [])
   const persistSaved = (next: string[]) => { try { localStorage.setItem('tl-primeos-prompts', JSON.stringify(next)) } catch { /* ignore */ } ; setSaved(next) }
   const savePrompt = () => { const p = input.trim(); if (p) persistSaved([p, ...saved.filter((x) => x !== p)].slice(0, 12)) }
@@ -162,7 +167,8 @@ export default function PrimeOSAssistant({
         const j = await res.json()
         let reply: string
         let applicable = false
-        if (j.needsKey) reply = `Add a ${j.needsKey} to enable ${modelLabel}. PrimeOS AI is fully wired — it answers the moment a key is set.`
+        if (j.outOfCredits) reply = j.message
+        else if (j.needsKey) reply = `Add a ${j.needsKey} to enable ${modelLabel}. PrimeOS AI is fully wired — it answers the moment a key is set.`
         else if (j.unsupported) reply = j.message
         else if (j.error) reply = `Couldn’t reach the model: ${j.error}`
         else { reply = j.reply || '(empty response)'; applicable = true }
@@ -185,6 +191,7 @@ export default function PrimeOSAssistant({
       setTurns((t) => [...t, { role: 'assistant', text: `Request failed: ${(e as Error).message}` }])
     } finally {
       setLoading(false)
+      setTimeout(fetchBalance, 1000) // reflect the credit charge once metering settles
     }
   }
 
@@ -205,6 +212,11 @@ export default function PrimeOSAssistant({
         <Aperture size={16} className="text-primary" />
         <span className={`text-sm font-semibold ${isLight ? 'text-gray-800' : 'text-gray-100'}`}>PrimeOS AI</span>
         <GripHorizontal size={14} className={subtle} />
+        {balance !== null && (
+          <span title="Credit balance" className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${balance <= 0 ? 'bg-destructive/15 text-destructive' : isLight ? 'bg-black/5 text-gray-600' : 'bg-white/10 text-gray-300'}`}>
+            ${(balance / 100).toFixed(2)}
+          </span>
+        )}
         <div className="relative ml-auto">
           <button
             onClick={() => setModelOpen((o) => !o)}
