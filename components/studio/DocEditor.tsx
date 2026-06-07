@@ -10,7 +10,7 @@ import { BlockNoteView } from '@blocknote/mantine'
 import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
 import {
-  Undo2, Redo2, Pilcrow, Heading1, Heading2, Heading3,
+  Undo2, Redo2,
   Bold, Italic, Underline, Strikethrough,
   List, ListOrdered, ListChecks, AlignLeft, AlignCenter, AlignRight, Link2, ListTree, Search, X,
   Eye, PencilLine, History, RotateCcw, Printer, MessageSquare,
@@ -786,11 +786,6 @@ export default function DocEditor({
             </>
           )}
         </div>
-        <Sep />
-        <button className={`${btn} ${type === 'paragraph' ? on : ''}`} title="Paragraph" onClick={() => setBlock('paragraph')}><Pilcrow size={16} /></button>
-        <button className={`${btn} ${type === 'heading' && level === 1 ? on : ''}`} title="Heading 1" onClick={() => setBlock('heading', { level: 1 })}><Heading1 size={16} /></button>
-        <button className={`${btn} ${type === 'heading' && level === 2 ? on : ''}`} title="Heading 2" onClick={() => setBlock('heading', { level: 2 })}><Heading2 size={16} /></button>
-        <button className={`${btn} ${type === 'heading' && level === 3 ? on : ''}`} title="Heading 3" onClick={() => setBlock('heading', { level: 3 })}><Heading3 size={16} /></button>
         <Sep />
         {/* font family */}
         <div className="relative">
