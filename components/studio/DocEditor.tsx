@@ -23,6 +23,7 @@ import { SCRIPT_TEMPLATES } from '@/lib/studio/scriptTemplates'
 import { docSchema } from '@/lib/studio/editorSchema'
 import { FONT_FAMILIES, FONT_SIZES } from '@/lib/studio/fonts'
 import { createClient } from '@/lib/supabase/client'
+import { paginationPlugin, paginationKey } from '@/lib/studio/pagination'
 import DocComments from './DocComments'
 import PrimeOSAssistant from './PrimeOSAssistant'
 
@@ -255,8 +256,33 @@ export default function DocEditor({
       return next
     })
 
-  // Measure the page surface so the page-break guides track its height.
+  // Live pagination: a ProseMirror plugin inserts page-break spacers so content
+  // flows onto the next page sheet (top + bottom margins), like Google Docs.
   const PAGE_H = 1056 // Letter @ 96dpi
+  const PAGE_TOP = 72
+  const PAGE_BOT = 72
+  const PAGE_GAP = 24
+  const layoutRef = useRef(layout)
+  layoutRef.current = layout
+  useEffect(() => {
+    const tip = editor._tiptapEditor
+    if (!tip?.registerPlugin) return
+    const plugin = paginationPlugin(() => layoutRef.current === 'page', {
+      pageH: PAGE_H,
+      topM: PAGE_TOP,
+      botM: PAGE_BOT,
+      gap: PAGE_GAP,
+    })
+    tip.registerPlugin(plugin)
+    return () => {
+      try {
+        tip.unregisterPlugin(paginationKey)
+      } catch {
+        /* noop */
+      }
+    }
+  }, [editor])
+
   const surfaceRef = useRef<HTMLDivElement>(null)
   const [contentHeight, setContentHeight] = useState(PAGE_H)
   useEffect(() => {
@@ -901,13 +927,13 @@ export default function DocEditor({
                   <div
                     key={i}
                     className={`pointer-events-none absolute inset-x-0 rounded-sm shadow-xl ${isLight ? 'bg-white' : 'bg-[#0a1430]'}`}
-                    style={{ top: i * PAGE_H, height: PAGE_H - 18 }}
+                    style={{ top: i * PAGE_H, height: PAGE_H - PAGE_GAP }}
                   />
                 ))}
               <div
                 key="content"
                 className={layout === 'page' ? 'tl-editor relative' : 'tl-editor relative px-6 py-10 sm:px-12 sm:py-14'}
-                style={layout === 'page' ? { paddingLeft: margins.left, paddingRight: margins.right, paddingTop: 72, paddingBottom: 72 } : undefined}
+                style={layout === 'page' ? { paddingLeft: margins.left, paddingRight: margins.right, paddingTop: PAGE_TOP, paddingBottom: PAGE_BOT } : undefined}
               >
                 {editorView}
               </div>
