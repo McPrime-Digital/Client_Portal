@@ -16,7 +16,7 @@ import {
   Eye, PencilLine, Download, Upload, History, RotateCcw, FileCode2, Printer, MessageSquare, FileType,
   Minus, Plus, ChevronDown, FileDown, StretchHorizontal, FileText, Aperture,
   Baseline, Highlighter, Paintbrush, AlignJustify, Subscript, Superscript, Eraser,
-  Settings2, Ruler as RulerIcon,
+  Settings2, Ruler as RulerIcon, Indent, Outdent, ImagePlus, Rows3,
 } from 'lucide-react'
 import type { SupabaseYjsProvider } from '@/lib/collab/supabaseYjs'
 import { SCRIPT_TEMPLATES } from '@/lib/studio/scriptTemplates'
@@ -223,6 +223,12 @@ export default function DocEditor({
   const [gradOpen, setGradOpen] = useState(false)
   const [downloadOpen, setDownloadOpen] = useState(false)
   const [viewOpen, setViewOpen] = useState(false)
+  const [menuBar, setMenuBar] = useState<string | null>(null)
+  const [styleOpen, setStyleOpen] = useState(false)
+  const [zoomOpen, setZoomOpen] = useState(false)
+  const [lineOpen, setLineOpen] = useState(false)
+  const [zoom, setZoom] = useState(1)
+  const [lineSpacing, setLineSpacing] = useState(1.5)
   const [showRuler, setShowRuler] = useState(true)
   useEffect(() => {
     try {
@@ -443,6 +449,23 @@ export default function DocEditor({
     if (b) editor.updateBlock(b, { type: 'paragraph', props: { textAlignment: 'left' } } as any)
     editor.focus()
   }
+  const insertImage = () => {
+    const url = window.prompt('Paste an image URL')
+    if (!url) return
+    try {
+      const b = editor.getTextCursorPosition?.().block
+      editor.insertBlocks([{ type: 'image', props: { url } } as any], b, 'after')
+    } catch { /* noop */ }
+    editor.focus()
+  }
+  const indent = (dir: 'in' | 'out') => {
+    try { if (dir === 'in') editor.nestBlock?.(); else editor.unnestBlock?.() } catch { /* noop */ }
+    editor.focus()
+  }
+  // current block style label for the "Normal text" dropdown
+  const blockStyleLabel =
+    type === 'heading' ? (level === 1 ? 'Heading 1' : level === 2 ? 'Heading 2' : 'Heading 3') :
+    type === 'bulletListItem' || type === 'numberedListItem' || type === 'checkListItem' ? 'List item' : 'Normal text'
 
   const toggle = (s: string) => {
     ensureSelection()
@@ -622,10 +645,119 @@ export default function DocEditor({
         }
       }}
     >
+      {/* menu bar — File · Edit · View · Insert · Format · Tools */}
+      <div className={`flex flex-shrink-0 items-center gap-0.5 border-b px-2 py-0.5 text-[13px] ${barBg}`}>
+        {([
+          ['File', [
+            { label: 'Print', fn: printDoc },
+            { label: 'Download as PDF', fn: printDoc },
+            { label: 'Download as Word (.doc)', fn: exportWord },
+            { label: 'Download as HTML', fn: exportHtml },
+            { label: 'Download as Markdown', fn: exportMarkdown },
+            { label: 'Import Markdown…', fn: () => fileRef.current?.click() },
+            { label: 'Version history', fn: toggleHistory },
+          ]],
+          ['Edit', [
+            { label: 'Undo', fn: () => editor.undo() },
+            { label: 'Redo', fn: () => editor.redo() },
+            { label: 'Find & replace', fn: () => setShowFind(true) },
+            { label: 'Clear formatting', fn: clearFormatting },
+          ]],
+          ['View', [
+            { label: showRuler ? 'Hide ruler' : 'Show ruler', fn: toggleRuler },
+            { label: layout === 'page' ? 'Pageless' : 'Pages', fn: toggleLayout },
+            { label: mode === 'editing' ? 'Viewing (read-only)' : 'Editing', fn: () => setMode((m) => (m === 'editing' ? 'viewing' : 'editing')) },
+          ]],
+          ['Insert', [
+            { label: 'Image', fn: insertImage },
+            { label: 'Link', fn: addLink },
+            { label: 'Comment', fn: () => setShowComments(true) },
+          ]],
+          ['Format', [
+            { label: 'Bold', fn: () => toggle('bold') },
+            { label: 'Italic', fn: () => toggle('italic') },
+            { label: 'Underline', fn: () => toggle('underline') },
+            { label: 'Heading 1', fn: () => setBlock('heading', { level: 1 }) },
+            { label: 'Heading 2', fn: () => setBlock('heading', { level: 2 }) },
+            { label: 'Normal text', fn: () => setBlock('paragraph') },
+            { label: 'Clear formatting', fn: clearFormatting },
+          ]],
+          ['Tools', [
+            { label: 'PrimeOS AI', fn: () => openMuse(true) },
+            { label: `Word count: ${counts.words.toLocaleString()}`, fn: () => editor.focus() },
+          ]],
+        ] as [string, { label: string; fn: () => void }[]][]).map(([name, items]) => (
+          <div key={name} className="relative">
+            <button
+              onClick={() => setMenuBar((m) => (m === name ? null : name))}
+              onMouseEnter={() => setMenuBar((m) => (m ? name : m))}
+              className={`rounded px-2 py-0.5 transition-colors ${menuBar === name ? 'bg-primary/15 text-primary' : isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}
+            >
+              {name}
+            </button>
+            {menuBar === name && (
+              <>
+                <button aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setMenuBar(null)} />
+                <div className={`absolute left-0 top-full z-20 mt-0.5 w-56 overflow-hidden rounded-xl border py-1 shadow-2xl ${isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#0f1c3f]'}`}>
+                  {items.map((it) => (
+                    <button
+                      key={it.label}
+                      onClick={() => { setMenuBar(null); it.fn() }}
+                      className={`block w-full px-3 py-1.5 text-left text-[13px] ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}
+                    >
+                      {it.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+
       {/* persistent formatting toolbar */}
       <div className={`flex flex-shrink-0 flex-wrap items-center gap-0.5 border-b px-3 py-1.5 ${barBg}`}>
         <button className={btn} title="Undo" onClick={() => editor.undo()}><Undo2 size={16} /></button>
         <button className={btn} title="Redo" onClick={() => editor.redo()}><Redo2 size={16} /></button>
+        <button className={btn} title="Print" onClick={printDoc}><Printer size={16} /></button>
+        {/* zoom */}
+        <div className="relative">
+          <button className={`flex h-8 items-center gap-0.5 rounded-md px-1.5 text-xs ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`} title="Zoom" onClick={() => setZoomOpen((o) => !o)}>
+            {Math.round(zoom * 100)}% <ChevronDown size={12} className="opacity-60" />
+          </button>
+          {zoomOpen && (
+            <>
+              <button aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setZoomOpen(false)} />
+              <div className={`absolute left-0 top-full z-20 mt-1 w-20 overflow-y-auto rounded-xl border py-1 shadow-2xl ${isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#0f1c3f]'}`}>
+                {[0.5, 0.75, 0.9, 1, 1.25, 1.5, 2].map((z) => (
+                  <button key={z} onClick={() => { setZoom(z); setZoomOpen(false) }} className={`block w-full px-3 py-1 text-left text-sm ${z === zoom ? 'text-primary' : isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}>{Math.round(z * 100)}%</button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+        <Sep />
+        {/* styles dropdown */}
+        <div className="relative">
+          <button className={`flex h-8 items-center gap-1 rounded-md px-2 text-sm ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`} title="Styles" onMouseDown={(e) => e.preventDefault()} onClick={() => setStyleOpen((o) => !o)}>
+            <span className="w-20 truncate text-left">{blockStyleLabel}</span><ChevronDown size={13} className="opacity-60" />
+          </button>
+          {styleOpen && (
+            <>
+              <button aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setStyleOpen(false)} />
+              <div className={`absolute left-0 top-full z-20 mt-1 w-44 overflow-hidden rounded-xl border py-1 shadow-2xl ${isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#0f1c3f]'}`}>
+                {[
+                  { label: 'Normal text', fn: () => setBlock('paragraph') },
+                  { label: 'Heading 1', fn: () => setBlock('heading', { level: 1 }) },
+                  { label: 'Heading 2', fn: () => setBlock('heading', { level: 2 }) },
+                  { label: 'Heading 3', fn: () => setBlock('heading', { level: 3 }) },
+                ].map((s) => (
+                  <button key={s.label} onMouseDown={(e) => e.preventDefault()} onClick={() => { s.fn(); setStyleOpen(false) }} className={`block w-full px-3 py-1.5 text-left text-[13px] ${blockStyleLabel === s.label ? 'text-primary' : isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}>{s.label}</button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
         <Sep />
         <button className={`${btn} ${type === 'paragraph' ? on : ''}`} title="Paragraph" onClick={() => setBlock('paragraph')}><Pilcrow size={16} /></button>
         <button className={`${btn} ${type === 'heading' && level === 1 ? on : ''}`} title="Heading 1" onClick={() => setBlock('heading', { level: 1 })}><Heading1 size={16} /></button>
@@ -770,8 +902,25 @@ export default function DocEditor({
         <button className={`${btn} ${align === 'center' ? on : ''}`} title="Align center" onClick={() => setAlign('center')}><AlignCenter size={16} /></button>
         <button className={`${btn} ${align === 'right' ? on : ''}`} title="Align right" onClick={() => setAlign('right')}><AlignRight size={16} /></button>
         <button className={`${btn} ${align === 'justify' ? on : ''}`} title="Justify" onClick={() => setAlign('justify')}><AlignJustify size={16} /></button>
+        {/* line spacing */}
+        <div className="relative">
+          <button className={btn} title="Line spacing" onClick={() => setLineOpen((o) => !o)}><Rows3 size={16} /></button>
+          {lineOpen && (
+            <>
+              <button aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setLineOpen(false)} />
+              <div className={`absolute left-0 top-full z-20 mt-1 w-24 overflow-hidden rounded-xl border py-1 shadow-2xl ${isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#0f1c3f]'}`}>
+                {[1, 1.15, 1.5, 2, 2.5].map((s) => (
+                  <button key={s} onClick={() => { setLineSpacing(s); setLineOpen(false) }} className={`block w-full px-3 py-1 text-left text-sm ${s === lineSpacing ? 'text-primary' : isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}>{s.toFixed(2).replace(/\.00$/, '')}</button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+        <button className={btn} title="Decrease indent" onClick={() => indent('out')}><Outdent size={16} /></button>
+        <button className={btn} title="Increase indent" onClick={() => indent('in')}><Indent size={16} /></button>
         <Sep />
         <button className={btn} title="Add link" onClick={addLink}><Link2 size={16} /></button>
+        <button className={btn} title="Insert image" onClick={insertImage}><ImagePlus size={16} /></button>
         <Sep />
         <button className={`${btn} ${showFind ? on : ''}`} title="Find & replace" onClick={() => setShowFind((s) => !s)}><Search size={16} /></button>
         <button className={`${btn} ${showHistory ? on : ''}`} title="Version history" onClick={toggleHistory}><History size={16} /></button>
@@ -919,7 +1068,7 @@ export default function DocEditor({
               key="doc-surface"
               ref={surfaceRef}
               className={layout === 'page' ? 'relative w-[816px] max-w-full' : 'relative mx-auto w-full max-w-4xl'}
-              style={layout === 'page' ? { minHeight: PAGE_H } : undefined}
+              style={{ zoom, ...(layout === 'page' ? { minHeight: PAGE_H } : {}) }}
             >
               {/* discrete page sheets with real gaps between them */}
               {layout === 'page' &&
@@ -933,7 +1082,7 @@ export default function DocEditor({
               <div
                 key="content"
                 className={layout === 'page' ? 'tl-editor relative' : 'tl-editor relative px-6 py-10 sm:px-12 sm:py-14'}
-                style={layout === 'page' ? { paddingLeft: margins.left, paddingRight: margins.right, paddingTop: PAGE_TOP, paddingBottom: PAGE_BOT } : undefined}
+                style={{ ['--tl-line' as string]: lineSpacing, ...(layout === 'page' ? { paddingLeft: margins.left, paddingRight: margins.right, paddingTop: PAGE_TOP, paddingBottom: PAGE_BOT } : {}) }}
               >
                 {editorView}
               </div>

@@ -228,4 +228,5 @@
 }
 .tl-editor { min-height: 100%; }
 .tl-editor .bn-editor { padding-inline: 0 !important; }
-.tl-editor .ProseMirror { min-height: 66vh; font-size: 1.05rem; line-height: 1.75; }
+.tl-editor .ProseMirror { min-height: 66vh; font-size: 1.05rem; line-height: var(--tl-line, 1.75); }
+.tl-page-spacer { user-select: none; }
