@@ -63,6 +63,17 @@ export default function PrimeOSAssistant({
   const fetchBalance = () => {
     fetch('/api/studio/credits').then((r) => r.json()).then((j) => { if (typeof j.balanceCents === 'number') setBalance(j.balanceCents) }).catch(() => {})
   }
+  const topUp = async () => {
+    const dollars = window.prompt('Add credits (USD)', '20')
+    if (dollars === null) return
+    const amt = Math.round(parseFloat(dollars) * 100)
+    if (!amt || amt < 500) return
+    try {
+      const res = await fetch('/api/studio/credits/checkout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cents: amt }) })
+      const j = await res.json()
+      if (j.url) window.location.href = j.url
+    } catch { /* ignore */ }
+  }
   useEffect(() => {
     try { const s = JSON.parse(localStorage.getItem('tl-primeos-prompts') || '[]'); if (Array.isArray(s)) setSaved(s) } catch { /* ignore */ }
     fetchBalance()
@@ -213,9 +224,9 @@ export default function PrimeOSAssistant({
         <span className={`text-sm font-semibold ${isLight ? 'text-gray-800' : 'text-gray-100'}`}>PrimeOS AI</span>
         <GripHorizontal size={14} className={subtle} />
         {balance !== null && (
-          <span title="Credit balance" className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${balance <= 0 ? 'bg-destructive/15 text-destructive' : isLight ? 'bg-black/5 text-gray-600' : 'bg-white/10 text-gray-300'}`}>
+          <button onClick={topUp} title="Credit balance — click to top up" className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold transition-colors ${balance <= 0 ? 'bg-destructive/15 text-destructive' : isLight ? 'bg-black/5 text-gray-600 hover:bg-black/10' : 'bg-white/10 text-gray-300 hover:bg-white/15'}`}>
             ${(balance / 100).toFixed(2)}
-          </span>
+          </button>
         )}
         <div className="relative ml-auto">
           <button
