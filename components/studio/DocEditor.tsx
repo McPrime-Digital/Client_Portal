@@ -608,18 +608,31 @@ export default function DocEditor({
     const range = text && tip ? { from: tip.state.selection.from, to: tip.state.selection.to } : null
     setMuse({ text, rect, range })
   }
-  const applyMuse = (newText: string, modeKind: 'replace' | 'after') => {
+  const applyMuse = async (newText: string, modeKind: 'replace' | 'after') => {
     const tip = editor._tiptapEditor
-    if (tip && muse?.range) {
+    const multiline = /\n/.test(newText.trim())
+    // single line (word / sentence rewrite) → inline replace, preserving formatting
+    if (!multiline && tip && muse?.range) {
       if (modeKind === 'replace') {
         tip.chain().focus().insertContentAt(muse.range, newText).run()
         setMuse((m) => (m ? { ...m, range: { from: muse.range!.from, to: muse.range!.from + newText.length }, text: newText } : m))
       } else {
-        tip.chain().focus().insertContentAt(muse.range.to, `\n${newText}`).run()
+        tip.chain().focus().insertContentAt(muse.range.to, ` ${newText}`).run()
       }
-    } else {
+      editor.focus()
+      return
+    }
+    // multi-line / structured (a scene, a shot list, headings) → parse to real blocks
+    try {
+      const blocks = await editor.tryParseMarkdownToBlocks(newText)
+      const cur = editor.getTextCursorPosition?.().block
+      if (cur && modeKind === 'replace') editor.replaceBlocks([cur], blocks as any)
+      else if (cur) editor.insertBlocks(blocks as any, cur, 'after')
+      else editor.insertBlocks(blocks as any, editor.document[editor.document.length - 1], 'after')
+    } catch {
       editor.insertInlineContent([{ type: 'text', text: newText, styles: {} }] as any)
     }
+    editor.focus()
   }
   const editorView = (
     <BlockNoteView editor={editor} editable={mode === 'editing'} theme={theme} formattingToolbar={false}>
