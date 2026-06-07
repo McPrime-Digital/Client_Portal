@@ -149,14 +149,31 @@ export default function PrimeOSAssistant({
           history,
         }),
       })
-      const j = await res.json()
-      let reply: string
-      let applicable = false
-      if (j.needsKey) reply = `Add a ${j.needsKey} to enable ${modelLabel}. PrimeOS AI is fully wired — it answers the moment a key is set.`
-      else if (j.unsupported) reply = j.message
-      else if (j.error) reply = `Couldn’t reach the model: ${j.error}`
-      else { reply = j.reply || '(empty response)'; applicable = true }
-      setTurns((t) => [...t, { role: 'assistant', text: reply, applicable }])
+      const ct = res.headers.get('content-type') || ''
+      if (ct.includes('application/json') || !res.body) {
+        // key / unsupported / error — non-streamed
+        const j = await res.json()
+        let reply: string
+        let applicable = false
+        if (j.needsKey) reply = `Add a ${j.needsKey} to enable ${modelLabel}. PrimeOS AI is fully wired — it answers the moment a key is set.`
+        else if (j.unsupported) reply = j.message
+        else if (j.error) reply = `Couldn’t reach the model: ${j.error}`
+        else { reply = j.reply || '(empty response)'; applicable = true }
+        setTurns((t) => [...t, { role: 'assistant', text: reply, applicable }])
+      } else {
+        // streamed tokens — render live
+        setTurns((t) => [...t, { role: 'assistant', text: '', applicable: true }])
+        const reader = res.body.getReader()
+        const dec = new TextDecoder()
+        let acc = ''
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          acc += dec.decode(value, { stream: true })
+          setTurns((t) => { const c = [...t]; c[c.length - 1] = { ...c[c.length - 1], text: acc }; return c })
+        }
+        if (!acc.trim()) setTurns((t) => { const c = [...t]; c[c.length - 1] = { role: 'assistant', text: '(empty response)', applicable: false }; return c })
+      }
     } catch (e) {
       setTurns((t) => [...t, { role: 'assistant', text: `Request failed: ${(e as Error).message}` }])
     } finally {

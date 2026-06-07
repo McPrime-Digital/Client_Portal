@@ -69,65 +69,91 @@ export async function POST(req: NextRequest) {
 
   const turns: Turn[] = Array.isArray(history) ? history.slice(-8) : []
   const userMessage =
-    `Selected text:\n"""\n${(selection ?? '').slice(0, 6000)}\n"""\n\nInstruction: ${instruction}`
+    `Selected text:\n"""\n${(selection ?? '').slice(0, 8000)}\n"""\n\nInstruction: ${instruction}`
+
+  const ENC = new TextEncoder()
+  // Convert a provider SSE body into a plain-text token stream the client appends.
+  const sseToText = (body: ReadableStream<Uint8Array>, extract: (j: any) => string | undefined) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+    const reader = body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    return new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        const { done, value } = await reader.read()
+        if (done) {
+          controller.close()
+          return
+        }
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const raw of lines) {
+          const line = raw.trim()
+          if (!line.startsWith('data:')) continue
+          const data = line.slice(5).trim()
+          if (!data || data === '[DONE]') continue
+          try {
+            const t = extract(JSON.parse(data))
+            if (t) controller.enqueue(ENC.encode(t))
+          } catch {
+            /* partial / keep-alive line */
+          }
+        }
+      },
+      cancel() {
+        void reader.cancel()
+      },
+    })
+  }
+  const streamHeaders = { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-cache' }
+  const providerError = async (r: Response) => {
+    const j = await r.json().catch(() => ({}))
+    return NextResponse.json({ error: j?.error?.message ?? 'Provider error' }, { status: 502 })
+  }
 
   try {
     if (model.provider === 'Anthropic') {
-      const messages = [
-        ...turns.map((t) => ({ role: t.role, content: t.text })),
-        { role: 'user' as const, content: userMessage },
-      ]
       const r = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
         body: JSON.stringify({
-          model: ANTHROPIC_MODEL[model.id] ?? 'claude-sonnet-4-5',
-          max_tokens: 1500,
+          model: ANTHROPIC_MODEL[model.id] ?? 'claude-sonnet-4-5-20250929',
+          max_tokens: 2000,
           system,
-          messages,
+          stream: true,
+          messages: [...turns.map((t) => ({ role: t.role, content: t.text })), { role: 'user', content: userMessage }],
         }),
       })
-      const j = await r.json()
-      if (!r.ok) return NextResponse.json({ error: j?.error?.message ?? 'Provider error' }, { status: 502 })
-      const reply = (j?.content?.[0]?.text ?? '').trim()
-      return NextResponse.json({ reply })
+      if (!r.ok || !r.body) return providerError(r)
+      return new Response(sseToText(r.body, (j) => (j?.type === 'content_block_delta' ? j?.delta?.text : '')), { headers: streamHeaders })
     }
 
     if (model.provider === 'Google') {
+      const gm = GOOGLE_MODEL[model.id] ?? 'gemini-2.5-flash'
       const contents = [
         ...turns.map((t) => ({ role: t.role === 'assistant' ? 'model' : 'user', parts: [{ text: t.text }] })),
         { role: 'user', parts: [{ text: userMessage }] },
       ]
-      const gm = GOOGLE_MODEL[model.id] ?? 'gemini-2.5-flash'
       const r = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${gm}:generateContent?key=${key}`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents }),
-        },
+        `https://generativelanguage.googleapis.com/v1beta/models/${gm}:streamGenerateContent?alt=sse&key=${key}`,
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents }) },
       )
-      const j = await r.json()
-      if (!r.ok) return NextResponse.json({ error: j?.error?.message ?? 'Provider error' }, { status: 502 })
-      const reply = (j?.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim()
-      return NextResponse.json({ reply })
+      if (!r.ok || !r.body) return providerError(r)
+      return new Response(sseToText(r.body, (j) => j?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''), { headers: streamHeaders })
     }
 
     // OpenAI
-    const messages = [
-      { role: 'system' as const, content: system },
-      ...turns.map((t) => ({ role: t.role, content: t.text })),
-      { role: 'user' as const, content: userMessage },
-    ]
     const r = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: OPENAI_MODEL[model.id] ?? 'gpt-4o', messages }),
+      body: JSON.stringify({
+        model: OPENAI_MODEL[model.id] ?? 'gpt-4o',
+        stream: true,
+        messages: [{ role: 'system', content: system }, ...turns.map((t) => ({ role: t.role, content: t.text })), { role: 'user', content: userMessage }],
+      }),
     })
-    const j = await r.json()
-    if (!r.ok) return NextResponse.json({ error: j?.error?.message ?? 'Provider error' }, { status: 502 })
-    const reply = (j?.choices?.[0]?.message?.content ?? '').trim()
-    return NextResponse.json({ reply })
+    if (!r.ok || !r.body) return providerError(r)
+    return new Response(sseToText(r.body, (j) => j?.choices?.[0]?.delta?.content ?? ''), { headers: streamHeaders })
   } catch (e) {
     return NextResponse.json({ error: (e as Error)?.message ?? 'Request failed' }, { status: 500 })
   }
