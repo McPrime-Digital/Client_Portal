@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import * as Y from 'yjs'
 import {
@@ -81,87 +81,32 @@ function BlankThumb() {
     </Paper>
   )
 }
-// Bespoke SVG "cover photos" so image templates read like real designed covers.
-function CoverArt({ scene }: { scene: Scene }) {
-  if (scene === 'film') {
-    return (
-      <svg viewBox="0 0 100 130" preserveAspectRatio="xMidYMid slice" className="h-full w-full">
-        <defs>
-          <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#f59e0b" /><stop offset="0.5" stopColor="#db2777" /><stop offset="1" stopColor="#4c1d95" />
-          </linearGradient>
-        </defs>
-        <rect width="100" height="130" fill="url(#sky)" />
-        <circle cx="50" cy="44" r="15" fill="#fff" opacity="0.85" />
-        <path d="M0 95 L22 70 L40 90 L60 62 L80 88 L100 72 L100 130 L0 130 Z" fill="#1f2937" />
-        <path d="M0 110 L30 92 L55 108 L78 95 L100 110 L100 130 L0 130 Z" fill="#0f172a" />
-        <g fill="#0f172a">
-          <rect x="0" y="0" width="6" height="130" /><rect x="94" y="0" width="6" height="130" />
-        </g>
-        <g fill="#fff" opacity="0.9">
-          {[8, 24, 40, 56, 72, 88, 104, 120].map((y) => (<g key={y}><rect x="1.5" y={y} width="3" height="6" rx="0.6" /><rect x="95.5" y={y} width="3" height="6" rx="0.6" /></g>))}
-        </g>
-      </svg>
-    )
-  }
-  if (scene === 'sunset') {
-    return (
-      <svg viewBox="0 0 100 130" preserveAspectRatio="xMidYMid slice" className="h-full w-full">
-        <defs>
-          <linearGradient id="ss" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor="#db2777" /><stop offset="0.5" stopColor="#f97316" /><stop offset="1" stopColor="#facc15" />
-          </linearGradient>
-        </defs>
-        <rect width="100" height="130" fill="url(#ss)" />
-        <circle cx="68" cy="36" r="40" fill="#fff" opacity="0.18" />
-        <circle cx="68" cy="36" r="24" fill="#fff" opacity="0.25" />
-        <path d="M0 96 C30 80 70 112 100 90 L100 130 L0 130 Z" fill="#7c2d12" opacity="0.55" />
-      </svg>
-    )
-  }
-  if (scene === 'spotlight') {
-    return (
-      <svg viewBox="0 0 100 130" preserveAspectRatio="xMidYMid slice" className="h-full w-full">
-        <defs>
-          <radialGradient id="sp" cx="0.5" cy="0.35" r="0.7">
-            <stop offset="0" stopColor="#0f766e" /><stop offset="1" stopColor="#042f2e" />
-          </radialGradient>
-        </defs>
-        <rect width="100" height="130" fill="url(#sp)" />
-        <circle cx="50" cy="40" r="26" fill="#fff" opacity="0.10" />
-        <g transform="translate(34 60)" fill="#0b1f1d" stroke="#5eead4" strokeWidth="0.8">
-          <rect x="0" y="6" width="32" height="20" rx="1.5" />
-          <path d="M0 6 L32 1 L32 7 L0 12 Z" fill="#5eead4" stroke="none" opacity="0.85" />
-          <g fill="#0b1f1d"><rect x="3" y="1.5" width="6" height="5" transform="rotate(-9 6 4)" /><rect x="13" y="0.4" width="6" height="5" transform="rotate(-9 16 3)" /></g>
-        </g>
-      </svg>
-    )
-  }
-  // mesh
+// Real photographic cover (reliable image CDN) with a premium duotone treatment,
+// so image templates read like real designed covers — with a gradient fallback.
+function CoverArt({ seed, color }: { seed: string; color: string }) {
   return (
-    <svg viewBox="0 0 100 130" preserveAspectRatio="xMidYMid slice" className="h-full w-full">
-      <defs>
-        <filter id="b"><feGaussianBlur stdDeviation="9" /></filter>
-      </defs>
-      <rect width="100" height="130" fill="#0e7490" />
-      <g filter="url(#b)">
-        <circle cx="20" cy="30" r="30" fill="#22d3ee" />
-        <circle cx="80" cy="50" r="34" fill="#6366f1" />
-        <circle cx="45" cy="105" r="32" fill="#0ea5e9" />
-        <circle cx="90" cy="115" r="22" fill="#a78bfa" />
-      </g>
-    </svg>
+    <div className="absolute inset-0" style={{ background: `linear-gradient(150deg, ${color}, #0b1020)` }}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={`https://picsum.photos/seed/tl-${seed}/320/420`}
+        alt=""
+        loading="lazy"
+        className="h-full w-full object-cover"
+      />
+      <div className="absolute inset-0 mix-blend-multiply" style={{ background: color, opacity: 0.5 }} />
+      <div className="absolute inset-0" style={{ background: `linear-gradient(160deg, transparent 28%, ${color}cc)` }} />
+    </div>
   )
 }
 
 // Real template "cover pages" — distinct designed layouts per template type.
 const COVER = 'aspect-[85/110] w-full overflow-hidden rounded-[3px] shadow-[0_1px_3px_rgba(0,0,0,0.18)] ring-1 ring-black/5'
-function CoverThumb({ label, color, style, scene }: { label: string; color: string; style: CoverStyle; scene?: Scene }) {
+function CoverThumb({ label, color, style, seed }: { label: string; color: string; style: CoverStyle; seed?: string }) {
   if (style === 'image') {
     return (
       <div className={`${COVER} relative`}>
-        <CoverArt scene={scene ?? 'mesh'} />
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 via-black/30 to-transparent px-2 pb-1.5 pt-4">
+        <CoverArt seed={seed ?? label} color={color} />
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent px-2 pb-1.5 pt-5">
           <span className="text-[8px] font-bold leading-tight text-white drop-shadow">{label}</span>
         </div>
       </div>
@@ -264,6 +209,33 @@ export default function ScriptHome() {
     return m
   }, [docs])
 
+  // Featured-template order (drag to rearrange), remembered.
+  const [order, setOrder] = useState<string[]>(FEATURED)
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem('tl-tplorder')
+      if (v) { const a = JSON.parse(v); if (Array.isArray(a)) setOrder(a) }
+    } catch { /* ignore */ }
+  }, [])
+  const dragKey = useRef<string | null>(null)
+  const featuredList = useMemo(() => {
+    const keys = [...order.filter((k) => FEATURED.includes(k)), ...FEATURED.filter((k) => !order.includes(k))]
+    return keys.map((k) => TEMPLATES.find((t) => t.key === k)).filter(Boolean) as Template[]
+  }, [order])
+  function reorder(to: string) {
+    const from = dragKey.current
+    dragKey.current = null
+    if (!from || from === to) return
+    setOrder(() => {
+      const merged = [...featuredList.map((t) => t.key)]
+      const next = merged.filter((k) => k !== from)
+      const idx = next.indexOf(to)
+      next.splice(idx < 0 ? next.length : idx, 0, from)
+      try { localStorage.setItem('tl-tplorder', JSON.stringify(next)) } catch { /* ignore */ }
+      return next
+    })
+  }
+
   const load = useMemo(
     () => async () => {
       const res = await supabase
@@ -358,11 +330,20 @@ export default function ScriptHome() {
           </div>
           <p className="mt-2 px-0.5 text-[13px] font-medium text-foreground">Blank</p>
         </button>
-        {/* Featured templates */}
-        {TEMPLATES.filter((t) => FEATURED.includes(t.key)).map((t) => (
-          <button key={t.key} onClick={() => create(t.key, t.title)} disabled={creating} className="group text-left">
+        {/* Featured templates — drag to rearrange */}
+        {featuredList.map((t) => (
+          <button
+            key={t.key}
+            draggable
+            onDragStart={() => { dragKey.current = t.key }}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => { e.preventDefault(); reorder(t.key) }}
+            onClick={() => create(t.key, t.title)}
+            disabled={creating}
+            className="group cursor-grab text-left active:cursor-grabbing"
+          >
             <div className="rounded-[3px] ring-1 ring-transparent transition-all group-hover:-translate-y-0.5 group-hover:ring-2 group-hover:ring-primary">
-              <CoverThumb label={t.label} color={t.color} style={t.style} scene={t.scene} />
+              <CoverThumb label={t.label} color={t.color} style={t.style} seed={t.key} />
             </div>
             <p className="mt-2 truncate px-0.5 text-[13px] font-medium text-foreground">{t.label}</p>
           </button>
@@ -530,7 +511,7 @@ export default function ScriptHome() {
               {TEMPLATES.map((t) => (
                 <button key={t.key} onClick={() => { setGalleryOpen(false); create(t.key, t.title) }} className="group text-left">
                   <div className="rounded-[3px] ring-1 ring-transparent transition-all group-hover:-translate-y-0.5 group-hover:ring-2 group-hover:ring-primary">
-                    <CoverThumb label={t.label} color={t.color} style={t.style} scene={t.scene} />
+                    <CoverThumb label={t.label} color={t.color} style={t.style} seed={t.key} />
                   </div>
                   <p className="mt-2 truncate text-[13px] font-medium text-foreground">{t.label}</p>
                 </button>
