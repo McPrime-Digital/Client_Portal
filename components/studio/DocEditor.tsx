@@ -21,7 +21,7 @@ import {
   Bold, Italic, Underline, Strikethrough,
   List, ListOrdered, ListChecks, AlignLeft, AlignCenter, AlignRight, Link2, ListTree, Search, X,
   Eye, PencilLine, History, RotateCcw, Printer, MessageSquare,
-  Minus, Plus, ChevronDown, StretchHorizontal, FileText,
+  Minus, Plus, ChevronDown, StretchHorizontal, FileText, SquarePen, Check,
   Baseline, Highlighter, Paintbrush, AlignJustify, Eraser,
   Ruler as RulerIcon, Indent, Outdent, ImagePlus, Rows3,
 } from 'lucide-react'
@@ -30,6 +30,7 @@ import { SCRIPT_TEMPLATES } from '@/lib/studio/scriptTemplates'
 import { docSchema } from '@/lib/studio/editorSchema'
 import { FONT_FAMILIES, FONT_SIZES } from '@/lib/studio/fonts'
 import { createPaginationPlugin, paginationKey } from '@/lib/studio/pagination'
+import { suggestingPlugin, suggestKey } from '@/lib/studio/suggesting'
 import { usePrimeStore } from '@/lib/studio/primeStore'
 import { createClient } from '@/lib/supabase/client'
 import DocComments from './DocComments'
@@ -309,16 +310,25 @@ export default function DocEditor({
   layoutRef.current = layout
   const zoomRef = useRef(zoom)
   zoomRef.current = zoom
+  const modeRef = useRef(mode)
+  modeRef.current = mode
   useEffect(() => {
     const tiptap = (editor as unknown as { _tiptapEditor?: { registerPlugin: (p: unknown) => void; unregisterPlugin: (k: unknown) => void } })._tiptapEditor
     if (!tiptap) return
-    const plugin = createPaginationPlugin({
+    const pagination = createPaginationPlugin({
       enabled: () => layoutRef.current === 'page',
       geom: () => ({ pitch: PAGE_H, sheet: PAGE_H - PAGE_GAP, marginTop: PAGE_TOP, marginBottom: PAGE_BOT }),
       zoom: () => zoomRef.current,
     })
-    tiptap.registerPlugin(plugin)
-    return () => { try { tiptap.unregisterPlugin(paginationKey) } catch { /* noop */ } }
+    // Suggesting / track-changes — typed text is marked as an insertion and
+    // Backspace/Delete marks a deletion instead of removing it, while the mode is on.
+    const suggesting = suggestingPlugin(() => modeRef.current === 'suggesting')
+    tiptap.registerPlugin(pagination)
+    tiptap.registerPlugin(suggesting)
+    return () => {
+      try { tiptap.unregisterPlugin(paginationKey) } catch { /* noop */ }
+      try { tiptap.unregisterPlugin(suggestKey) } catch { /* noop */ }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor])
 
@@ -494,6 +504,31 @@ export default function DocEditor({
   }
   const setAlign = (a: string) => {
     if (block) editor.updateBlock(block, { props: { textAlignment: a } } as any)
+    editor.focus()
+  }
+  // Resolve tracked changes. accept → keep insertions (drop their mark) and remove
+  // deleted text; reject → drop inserted text and keep deletions (drop their mark).
+  const resolveSuggestions = (accept: boolean) => {
+    const tip = editor._tiptapEditor
+    if (!tip) return
+    const { state } = tip
+    const ins = state.schema.marks.insertion
+    const del = state.schema.marks.deletion
+    if (!ins || !del) return
+    const ops: { from: number; to: number; del: boolean; mark: any }[] = []
+    state.doc.descendants((node: any, pos: number) => {
+      if (!node.isText) return
+      if (node.marks.some((m: any) => m.type === ins)) ops.push({ from: pos, to: pos + node.nodeSize, del: !accept, mark: ins })
+      else if (node.marks.some((m: any) => m.type === del)) ops.push({ from: pos, to: pos + node.nodeSize, del: accept, mark: del })
+    })
+    if (!ops.length) return
+    const tr = state.tr
+    // apply bottom-up so earlier positions stay valid
+    ops.sort((a, b) => b.from - a.from).forEach((op) => {
+      if (op.del) tr.delete(op.from, op.to)
+      else tr.removeMark(op.from, op.to, op.mark)
+    })
+    tip.view.dispatch(tr)
     editor.focus()
   }
   const addLink = () => {
@@ -739,7 +774,7 @@ export default function DocEditor({
   }
 
   const editorView = (
-    <BlockNoteView editor={editor} editable={mode === 'editing'} theme={theme} formattingToolbar={false} sideMenu={false}>
+    <BlockNoteView editor={editor} editable={mode !== 'viewing'} theme={theme} formattingToolbar={false} sideMenu={false}>
       <FormattingToolbarController
         formattingToolbar={() => (
           <FormattingToolbar>
@@ -1068,14 +1103,22 @@ export default function DocEditor({
         {/* mode + view (right-aligned, single control) */}
         <div className="relative ml-auto">
           <button onClick={() => setViewOpen((o) => !o)} title="Mode & view" className={`flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium ${viewOpen ? on : isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}>
-            {mode === 'editing' ? <PencilLine size={14} /> : <Eye size={14} />} {mode === 'editing' ? 'Editing' : 'Viewing'} <ChevronDown size={12} className="opacity-60" />
+            {mode === 'viewing' ? <Eye size={14} /> : mode === 'suggesting' ? <SquarePen size={14} /> : <PencilLine size={14} />} {mode === 'editing' ? 'Editing' : mode === 'suggesting' ? 'Suggesting' : 'Viewing'} <ChevronDown size={12} className="opacity-60" />
           </button>
           {viewOpen && (
             <>
               <button aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setViewOpen(false)} />
-              <div className={`absolute right-0 top-full z-20 mt-1 w-48 overflow-hidden rounded-xl border py-1 shadow-2xl ${isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#0f1c3f]'}`}>
+              <div className={`absolute right-0 top-full z-20 mt-1 w-52 overflow-hidden rounded-xl border py-1 shadow-2xl ${isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#0f1c3f]'}`}>
                 <button onClick={() => { setMode('editing'); setViewOpen(false) }} className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] ${mode === 'editing' ? 'text-primary' : isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}><PencilLine size={14} className="opacity-70" /> Editing</button>
+                <button onClick={() => { setMode('suggesting'); setViewOpen(false) }} className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] ${mode === 'suggesting' ? 'text-primary' : isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}><SquarePen size={14} className="opacity-70" /> Suggesting</button>
                 <button onClick={() => { setMode('viewing'); setViewOpen(false) }} className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] ${mode === 'viewing' ? 'text-primary' : isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}><Eye size={14} className="opacity-70" /> Viewing (read-only)</button>
+                {mode === 'suggesting' && (
+                  <>
+                    <div className={`my-1 h-px ${isLight ? 'bg-black/10' : 'bg-white/10'}`} />
+                    <button onClick={() => { resolveSuggestions(true); setViewOpen(false) }} className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}><Check size={14} className="opacity-70" style={{ color: 'hsl(var(--status-green))' }} /> Accept all changes</button>
+                    <button onClick={() => { resolveSuggestions(false); setViewOpen(false) }} className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}><X size={14} className="text-destructive opacity-80" /> Reject all changes</button>
+                  </>
+                )}
                 <div className={`my-1 h-px ${isLight ? 'bg-black/10' : 'bg-white/10'}`} />
                 <button onClick={toggleRuler} className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}><RulerIcon size={14} className="opacity-70" /> {showRuler ? 'Hide ruler' : 'Show ruler'}</button>
                 <button onClick={() => { toggleLayout(); setViewOpen(false) }} className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}>{layout === 'page' ? <StretchHorizontal size={14} className="opacity-70" /> : <FileText size={14} className="opacity-70" />} {layout === 'page' ? 'Pageless' : 'Pages'}</button>

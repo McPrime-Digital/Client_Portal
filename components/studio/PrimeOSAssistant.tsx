@@ -8,30 +8,8 @@ import {
 } from 'lucide-react'
 import { modelsByModality } from '@/lib/ai/models'
 import PrimeOSMark from './PrimeOSMark'
-
-type Turn = { role: 'user' | 'assistant'; text: string; applicable?: boolean }
-const QUICK_SEL = ['Improve writing', 'Make it shorter', 'Make it longer', 'Fix grammar', 'Rephrase', 'More cinematic', 'Continue writing']
-const QUICK_NONE = ['Continue writing', 'Write the next scene', 'Brainstorm ideas', 'Outline this sequence', 'Suggest a stronger title']
-
-// Expert lenses — shape the model's system prompt for film + automation work.
-const PERSONAS = [
-  { id: 'screenwriter', label: 'Screenwriter', sys: 'You are a master screenwriter — vivid action lines, subtext-rich dialogue, correct screenplay format and rhythm.' },
-  { id: 'doctor', label: 'Script Doctor', sys: 'You are a veteran script doctor. Diagnose structure, pacing, motivation and dialogue, and fix them incisively.' },
-  { id: 'director', label: 'Director', sys: 'You are a film director. Think in shots, blocking, coverage, visual storytelling and tone.' },
-  { id: 'producer', label: 'Showrunner', sys: 'You are a showrunner/producer — story arcs, marketability, budget-aware choices and series logic.' },
-  { id: 'copy', label: 'Ad Copywriter', sys: 'You are a world-class advertising copywriter — punchy hooks, persuasion, brand-safe lines and strong CTAs.' },
-  { id: 'editor', label: 'Story Editor', sys: 'You are a sharp story editor — clarity, continuity, theme and line-level polish without losing the writer’s voice.' },
-  { id: 'automation', label: 'Automation Architect', sys: 'You are an automation/workflow architect. Design robust automations — triggers, steps, integrations, data shapes, retries and error handling — and write precise specs or JSON when asked.' },
-]
-
-// Action library — high-leverage commands for drafting film + automations fast.
-const COMMANDS: { group: string; items: string[] }[] = [
-  { group: 'Write', items: ['Continue writing', 'Write the next scene', 'Draft dialogue for this beat', 'Write a logline', 'Write a one-paragraph synopsis', 'Write director’s coverage notes'] },
-  { group: 'Improve', items: ['Punch up the dialogue', 'Tighten for runtime', 'Stronger verbs & imagery', 'Show, don’t tell', 'Fix grammar & spelling', 'Make it more cinematic'] },
-  { group: 'Transform', items: ['Format as a screenplay', 'Turn into a beat sheet', 'Turn into a shot list', 'Turn into a treatment', 'Summarize', 'Translate to…'] },
-  { group: 'Film', items: ['Suggest shots & coverage', 'Continuity check', 'Character voice pass', 'Add stage directions', 'Shift the genre/tone', 'Generate 3 alternate takes'] },
-  { group: 'Automation', items: ['Draft an automation spec', 'Outline a workflow', 'Write integration steps', 'Generate a JSON config', 'Add error handling & retries'] },
-]
+import Markdown from './Markdown'
+import { PERSONAS, COMMANDS, QUICK_SEL, QUICK_NONE, type Turn } from '@/lib/studio/primePrompts'
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
 
@@ -458,13 +436,15 @@ export default function PrimeOSAssistant({
           {turns.map((t, i) => (
             <div key={i} className={`group ${t.role === 'user' ? 'text-right' : ''}`}>
               <div
-                className={`inline-block max-w-[92%] whitespace-pre-wrap break-words rounded-xl px-2.5 py-1.5 text-[13px] leading-relaxed ${
+                className={`inline-block max-w-[92%] break-words rounded-xl px-2.5 py-1.5 text-[13px] leading-relaxed ${
                   t.role === 'user'
-                    ? 'bg-primary text-primary-foreground'
+                    ? 'whitespace-pre-wrap bg-primary text-primary-foreground'
                     : isLight ? 'bg-black/[0.04] text-gray-800' : 'bg-white/[0.06] text-gray-100'
                 }`}
               >
-                {t.text || (t.role === 'assistant' && loading ? '…' : '')}
+                {t.role === 'assistant'
+                  ? (t.text ? <Markdown text={t.text} /> : (loading ? '…' : ''))
+                  : t.text}
               </div>
               {/* user-turn actions: rerun · edit · copy (on hover) */}
               {t.role === 'user' && (

@@ -4,6 +4,7 @@ import { ArrowLeft } from 'lucide-react'
 import { getSpace } from '@/lib/studio/spaces'
 import ScriptDesign from '@/components/studio/ScriptDesign'
 import Storyboard from '@/components/studio/Storyboard'
+import PrimeOSChat from '@/components/studio/PrimeOSChat'
 
 export default async function FeaturePage({
   params,
@@ -21,6 +22,9 @@ export default async function FeaturePage({
   }
   if (space.id === 'workspace' && feature.slug === 'storyboard') {
     return <Storyboard />
+  }
+  if (space.id === 'workspace' && feature.slug === 'ai-chat') {
+    return <PrimeOSChat />
   }
 
   const Icon = feature.icon
