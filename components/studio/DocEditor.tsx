@@ -22,6 +22,7 @@ import type { SupabaseYjsProvider } from '@/lib/collab/supabaseYjs'
 import { SCRIPT_TEMPLATES } from '@/lib/studio/scriptTemplates'
 import { docSchema } from '@/lib/studio/editorSchema'
 import { FONT_FAMILIES, FONT_SIZES } from '@/lib/studio/fonts'
+import { createPaginationPlugin, paginationKey } from '@/lib/studio/pagination'
 import { createClient } from '@/lib/supabase/client'
 import DocComments from './DocComments'
 import PrimeOSAssistant from './PrimeOSAssistant'
@@ -261,15 +262,14 @@ export default function DocEditor({
       return next
     })
 
-  // Page geometry (Letter @ 96dpi). Real pagination pushes overflowing blocks to
-  // the next page sheet (see paginate() below).
+  // Page geometry (Letter @ 96dpi). The pagination plugin pushes overflowing
+  // blocks to the next page sheet (see createPaginationPlugin wiring below).
   const PAGE_H = 1056
   const PAGE_TOP = 72
   const PAGE_BOT = 72
   const PAGE_GAP = 28 // visible space between page sheets
   const surfaceRef = useRef<HTMLDivElement>(null)
   const [contentHeight, setContentHeight] = useState(PAGE_H)
-  const pageRaf = useRef(0)
 
   // Page margins (adjustable via the ruler), remembered per doc.
   const [margins, setMargins] = useState({ left: 96, right: 96 })
@@ -292,62 +292,37 @@ export default function DocEditor({
     }
   }, [margins, docId])
 
-  // Real pagination — measure each top-level block; push any that would overflow
-  // the page onto the next sheet via a top margin. Pure DOM (no editor plugin).
+  // Real pagination. A ProseMirror plugin lays out page breaks via node
+  // decorations — the only mechanism that survives PM/collab re-renders (writing
+  // styles into the editable makes PM redraw the node and wipe them). The plugin
+  // reads geometry/zoom/enabled through these refs, and re-paginates on its own
+  // ResizeObserver + on every doc change.
   const layoutRef = useRef(layout)
   layoutRef.current = layout
-  const paginate = () => {
-    const surface = surfaceRef.current
-    if (!surface) return
-    const root = surface.querySelector('.bn-block-group')
-    const blocks = root
-      ? Array.from(root.children).filter((el): el is HTMLElement => el instanceof HTMLElement && el.classList.contains('bn-block-outer'))
-      : []
-    // The spacer MUST go on the inner .bn-block — margin on .bn-block-outer is ignored.
-    const inners = blocks.map((b) => b.querySelector(':scope > .bn-block') as HTMLElement | null)
-    inners.forEach((i) => { if (i && i.style.marginTop) i.style.marginTop = '' })
-    if (layoutRef.current !== 'page' || blocks.length === 0) {
-      setContentHeight(surface.offsetHeight)
-      return
-    }
-    void surface.offsetHeight // flush the reset before measuring
-    // Real measured positions (anchored so the first block sits at the top margin).
-    const base = blocks[0].getBoundingClientRect().top
-    const relTop = blocks.map((b) => b.getBoundingClientRect().top - base + PAGE_TOP)
-    const heights = blocks.map((b) => b.offsetHeight)
-    const maxBlock = PAGE_H - PAGE_TOP - PAGE_BOT - PAGE_GAP
-    let pushed = 0
-    let page = 0
-    for (let i = 0; i < blocks.length; i++) {
-      const top = relTop[i] + pushed
-      const bottom = top + heights[i]
-      const pageBottom = page * PAGE_H + (PAGE_H - PAGE_GAP - PAGE_BOT)
-      if (bottom > pageBottom + 1 && heights[i] <= maxBlock) {
-        const delta = Math.round((page + 1) * PAGE_H + PAGE_TOP - top)
-        const inner = inners[i]
-        if (inner) inner.style.marginTop = `${delta}px`
-        pushed += delta
-        page += 1
-      }
-    }
-    setContentHeight(surface.offsetHeight)
-  }
-  const schedulePaginate = () => {
-    if (!pageRaf.current) pageRaf.current = requestAnimationFrame(() => { pageRaf.current = 0; paginate() })
-  }
+  const zoomRef = useRef(zoom)
+  zoomRef.current = zoom
+  useEffect(() => {
+    const tiptap = (editor as unknown as { _tiptapEditor?: { registerPlugin: (p: unknown) => void; unregisterPlugin: (k: unknown) => void } })._tiptapEditor
+    if (!tiptap) return
+    const plugin = createPaginationPlugin({
+      enabled: () => layoutRef.current === 'page',
+      geom: () => ({ pitch: PAGE_H, sheet: PAGE_H - PAGE_GAP, marginTop: PAGE_TOP, marginBottom: PAGE_BOT }),
+      zoom: () => zoomRef.current,
+    })
+    tiptap.registerPlugin(plugin)
+    return () => { try { tiptap.unregisterPlugin(paginationKey) } catch { /* noop */ } }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor])
+
+  // Size the page-sheet backdrop from the surface height (pure read — no DOM
+  // writes inside the editor, so it never fights ProseMirror).
   useEffect(() => {
     const el = surfaceRef.current
     if (!el) return
-    const ro = new ResizeObserver(() => { setContentHeight(el.offsetHeight); schedulePaginate() })
+    const ro = new ResizeObserver(() => setContentHeight(el.offsetHeight))
     ro.observe(el)
-    schedulePaginate()
     return () => ro.disconnect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layout])
-  useEffect(() => {
-    schedulePaginate()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layout, margins, lineSpacing, zoom, mode])
+  }, [])
   const [versions, setVersions] = useState<DocVersion[] | null>(null)
   const [vBusy, setVBusy] = useState(false)
   const supabase = useMemo(() => createClient(), [])
@@ -373,7 +348,6 @@ export default function DocEditor({
           void supabase.from('documents').update({ preview: html || text.slice(0, 800) }).eq('id', docId)
         }, 600)
       }
-      schedulePaginate()
     }
     update()
     const off = editor.onChange(update)
@@ -1149,7 +1123,7 @@ export default function DocEditor({
               className={layout === 'page' ? 'relative w-[816px] max-w-full' : 'relative mx-auto w-full max-w-4xl'}
               style={{ zoom, ...(layout === 'page' ? { minHeight: PAGE_H } : {}) }}
             >
-              {/* real page sheets with gaps between them; paginate() pushes content to line up */}
+              {/* real page sheets with gaps between them; the pagination plugin lines content up */}
               {layout === 'page' &&
                 Array.from({ length: Math.max(1, Math.ceil(contentHeight / PAGE_H)) }).map((_, i) => (
                   <div

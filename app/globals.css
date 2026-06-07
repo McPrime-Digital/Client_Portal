@@ -231,6 +231,13 @@
 .tl-editor .ProseMirror { min-height: 8em; font-size: 1.05rem; line-height: var(--tl-line, 1.75); }
 .tl-page-spacer { user-select: none; display: block; }
 
+/* Pagination spacer driven by a CSS custom property. The page break margin is
+   carried by --tl-break on the block's OUTER wrapper and applied to the INNER
+   .bn-block (outer margin is ignored by BlockNote's layout). Crucially the
+   margin comes from a static CSS rule — not a direct style write inside the
+   contenteditable — so ProseMirror's mutation observer never fights it. */
+.bn-block-outer > .bn-block { margin-top: var(--tl-break, 0px); }
+
 /* Recent-doc thumbnail: real first-page HTML, scaled to fit the card */
 .tl-thumb { font: 400 16px/1.55 Inter, system-ui, sans-serif; color: #1f2937; word-break: break-word; }
 .tl-thumb h1 { font-size: 30px; font-weight: 700; line-height: 1.2; margin: 0 0 12px; }
