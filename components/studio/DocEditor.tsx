@@ -216,6 +216,7 @@ export default function DocEditor({
   const fileRef = useRef<HTMLInputElement>(null)
   const [showHistory, setShowHistory] = useState(false)
   const [showComments, setShowComments] = useState(false)
+  const [pendingAnchor, setPendingAnchor] = useState<string | null>(null)
   const [fontOpen, setFontOpen] = useState(false)
   const [sizeOpen, setSizeOpen] = useState(false)
   const [colorOpen, setColorOpen] = useState(false)
@@ -634,6 +635,38 @@ export default function DocEditor({
     }
     editor.focus()
   }
+  // Anchored comments — highlight the selected text and tie a thread to it.
+  const addComment = () => {
+    const text = editor.getSelectedText?.() || ''
+    if (!text.trim()) { setShowComments(true); return }
+    const id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `c-${Date.now()}`
+    editor.addStyles({ comment: id })
+    setPendingAnchor(id)
+    setShowComments(true)
+    editor.focus()
+  }
+  const removeCommentMark = (id: string) => {
+    for (const b of editor.document as any[]) {
+      if (!Array.isArray(b.content)) continue
+      let changed = false
+      const content = b.content.map((node: any) => {
+        if (node?.styles?.comment === id) {
+          changed = true
+          const styles = { ...node.styles }
+          delete styles.comment
+          return { ...node, styles }
+        }
+        return node
+      })
+      if (changed) editor.updateBlock(b, { content } as any)
+    }
+  }
+  const jumpToAnchor = (id: string) => {
+    const el = document.querySelector(`.tl-comment[data-comment="${id}"]`) as HTMLElement | null
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el?.animate?.([{ backgroundColor: 'rgba(245,158,11,0.65)' }, { backgroundColor: 'rgba(251,191,36,0.28)' }], { duration: 1200 })
+  }
+
   const editorView = (
     <BlockNoteView editor={editor} editable={mode === 'editing'} theme={theme} formattingToolbar={false}>
       <FormattingToolbarController
@@ -683,7 +716,7 @@ export default function DocEditor({
           ['Insert', [
             { label: 'Image', fn: insertImage },
             { label: 'Link', fn: addLink },
-            { label: 'Comment', fn: () => setShowComments(true) },
+            { label: 'Comment on selection', fn: addComment },
           ]],
           ['Format', [
             { label: 'Bold', fn: () => toggle('bold') },
@@ -1024,6 +1057,9 @@ export default function DocEditor({
               editor.focus()
             }
           }}
+          onClick={(e) => {
+            if ((e.target as HTMLElement).closest?.('.tl-comment')) setShowComments(true)
+          }}
         >
           {/* One persistent editor — content stays at a stable position (key) across
               page/pageless so the Yjs binding is never torn down (toggling never drops edits). */}
@@ -1127,6 +1163,10 @@ export default function DocEditor({
             provider={provider}
             isLight={isLight}
             onClose={() => setShowComments(false)}
+            pendingAnchor={pendingAnchor}
+            onAnchorUsed={() => setPendingAnchor(null)}
+            onRemoveAnchor={removeCommentMark}
+            onJumpAnchor={jumpToAnchor}
           />
         )}
 

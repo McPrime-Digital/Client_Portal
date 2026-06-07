@@ -12,6 +12,7 @@ type Comment = {
   mentions: string[]
   resolved: boolean
   created_at: string
+  anchor_id: string | null
 }
 
 const MENTION_RE = /@([\p{L}\p{N}_.\-]+)/gu
@@ -45,6 +46,10 @@ export default function DocComments({
   provider,
   isLight,
   onClose,
+  pendingAnchor,
+  onAnchorUsed,
+  onRemoveAnchor,
+  onJumpAnchor,
 }: {
   docId: string
   tabKey: string
@@ -52,6 +57,10 @@ export default function DocComments({
   provider: SupabaseYjsProvider
   isLight: boolean
   onClose: () => void
+  pendingAnchor?: string | null
+  onAnchorUsed?: () => void
+  onRemoveAnchor?: (anchorId: string) => void
+  onJumpAnchor?: (anchorId: string) => void
 }) {
   const supabase = useMemo(() => createClient(), [])
   const [comments, setComments] = useState<Comment[] | null>(null)
@@ -82,7 +91,7 @@ export default function DocComments({
     () => async () => {
       const { data } = await supabase
         .from('document_comments')
-        .select('id, body, author_name, mentions, resolved, created_at')
+        .select('id, body, author_name, mentions, resolved, created_at, anchor_id')
         .eq('document_id', docId)
         .eq('tab_key', tabKey)
         .order('created_at', { ascending: true })
@@ -117,15 +126,20 @@ export default function DocComments({
       body: text,
       author_name: userName,
       mentions,
+      anchor_id: pendingAnchor ?? null,
     })
+    if (pendingAnchor) onAnchorUsed?.()
     void load()
   }
   const toggleResolved = async (c: Comment) => {
-    await supabase.from('document_comments').update({ resolved: !c.resolved }).eq('id', c.id)
+    const next = !c.resolved
+    await supabase.from('document_comments').update({ resolved: next }).eq('id', c.id)
+    if (next && c.anchor_id) onRemoveAnchor?.(c.anchor_id) // resolving clears the highlight
     void load()
   }
   const del = async (c: Comment) => {
     await supabase.from('document_comments').delete().eq('id', c.id)
+    if (c.anchor_id) onRemoveAnchor?.(c.anchor_id)
     void load()
   }
   const insertMention = (name: string) => {
@@ -172,6 +186,9 @@ export default function DocComments({
                   <span className={`truncate text-xs font-semibold ${isLight ? 'text-gray-700' : 'text-gray-200'}`}>
                     {c.author_name ?? 'Someone'}
                   </span>
+                  {c.anchor_id && !c.resolved && (
+                    <button onClick={() => onJumpAnchor?.(c.anchor_id!)} title="Jump to highlighted text" className="rounded bg-amber-400/20 px-1 text-[9px] font-semibold text-amber-600 hover:bg-amber-400/30">text</button>
+                  )}
                   <span className={`ml-auto text-[10px] ${muted}`}>{rel(c.created_at)}</span>
                 </div>
                 <p className={`whitespace-pre-wrap break-words text-[13px] leading-snug ${isLight ? 'text-gray-700' : 'text-gray-200'}`}>
@@ -196,6 +213,11 @@ export default function DocComments({
 
       {/* composer */}
       <div className={`relative border-t p-2.5 ${isLight ? 'border-black/10' : 'border-white/10'}`}>
+        {pendingAnchor && (
+          <div className="mb-1.5 flex items-center gap-1.5 rounded-md bg-amber-400/15 px-2 py-1 text-[11px] font-medium text-amber-600">
+            <span className="h-2 w-2 rounded-full bg-amber-400" /> Commenting on the selected text
+          </div>
+        )}
         {pickMention && peers.length > 0 && (
           <div className={`absolute bottom-full left-2.5 mb-1 w-40 overflow-hidden rounded-lg border shadow-lg ${isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#0f1c3f]'}`}>
             {peers.map((p) => (

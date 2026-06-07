@@ -48,6 +48,20 @@ const Sup = createReactStyleSpec(
   { type: 'sup', propSchema: 'boolean' },
   { render: (props) => <sup ref={props.contentRef} /> },
 )
+// Anchored comment highlight — value is the comment/anchor id (data-comment).
+const Comment = createReactStyleSpec(
+  { type: 'comment', propSchema: 'string' },
+  {
+    render: (props) => (
+      <span
+        ref={props.contentRef}
+        className="tl-comment"
+        data-comment={props.value}
+        style={{ backgroundColor: 'rgba(251,191,36,0.28)', borderBottom: '2px solid rgba(245,158,11,0.75)', cursor: 'pointer' }}
+      />
+    ),
+  },
+)
 
 export const docSchema = BlockNoteSchema.create({
   styleSpecs: {
@@ -59,6 +73,7 @@ export const docSchema = BlockNoteSchema.create({
     gradient: Gradient,
     sub: Sub,
     sup: Sup,
+    comment: Comment,
   },
 })
 
