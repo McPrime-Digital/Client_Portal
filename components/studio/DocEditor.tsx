@@ -30,9 +30,9 @@ import { SCRIPT_TEMPLATES } from '@/lib/studio/scriptTemplates'
 import { docSchema } from '@/lib/studio/editorSchema'
 import { FONT_FAMILIES, FONT_SIZES } from '@/lib/studio/fonts'
 import { createPaginationPlugin, paginationKey } from '@/lib/studio/pagination'
+import { usePrimeStore } from '@/lib/studio/primeStore'
 import { createClient } from '@/lib/supabase/client'
 import DocComments from './DocComments'
-import PrimeOSAssistant from './PrimeOSAssistant'
 import PrimeOSMark from './PrimeOSMark'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -182,7 +182,6 @@ function PrimeToolbarButton({ onMuse }: { onMuse: () => void }) {
 // Full-page collaborative document editor: persistent formatting toolbar,
 // outline/TOC, and live word/character count. `theme` is the per-document light/dark.
 type DocVersion = { id: string; label: string | null; content: any; created_by_name: string | null; created_at: string }
-type MuseAnchor = { text: string; rect: DOMRect | null; range: { from: number; to: number } | null }
 
 export default function DocEditor({
   docId,
@@ -654,29 +653,31 @@ export default function DocEditor({
     editor.focus()
   }
 
-  // Muse inline — open a chat anchored to the current selection, apply to it.
-  const [muse, setMuse] = useState<MuseAnchor | null>(null)
-  // PrimeOS conversation kept here so it survives the panel closing & reopening.
-  const primeTurns = useRef<{ role: 'user' | 'assistant'; text: string; applicable?: boolean }[]>([])
+  // PrimeOS — opens the app-wide assistant (rendered in the studio shell so it
+  // survives navigation and stays until the user closes it). The editor registers
+  // its apply handler + doc-text getter with the store while mounted.
+  const primeOpen = usePrimeStore((s) => s.open)
+  const museRange = useRef<{ from: number; to: number } | null>(null)
   const openMuse = (fromRail = false) => {
     const text = (editor.getSelectedText?.() || window.getSelection()?.toString() || '').trim()
     if (!text && !fromRail) return // toolbar needs a selection; the rail opens a general chat
-    const sel = typeof window !== 'undefined' ? window.getSelection() : null
-    const rect = text && sel && sel.rangeCount ? sel.getRangeAt(0).getBoundingClientRect() : null
     const tip = editor._tiptapEditor
-    const range = text && tip ? { from: tip.state.selection.from, to: tip.state.selection.to } : null
-    setMuse({ text, rect, range })
+    museRange.current = text && tip ? { from: tip.state.selection.from, to: tip.state.selection.to } : null
+    const store = usePrimeStore.getState()
+    if (text) store.setSel(text)
+    store.openPanel()
   }
   const applyMuse = async (newText: string, modeKind: 'replace' | 'after') => {
     const tip = editor._tiptapEditor
+    const range = museRange.current
     const multiline = /\n/.test(newText.trim())
     // single line (word / sentence rewrite) → inline replace, preserving formatting
-    if (!multiline && tip && muse?.range) {
+    if (!multiline && tip && range) {
       if (modeKind === 'replace') {
-        tip.chain().focus().insertContentAt(muse.range, newText).run()
-        setMuse((m) => (m ? { ...m, range: { from: muse.range!.from, to: muse.range!.from + newText.length }, text: newText } : m))
+        tip.chain().focus().insertContentAt(range, newText).run()
+        museRange.current = { from: range.from, to: range.from + newText.length }
       } else {
-        tip.chain().focus().insertContentAt(muse.range.to, ` ${newText}`).run()
+        tip.chain().focus().insertContentAt(range.to, ` ${newText}`).run()
       }
       editor.focus()
       return
@@ -693,6 +694,18 @@ export default function DocEditor({
     }
     editor.focus()
   }
+  // Register this editor with the app-wide PrimeOS store so the dock can apply
+  // results here and read the document text — without re-rendering on every change.
+  const applyRef = useRef(applyMuse)
+  applyRef.current = applyMuse
+  useEffect(() => {
+    const apply = (text: string, mode: 'replace' | 'after') => { void applyRef.current(text, mode) }
+    const getText = () => allText(editor)
+    const store = usePrimeStore.getState()
+    store.registerEditor(apply, getText)
+    return () => store.unregisterEditor(apply)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor])
   // Anchored comments — highlight the selected text and tie a thread to it.
   const addComment = () => {
     const text = editor.getSelectedText?.() || ''
@@ -1239,7 +1252,7 @@ export default function DocEditor({
         {/* right rail — functional tools + live counter */}
         <div className={`flex w-11 flex-shrink-0 flex-col items-center gap-1 border-l py-2 ${isLight ? 'border-black/10 bg-black/[0.02]' : 'border-white/10 bg-white/[0.02]'}`}>
           {[
-            { I: PrimeOSMark, title: 'PrimeOS AI', active: !!muse, fn: () => openMuse(true) },
+            { I: PrimeOSMark, title: 'PrimeOS', active: primeOpen, fn: () => openMuse(true) },
             { I: ListTree, title: 'Outline', active: showOutline, fn: () => setShowOutline((s) => !s) },
             { I: MessageSquare, title: 'Comments', active: showComments, fn: () => setShowComments((s) => !s) },
             { I: History, title: 'Version history', active: showHistory, fn: toggleHistory },
@@ -1262,19 +1275,6 @@ export default function DocEditor({
           </div>
         </div>
       </div>
-
-      {muse && (
-        <PrimeOSAssistant
-          selText={muse.text}
-          docText={allText(editor)}
-          rect={muse.rect}
-          isLight={isLight}
-          onApply={applyMuse}
-          onClose={() => setMuse(null)}
-          initialTurns={primeTurns.current}
-          onTurns={(t) => { primeTurns.current = t }}
-        />
-      )}
     </div>
   )
 }

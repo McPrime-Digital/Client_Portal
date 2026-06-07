@@ -5,6 +5,7 @@ import { isAdmin } from '@/lib/auth/role'
 import StudioSidebar from '@/components/studio/StudioSidebar'
 import StudioTopbar from '@/components/studio/StudioTopbar'
 import SessionDock from '@/components/studio/SessionDock'
+import PrimeOSDock from '@/components/studio/PrimeOSDock'
 import { GOOGLE_FONTS_HREF } from '@/lib/studio/fonts'
 
 // Throughline internal/studio shell — team-only (admins). The external client
@@ -46,6 +47,8 @@ export default async function StudioLayout({ children }: { children: React.React
       </div>
       {/* Persistent page-in-view session — survives navigation across the studio. */}
       <SessionDock />
+      {/* App-wide PrimeOS assistant — sticky across navigation until the user closes it. */}
+      <PrimeOSDock />
     </div>
   )
 }

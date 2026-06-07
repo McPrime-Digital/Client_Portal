@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { SPACES, getSpace } from '@/lib/studio/spaces'
+import PrimeOSMark from './PrimeOSMark'
 
 export default function StudioSidebar({ userName, orgName }: { userName: string; orgName: string }) {
   const parts = usePathname().split('/').filter(Boolean) // ['studio', space?, feature?]
@@ -69,7 +70,9 @@ export default function StudioSidebar({ userName, orgName }: { userName: string;
                 active ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground'
               }`}
             >
-              <Icon size={16} className="flex-shrink-0" />
+              {f.slug === 'ai-chat'
+                ? <PrimeOSMark size={17} className="flex-shrink-0" />
+                : <Icon size={16} className="flex-shrink-0" />}
               <span className="flex-1 truncate">{f.label}</span>
               {f.badge && <span className="text-[9px] font-bold tracking-wide text-primary">★ {f.badge}</span>}
             </Link>

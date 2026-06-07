@@ -62,7 +62,7 @@ export const SPACES: Space[] = [
       // Finishing Suite: AI-native post — edit assist, sound, VO, mastering, color.
       { slug: 'finishing', label: 'Finishing Suite', icon: SlidersHorizontal, phase: 3 },
       // PrimeOS AI: brainstorm → draft → architect scripts, automations, and film. Switchable model mid-chat.
-      { slug: 'ai-chat', label: 'PrimeOS AI', icon: Aperture, phase: 3 },
+      { slug: 'ai-chat', label: 'PrimeOS', icon: Aperture, phase: 3 },
       { slug: 'continuity', label: 'Continuity', icon: Fingerprint, phase: 2, badge: 'NEW' },
       { slug: 'arena', label: 'Model Arena', icon: Swords, phase: 3 },
       { slug: 'studio-kits', label: 'Studio Kits', icon: Package, phase: 4 },

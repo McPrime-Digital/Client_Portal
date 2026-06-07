@@ -254,8 +254,8 @@
 }
 /* star spins fast while generating, then eases to a stop when the answer lands */
 @keyframes tl-mark-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-.tl-mark-spin { animation: tl-mark-spin 0.7s linear infinite; }
-.tl-mark-slow { animation: tl-mark-spin 1.6s cubic-bezier(0.12, 0.7, 0.18, 1) forwards; }
+.tl-mark-spin { animation: tl-mark-spin 0.4s linear infinite; }
+.tl-mark-slow { animation: tl-mark-spin 1.5s cubic-bezier(0.12, 0.7, 0.18, 1) forwards; }
 @media (prefers-reduced-motion: reduce) {
   .tl-primeos-ponder, .tl-mark-spin, .tl-mark-slow { animation: none; }
 }

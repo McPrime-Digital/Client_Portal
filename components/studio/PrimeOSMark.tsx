@@ -10,25 +10,29 @@ import { useEffect, useRef, useState } from 'react'
 export default function PrimeOSMark({
   size = 20,
   pondering = false,
+  spinning = false,
   className = '',
 }: {
   size?: number
+  /** halo glow (e.g. on the top bar while working) — does NOT spin */
   pondering?: boolean
+  /** spin the star fast, then decelerate to rest when it turns off */
+  spinning?: boolean
   className?: string
 }) {
   const [phase, setPhase] = useState<'idle' | 'spin' | 'slow'>('idle')
-  const wasPondering = useRef(false)
+  const wasSpinning = useRef(false)
   useEffect(() => {
-    if (pondering) {
-      wasPondering.current = true
+    if (spinning) {
+      wasSpinning.current = true
       setPhase('spin')
-    } else if (wasPondering.current) {
-      wasPondering.current = false
+    } else if (wasSpinning.current) {
+      wasSpinning.current = false
       setPhase('slow') // one decelerating revolution, then rest
-      const t = setTimeout(() => setPhase('idle'), 1600)
+      const t = setTimeout(() => setPhase('idle'), 1400)
       return () => clearTimeout(t)
     }
-  }, [pondering])
+  }, [spinning])
 
   const spin = phase === 'spin' ? 'tl-mark-spin' : phase === 'slow' ? 'tl-mark-slow' : ''
 

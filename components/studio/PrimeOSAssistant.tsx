@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ChevronDown, X, CornerDownLeft, Replace, CornerDownRight, Copy, Loader2, Check,
+  ChevronDown, X, CornerDownLeft, Replace, CornerDownRight, Copy, Check,
   GripHorizontal, Wand2, Bookmark, RotateCcw, Pencil, Square, Plus, Sparkles,
+  Mic, History as HistoryIcon, Trash2,
 } from 'lucide-react'
 import { modelsByModality } from '@/lib/ai/models'
 import PrimeOSMark from './PrimeOSMark'
@@ -43,6 +44,7 @@ export default function PrimeOSAssistant({
   onClose,
   initialTurns,
   onTurns,
+  canApply = true,
 }: {
   selText: string
   docText?: string
@@ -52,9 +54,16 @@ export default function PrimeOSAssistant({
   onClose: () => void
   initialTurns?: Turn[]
   onTurns?: (turns: Turn[]) => void
+  /** whether an editor is available to receive Replace/Insert (false on non-editor pages) */
+  canApply?: boolean
 }) {
   const textModels = useMemo(() => modelsByModality('text'), [])
-  const [model, setModel] = useState(textModels[1]?.id ?? textModels[0]?.id ?? 'anthropic/claude-sonnet')
+  const [model, setModelState] = useState(textModels[1]?.id ?? textModels[0]?.id ?? 'anthropic/claude-sonnet')
+  // Remember the last-used model across sessions.
+  useEffect(() => {
+    try { const m = localStorage.getItem('tl-primeos-model'); if (m && textModels.some((x) => x.id === m)) setModelState(m) } catch { /* ignore */ }
+  }, [textModels])
+  const setModel = (id: string) => { setModelState(id); try { localStorage.setItem('tl-primeos-model', id) } catch { /* ignore */ } }
   const [modelOpen, setModelOpen] = useState(false)
   const [turns, setTurns] = useState<Turn[]>(initialTurns ?? [])
   // Persist the conversation up to the parent so it survives close → reopen.
@@ -75,6 +84,17 @@ export default function PrimeOSAssistant({
   const personaLabel = PERSONAS.find((p) => p.id === persona)?.label ?? 'Screenwriter'
   const [saved, setSaved] = useState<string[]>([])
   const [balance, setBalance] = useState<number | null>(null)
+  // voice dictation + conversation history
+  const [recording, setRecording] = useState(false)
+  const recogRef = useRef<{ stop: () => void } | null>(null)
+  const [histOpen, setHistOpen] = useState(false)
+  const [history, setHistory] = useState<{ id: string; title: string; turns: Turn[]; ts: number }[]>([])
+  const persistHistory = (next: typeof history) => { try { localStorage.setItem('tl-primeos-history', JSON.stringify(next)) } catch { /* ignore */ } ; setHistory(next) }
+  const archive = (t: Turn[]) => {
+    if (!t.length) return
+    const title = (t.find((x) => x.role === 'user')?.text || 'Conversation').slice(0, 70)
+    persistHistory([{ id: Math.random().toString(36).slice(2), title, turns: t, ts: Date.now() }, ...history].slice(0, 40))
+  }
   const fetchBalance = () => {
     fetch('/api/studio/credits').then((r) => r.json()).then((j) => { if (typeof j.balanceCents === 'number') setBalance(j.balanceCents) }).catch(() => {})
   }
@@ -91,8 +111,31 @@ export default function PrimeOSAssistant({
   }
   useEffect(() => {
     try { const s = JSON.parse(localStorage.getItem('tl-primeos-prompts') || '[]'); if (Array.isArray(s)) setSaved(s) } catch { /* ignore */ }
+    try { const h = JSON.parse(localStorage.getItem('tl-primeos-history') || '[]'); if (Array.isArray(h)) setHistory(h) } catch { /* ignore */ }
     fetchBalance()
   }, [])
+
+  // Voice dictation via the Web Speech API — transcribes straight into the box.
+  const toggleRecord = () => {
+    const SR = (window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any }).SpeechRecognition
+      || (window as unknown as { webkitSpeechRecognition?: any }).webkitSpeechRecognition
+    if (!SR) { alert('Voice input isn’t supported in this browser. Try Chrome or Edge.'); return }
+    if (recording) { recogRef.current?.stop(); return }
+    const r = new SR()
+    r.lang = 'en-US'; r.interimResults = true; r.continuous = true
+    const base = input.trim()
+    r.onresult = (e: any) => {
+      let txt = ''
+      for (let i = 0; i < e.results.length; i++) txt += e.results[i][0].transcript
+      setInput((base ? base + ' ' : '') + txt)
+    }
+    r.onend = () => { setRecording(false); recogRef.current = null }
+    r.onerror = () => { setRecording(false); recogRef.current = null }
+    recogRef.current = r
+    r.start()
+    setRecording(true)
+    setTimeout(() => taRef.current?.focus(), 0)
+  }
   const persistSaved = (next: string[]) => { try { localStorage.setItem('tl-primeos-prompts', JSON.stringify(next)) } catch { /* ignore */ } ; setSaved(next) }
   const savePrompt = () => { const p = input.trim(); if (p) persistSaved([p, ...saved.filter((x) => x !== p)].slice(0, 12)) }
   const removeSaved = (p: string) => persistSaved(saved.filter((x) => x !== p))
@@ -235,7 +278,14 @@ export default function PrimeOSAssistant({
   }
 
   const stop = () => abortRef.current?.abort()
-  const newChat = () => { abortRef.current?.abort(); setTurns([]); setInput('') }
+  const newChat = () => { abortRef.current?.abort(); archive(turns); setTurns([]); setInput('') }
+  const loadConversation = (item: { id: string; turns: Turn[] }) => {
+    abortRef.current?.abort()
+    archive(turns) // park the current one first
+    setTurns(item.turns)
+    setHistOpen(false)
+  }
+  const deleteConversation = (id: string) => persistHistory(history.filter((h) => h.id !== id))
   const editPrompt = (text: string) => { setInput(text); setTimeout(() => taRef.current?.focus(), 0) }
   const regenerate = (i: number) => {
     for (let k = i - 1; k >= 0; k--) if (turns[k].role === 'user') { void send(turns[k].text); return }
@@ -324,7 +374,29 @@ export default function PrimeOSAssistant({
           <button onClick={() => setScope('selection')} disabled={!hasSel} className={`px-1.5 py-1 ${scope === 'selection' ? 'bg-primary/15 text-primary' : subtle} disabled:opacity-40`}>SEL</button>
           <button onClick={() => setScope('document')} className={`px-1.5 py-1 ${scope === 'document' ? 'bg-primary/15 text-primary' : subtle}`}>DOC</button>
         </div>
+        {/* conversation history */}
         <div className="relative ml-auto">
+          <button onClick={() => setHistOpen((o) => !o)} title="Conversation history" className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium ${histOpen ? 'bg-primary/15 text-primary' : isLight ? 'text-gray-600 hover:bg-black/5' : 'text-gray-300 hover:bg-white/10'}`}>
+            <HistoryIcon size={13} />
+          </button>
+          {histOpen && (
+            <>
+              <button aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setHistOpen(false)} />
+              <div className={`absolute right-0 top-full z-20 mt-1 max-h-72 w-72 overflow-y-auto rounded-xl border py-1 shadow-2xl ${surface}`}>
+                <p className={`px-3 pb-1 pt-1.5 text-[9px] font-bold uppercase tracking-widest ${subtle}`}>History</p>
+                {history.length === 0 ? (
+                  <p className={`px-3 py-2 text-[12px] ${subtle}`}>No saved conversations yet.</p>
+                ) : history.map((h) => (
+                  <div key={h.id} className="group flex items-center">
+                    <button onClick={() => loadConversation(h)} className={`min-w-0 flex-1 truncate px-3 py-1.5 text-left text-[12px] ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`} title={h.title}>{h.title}</button>
+                    <button onClick={() => deleteConversation(h.id)} className={`px-2 opacity-0 transition-opacity group-hover:opacity-100 ${subtle} hover:text-destructive`} title="Delete"><Trash2 size={12} /></button>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+        <div className="relative">
           <button onClick={() => setCmdOpen((o) => !o)} className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/15">
             <Wand2 size={12} /> Actions
           </button>
@@ -405,12 +477,16 @@ export default function PrimeOSAssistant({
               {/* assistant-turn actions */}
               {t.role === 'assistant' && t.applicable && (
                 <div className="mt-1 flex flex-wrap items-center gap-2">
-                  <button onClick={() => onApply(t.text, 'replace')} className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline">
-                    <Replace size={12} /> {hasSel ? 'Replace selection' : 'Insert at cursor'}
-                  </button>
-                  <button onClick={() => onApply(t.text, 'after')} className={`inline-flex items-center gap-1 text-[11px] font-medium ${subtle} hover:text-foreground`}>
-                    <CornerDownRight size={12} /> Insert below
-                  </button>
+                  {canApply && (
+                    <>
+                      <button onClick={() => onApply(t.text, 'replace')} className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline">
+                        <Replace size={12} /> {hasSel ? 'Replace selection' : 'Insert at cursor'}
+                      </button>
+                      <button onClick={() => onApply(t.text, 'after')} className={`inline-flex items-center gap-1 text-[11px] font-medium ${subtle} hover:text-foreground`}>
+                        <CornerDownRight size={12} /> Insert below
+                      </button>
+                    </>
+                  )}
                   <button onClick={() => copyText(t.text, i)} className={`inline-flex items-center gap-1 text-[11px] font-medium ${subtle} hover:text-foreground`}>
                     {copied === i ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
                   </button>
@@ -423,7 +499,7 @@ export default function PrimeOSAssistant({
           ))}
           {loading && (
             <div className={`inline-flex items-center gap-2 text-[12px] ${subtle}`}>
-              <PrimeOSMark size={16} pondering />
+              <PrimeOSMark size={16} pondering spinning />
               <span>PrimeOS is thinking…</span>
               <button onClick={stop} className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${isLight ? 'border-black/10 hover:bg-black/5' : 'border-white/10 hover:bg-white/10'}`} title="Stop generating">
                 <Square size={10} /> Stop
@@ -452,6 +528,13 @@ export default function PrimeOSAssistant({
             placeholder={hasSel ? 'Refine, rewrite, translate…' : 'Message PrimeOS…'}
             className={`max-h-32 min-h-[28px] flex-1 resize-none bg-transparent py-1 text-[13.5px] leading-snug outline-none ${isLight ? 'text-gray-800 placeholder:text-gray-400' : 'text-gray-100 placeholder:text-gray-500'}`}
           />
+          <button
+            onClick={toggleRecord}
+            title={recording ? 'Stop dictation' : 'Dictate (voice to text)'}
+            className={`grid h-7 w-7 flex-shrink-0 place-items-center rounded-lg transition-colors ${recording ? 'bg-destructive/15 text-destructive animate-pulse' : isLight ? 'text-gray-400 hover:bg-black/5 hover:text-gray-700' : 'text-gray-400 hover:bg-white/10 hover:text-gray-100'}`}
+          >
+            <Mic size={15} />
+          </button>
           <button
             onClick={savePrompt}
             disabled={!input.trim()}
