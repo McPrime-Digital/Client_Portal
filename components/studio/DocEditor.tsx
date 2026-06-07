@@ -211,7 +211,7 @@ export default function DocEditor({
   const [showFind, setShowFind] = useState(false)
   const [find, setFind] = useState('')
   const [replace, setReplace] = useState('')
-  const [mode, setMode] = useState<'editing' | 'viewing'>('editing')
+  const [mode, setMode] = useState<'editing' | 'suggesting' | 'viewing'>('editing')
   const fileRef = useRef<HTMLInputElement>(null)
   const [showHistory, setShowHistory] = useState(false)
   const [showComments, setShowComments] = useState(false)
@@ -261,21 +261,15 @@ export default function DocEditor({
       return next
     })
 
-  // Page geometry (Letter @ 96dpi). Page mode is one growing white page with
-  // subtle page-break guide lines; print/PDF produces real separate pages.
+  // Page geometry (Letter @ 96dpi). Real pagination pushes overflowing blocks to
+  // the next page sheet (see paginate() below).
   const PAGE_H = 1056
   const PAGE_TOP = 72
   const PAGE_BOT = 72
+  const PAGE_GAP = 28 // visible space between page sheets
   const surfaceRef = useRef<HTMLDivElement>(null)
   const [contentHeight, setContentHeight] = useState(PAGE_H)
-  useEffect(() => {
-    const el = surfaceRef.current
-    if (!el) return
-    const ro = new ResizeObserver(() => setContentHeight(el.offsetHeight))
-    ro.observe(el)
-    setContentHeight(el.offsetHeight)
-    return () => ro.disconnect()
-  }, [layout])
+  const pageRaf = useRef(0)
 
   // Page margins (adjustable via the ruler), remembered per doc.
   const [margins, setMargins] = useState({ left: 96, right: 96 })
@@ -297,6 +291,56 @@ export default function DocEditor({
       /* ignore */
     }
   }, [margins, docId])
+
+  // Real pagination — measure each top-level block; push any that would overflow
+  // the page onto the next sheet via a top margin. Pure DOM (no editor plugin).
+  const layoutRef = useRef(layout)
+  layoutRef.current = layout
+  const paginate = () => {
+    const surface = surfaceRef.current
+    if (!surface) return
+    const root = surface.querySelector('.bn-block-group')
+    const blocks = root
+      ? Array.from(root.children).filter((el): el is HTMLElement => el instanceof HTMLElement && el.classList.contains('bn-block-outer'))
+      : []
+    if (layoutRef.current !== 'page') {
+      blocks.forEach((el) => { if (el.style.marginTop) el.style.marginTop = '' })
+      return
+    }
+    const maxBlock = PAGE_H - PAGE_TOP - PAGE_BOT - PAGE_GAP
+    let y = PAGE_TOP
+    let page = 0
+    for (const el of blocks) {
+      const h = el.offsetHeight
+      const pageBottom = page * PAGE_H + (PAGE_H - PAGE_GAP - PAGE_BOT)
+      let desired = ''
+      if (y + h > pageBottom + 1 && h <= maxBlock) {
+        const nextTop = (page + 1) * PAGE_H + PAGE_TOP
+        desired = `${Math.round(nextTop - y)}px`
+        y = nextTop
+        page += 1
+      }
+      if (el.style.marginTop !== desired) el.style.marginTop = desired
+      y += h
+    }
+    setContentHeight(surface.offsetHeight)
+  }
+  const schedulePaginate = () => {
+    if (!pageRaf.current) pageRaf.current = requestAnimationFrame(() => { pageRaf.current = 0; paginate() })
+  }
+  useEffect(() => {
+    const el = surfaceRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => { setContentHeight(el.offsetHeight); schedulePaginate() })
+    ro.observe(el)
+    schedulePaginate()
+    return () => ro.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout])
+  useEffect(() => {
+    schedulePaginate()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout, margins, lineSpacing, zoom, mode])
   const [versions, setVersions] = useState<DocVersion[] | null>(null)
   const [vBusy, setVBusy] = useState(false)
   const supabase = useMemo(() => createClient(), [])
@@ -319,6 +363,7 @@ export default function DocEditor({
           void supabase.from('documents').update({ preview: text.slice(0, 800) }).eq('id', docId)
         }, 500)
       }
+      schedulePaginate()
     }
     update()
     const off = editor.onChange(update)
@@ -1044,24 +1089,21 @@ export default function DocEditor({
             <div
               key="doc-surface"
               ref={surfaceRef}
-              className={
-                layout === 'page'
-                  ? `relative w-[816px] max-w-full rounded-sm shadow-xl ${isLight ? 'bg-white' : 'bg-[#0a1430]'}`
-                  : 'relative mx-auto w-full max-w-4xl'
-              }
+              className={layout === 'page' ? 'relative w-[816px] max-w-full' : 'relative mx-auto w-full max-w-4xl'}
               style={{ zoom, ...(layout === 'page' ? { minHeight: PAGE_H } : {}) }}
             >
-              {/* page-break guide lines (visual; print/PDF makes the real pages) */}
+              {/* real page sheets with gaps between them; paginate() pushes content to line up */}
               {layout === 'page' &&
-                Array.from({ length: Math.max(0, Math.ceil(contentHeight / PAGE_H) - 1) }).map((_, i) => (
-                  <div key={i} className="pointer-events-none absolute inset-x-0 z-10 flex items-center" style={{ top: (i + 1) * PAGE_H }}>
-                    <div className={`h-px w-full ${isLight ? 'bg-gray-200' : 'bg-white/10'}`} />
-                    <span className={`absolute text-[9px] ${isLight ? 'text-gray-400' : 'text-gray-500'}`} style={{ left: -28 }}>{i + 2}</span>
-                  </div>
+                Array.from({ length: Math.max(1, Math.ceil(contentHeight / PAGE_H)) }).map((_, i) => (
+                  <div
+                    key={i}
+                    className={`pointer-events-none absolute inset-x-0 rounded-sm shadow-xl ${isLight ? 'bg-white' : 'bg-[#0a1430]'}`}
+                    style={{ top: i * PAGE_H, height: PAGE_H - PAGE_GAP }}
+                  />
                 ))}
               <div
                 key="content"
-                className={layout === 'page' ? 'tl-editor relative' : 'tl-editor relative px-6 py-10 sm:px-12 sm:py-14'}
+                className={layout === 'page' ? 'tl-editor relative z-[1]' : 'tl-editor relative px-6 py-10 sm:px-12 sm:py-14'}
                 style={{ ['--tl-line' as string]: lineSpacing, ...(layout === 'page' ? { paddingLeft: margins.left, paddingRight: margins.right, paddingTop: PAGE_TOP, paddingBottom: PAGE_BOT } : {}) }}
               >
                 {editorView}
