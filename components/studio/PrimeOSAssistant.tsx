@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Aperture, ChevronDown, X, CornerDownLeft, Replace, CornerDownRight, Copy, Loader2, Check, GripHorizontal, Wand2 } from 'lucide-react'
+import { Aperture, ChevronDown, X, CornerDownLeft, Replace, CornerDownRight, Copy, Loader2, Check, GripHorizontal, Wand2, Bookmark } from 'lucide-react'
 import { modelsByModality } from '@/lib/ai/models'
 
 type Turn = { role: 'user' | 'assistant'; text: string; applicable?: boolean }
@@ -58,6 +58,13 @@ export default function PrimeOSAssistant({
   const [scope, setScope] = useState<'selection' | 'document'>(hasSel ? 'selection' : 'document')
   const [cmdOpen, setCmdOpen] = useState(false)
   const personaLabel = PERSONAS.find((p) => p.id === persona)?.label ?? 'Screenwriter'
+  const [saved, setSaved] = useState<string[]>([])
+  useEffect(() => {
+    try { const s = JSON.parse(localStorage.getItem('tl-primeos-prompts') || '[]'); if (Array.isArray(s)) setSaved(s) } catch { /* ignore */ }
+  }, [])
+  const persistSaved = (next: string[]) => { try { localStorage.setItem('tl-primeos-prompts', JSON.stringify(next)) } catch { /* ignore */ } ; setSaved(next) }
+  const savePrompt = () => { const p = input.trim(); if (p) persistSaved([p, ...saved.filter((x) => x !== p)].slice(0, 12)) }
+  const removeSaved = (p: string) => persistSaved(saved.filter((x) => x !== p))
 
   // ── floating position + size (draggable + resizable, remembered) ──────────
   const [size, setSize] = useState(() => {
@@ -257,6 +264,17 @@ export default function PrimeOSAssistant({
             <>
               <button aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setCmdOpen(false)} />
               <div className={`absolute right-0 top-full z-20 mt-1 max-h-72 w-64 overflow-y-auto rounded-xl border py-1 shadow-2xl ${surface}`}>
+                {saved.length > 0 && (
+                  <div>
+                    <p className={`px-3 pb-0.5 pt-1.5 text-[9px] font-bold uppercase tracking-widest ${subtle}`}>Saved prompts</p>
+                    {saved.map((p) => (
+                      <div key={p} className="group flex items-center">
+                        <button onClick={() => { setCmdOpen(false); void send(p) }} className={`min-w-0 flex-1 truncate px-3 py-1 text-left text-[12px] ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}>{p}</button>
+                        <button onClick={() => removeSaved(p)} className={`px-2 opacity-0 transition-opacity group-hover:opacity-100 ${subtle} hover:text-destructive`}><X size={11} /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {COMMANDS.map((g) => (
                   <div key={g.group}>
                     <p className={`px-3 pb-0.5 pt-1.5 text-[9px] font-bold uppercase tracking-widest ${subtle}`}>{g.group}</p>
@@ -342,6 +360,14 @@ export default function PrimeOSAssistant({
           placeholder={hasSel ? 'Refine, rewrite, translate…' : 'Ask PrimeOS AI to write…'}
           className={`max-h-28 min-h-[34px] flex-1 resize-none rounded-lg border px-2.5 py-1.5 text-sm outline-none ${isLight ? 'border-black/10 bg-white text-gray-800 placeholder:text-gray-400' : 'border-white/10 bg-white/5 text-gray-100 placeholder:text-gray-500'}`}
         />
+        <button
+          onClick={savePrompt}
+          disabled={!input.trim()}
+          title="Save this prompt"
+          className={`grid h-[34px] w-8 flex-shrink-0 place-items-center rounded-lg transition-colors disabled:opacity-40 ${isLight ? 'text-gray-500 hover:bg-black/5' : 'text-gray-300 hover:bg-white/10'}`}
+        >
+          <Bookmark size={15} />
+        </button>
         <button
           onClick={() => void send(input)}
           disabled={!input.trim() || loading}
