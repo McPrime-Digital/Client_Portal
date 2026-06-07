@@ -82,18 +82,22 @@ export default function StoryboardBoard({ boardId }: { boardId: string }) {
   useEffect(() => {
     if (shots === null) return
     const t = setTimeout(() => {
-      void supabase
+      // .then() terminates the lazy builder so the request actually fires.
+      supabase
         .from('storyboards')
         .update({ title: title.trim() || 'Untitled board', updated_at: new Date().toISOString() })
         .eq('id', boardId)
+        .then(() => {}, () => {})
     }, 600)
     return () => clearTimeout(t)
   }, [title, shots, supabase, boardId])
 
   const patchLocal = (id: string, patch: Partial<Shot>) =>
     setShots((prev) => (prev ? prev.map((s) => (s.id === id ? { ...s, ...patch } : s)) : prev))
-  const saveShot = (id: string, patch: Partial<Shot>) =>
-    supabase.from('storyboard_shots').update(patch).eq('id', id)
+  // async so callers' `void saveShot(...)` actually executes the write.
+  const saveShot = async (id: string, patch: Partial<Shot>) => {
+    await supabase.from('storyboard_shots').update(patch).eq('id', id)
+  }
 
   const addShot = async () => {
     setBusy(true)

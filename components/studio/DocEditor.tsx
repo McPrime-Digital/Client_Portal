@@ -355,7 +355,8 @@ export default function DocEditor({
           // blocks to fill a full page (the card clips to one page height).
           let html = ''
           try { html = await editor.blocksToHTMLLossy((editor.document as any[]).slice(0, 40)) } catch { /* noop */ }
-          void supabase.from('documents').update({ preview: html || text.slice(0, 1200) }).eq('id', docId)
+          // must await (or .then) — a bare `void` builder never sends the request.
+          await supabase.from('documents').update({ preview: html || text.slice(0, 1200) }).eq('id', docId)
         }, 600)
       }
     }

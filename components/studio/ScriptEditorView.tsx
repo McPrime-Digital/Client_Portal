@@ -114,8 +114,11 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
           (user?.user_metadata?.name as string | undefined) ?? user?.email?.split('@')[0] ?? 'Guest'
         if (selErr) throw selErr
         if (cancelled || !doc) return
-        // record the open (distinct from edit time) — fire and forget
-        void supabase.from('documents').update({ last_opened_at: new Date().toISOString() }).eq('id', docId)
+        // record the open (distinct from edit time) — fire and forget.
+        // NOTE: a supabase query builder is a lazy thenable — it only sends the
+        // request when awaited / .then()'d. `void builder` never executes. Always
+        // terminate fire-and-forget writes with .then() (or await).
+        supabase.from('documents').update({ last_opened_at: new Date().toISOString() }).eq('id', docId).then(() => {}, () => {})
 
         const ydoc = new Y.Doc()
         if (doc.ydoc) {
@@ -130,11 +133,14 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
           color: pickColor(userName),
         })
 
-        const persist = () =>
-          supabase
+        // async so it actually executes the request (the builder is lazy — a bare
+        // `void persist()` would never fire; awaiting inside guarantees it does).
+        const persist = async () => {
+          await supabase
             .from('documents')
             .update({ ydoc: toB64(Y.encodeStateAsUpdate(ydoc)), updated_at: new Date().toISOString() })
             .eq('id', doc.id)
+        }
 
         // Always-on autosave — persist on idle, on manual save, and on exit. No
         // conditional skipping or deletion (that dropped new docs + tabs).
@@ -267,11 +273,14 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
   // typed right before leaving is never lost).
   useEffect(() => {
     if (!ready) return
-    const persist = () =>
-      supabase
+    // async so the request actually fires — a supabase builder is lazy and a bare
+    // `void persist()` (debounce / blur / exit flush) would otherwise never send.
+    const persist = async () => {
+      await supabase
         .from('documents')
         .update({ title: (titleRef.current || '').trim() || 'Untitled', updated_at: new Date().toISOString() })
         .eq('id', docId)
+    }
     persistTitleNow.current = () => { void persist() }
     const t = setTimeout(() => { void persist() }, 500)
     return () => clearTimeout(t)
