@@ -366,9 +366,12 @@ export default function DocEditor({
       onFirstLine?.(firstLine)
       if (isPrimary) {
         clearTimeout(previewTimer.current)
-        previewTimer.current = setTimeout(() => {
-          void supabase.from('documents').update({ preview: text.slice(0, 800) }).eq('id', docId)
-        }, 500)
+        previewTimer.current = setTimeout(async () => {
+          // store a real first-page HTML snapshot (first ~16 blocks) for the home thumbnail
+          let html = ''
+          try { html = await editor.blocksToHTMLLossy((editor.document as any[]).slice(0, 16)) } catch { /* noop */ }
+          void supabase.from('documents').update({ preview: html || text.slice(0, 800) }).eq('id', docId)
+        }, 600)
       }
       schedulePaginate()
     }
@@ -518,6 +521,45 @@ export default function DocEditor({
         /* nothing selected */
       }
     }
+  }
+
+  // Block-level operations — these replace the in-canvas “+” / drag-handle menu
+  // (removed via sideMenu={false}); the same actions now live in the Block menu.
+  const blockCopy = (b: any) => ({ type: b.type, props: b.props, content: b.content, children: b.children })
+  const insertBlockBelow = () => {
+    const pos = editor.getTextCursorPosition?.()
+    const ref = pos?.block ?? (editor.document as any[])[editor.document.length - 1]
+    const made = editor.insertBlocks([{ type: 'paragraph' } as any], ref, 'after')
+    const nb = made?.[0]
+    if (nb) editor.setTextCursorPosition(nb.id, 'start')
+    editor.focus()
+  }
+  const duplicateBlock = () => {
+    if (!block) return
+    const made = editor.insertBlocks([blockCopy(block) as any], block, 'after')
+    const nb = made?.[0]
+    if (nb) editor.setTextCursorPosition(nb.id, 'start')
+    editor.focus()
+  }
+  const deleteBlock = () => {
+    const pos = editor.getTextCursorPosition?.()
+    if (!pos?.block) return
+    const land = pos.prevBlock ?? pos.nextBlock
+    editor.removeBlocks([pos.block])
+    if (land) { try { editor.setTextCursorPosition(land.id, 'end') } catch { /* gone */ } }
+    editor.focus()
+  }
+  const moveBlock = (dir: 'up' | 'down') => {
+    const pos = editor.getTextCursorPosition?.()
+    if (!pos?.block) return
+    const neighbor = dir === 'up' ? pos.prevBlock : pos.nextBlock
+    if (!neighbor) return
+    const copy = blockCopy(pos.block)
+    editor.removeBlocks([pos.block])
+    const made = editor.insertBlocks([copy as any], neighbor, dir === 'up' ? 'before' : 'after')
+    const nb = made?.[0]
+    if (nb) editor.setTextCursorPosition(nb.id, 'end')
+    editor.focus()
   }
 
   const matchCount = (() => {
@@ -697,7 +739,7 @@ export default function DocEditor({
   }
 
   const editorView = (
-    <BlockNoteView editor={editor} editable={mode === 'editing'} theme={theme} formattingToolbar={false}>
+    <BlockNoteView editor={editor} editable={mode === 'editing'} theme={theme} formattingToolbar={false} sideMenu={false}>
       <FormattingToolbarController
         formattingToolbar={() => (
           <FormattingToolbar>
@@ -743,9 +785,17 @@ export default function DocEditor({
             { label: mode === 'editing' ? 'Viewing (read-only)' : 'Editing', fn: () => setMode((m) => (m === 'editing' ? 'viewing' : 'editing')) },
           ]],
           ['Insert', [
+            { label: 'Blank block below', fn: insertBlockBelow },
             { label: 'Image', fn: insertImage },
             { label: 'Link', fn: addLink },
             { label: 'Comment on selection', fn: addComment },
+          ]],
+          ['Block', [
+            { label: 'Insert blank below', fn: insertBlockBelow },
+            { label: 'Duplicate block', fn: duplicateBlock },
+            { label: 'Move block up', fn: () => moveBlock('up') },
+            { label: 'Move block down', fn: () => moveBlock('down') },
+            { label: 'Delete block', fn: deleteBlock },
           ]],
           ['Format', [
             { label: 'Bold', fn: () => toggle('bold') },

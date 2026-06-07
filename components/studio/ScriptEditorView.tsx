@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import * as Y from 'yjs'
-import { ArrowLeft, Loader2, Sun, Moon, Plus, X, Share2, Copy, Check, Link2, Save, FileText } from 'lucide-react'
+import { ArrowLeft, Loader2, Sun, Moon, Plus, X, Share2, Copy, Check, Link2, Save, FileText, MoreVertical, PencilLine, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { SupabaseYjsProvider, toB64, fromB64 } from '@/lib/collab/supabaseYjs'
 import DocEditor from './DocEditor'
@@ -66,6 +66,7 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeTab, setActiveTab] = useState('main')
   const [editingTab, setEditingTab] = useState<string | null>(null)
+  const [tabMenu, setTabMenu] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [shareOpen, setShareOpen] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -358,17 +359,58 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
                 ) : (
                   <span className="min-w-0 flex-1 truncate">{tab.name}</span>
                 )}
-                {tabs.length > 1 && editingTab !== tab.id && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      deleteTab(tab.id)
-                    }}
-                    className="opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
-                    title="Delete tab"
-                  >
-                    <X size={13} />
-                  </button>
+                {editingTab !== tab.id && (
+                  <div className="relative flex-shrink-0">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setTabMenu((t) => (t === tab.id ? null : tab.id))
+                      }}
+                      className={`grid h-5 w-5 place-items-center rounded transition-all hover:bg-foreground/10 ${
+                        tabMenu === tab.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                      }`}
+                      title="Tab options"
+                    >
+                      <MoreVertical size={14} />
+                    </button>
+                    {tabMenu === tab.id && (
+                      <>
+                        <button
+                          aria-hidden
+                          tabIndex={-1}
+                          className="fixed inset-0 z-20 cursor-default"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setTabMenu(null)
+                          }}
+                        />
+                        <div className="absolute right-0 top-full z-30 mt-1 w-40 overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-2xl">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setTabMenu(null)
+                              setEditingTab(tab.id)
+                              setEditName(tab.name)
+                            }}
+                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] text-foreground hover:bg-secondary"
+                          >
+                            <PencilLine size={14} className="opacity-70" /> Rename
+                          </button>
+                          <button
+                            disabled={tabs.length <= 1}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setTabMenu(null)
+                              deleteTab(tab.id)
+                            }}
+                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            <Trash2 size={14} /> Delete
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
             ))}

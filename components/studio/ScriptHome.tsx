@@ -10,7 +10,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { fromB64 } from '@/lib/collab/supabaseYjs'
 
-type Doc = { id: string; title: string; ydoc: string | null; updated_at: string; last_opened_at: string | null }
+type Doc = { id: string; title: string; preview: string | null; ydoc: string | null; updated_at: string; last_opened_at: string | null }
 
 // Definitive first-page preview: decode the stored Yjs snapshot and walk its text
 // nodes (via deltas, so marks/nesting are handled) — works for any doc, no cached
@@ -176,7 +176,38 @@ function CoverThumb({ label, color, style, seed }: { label: string; color: strin
   )
 }
 
-function DocThumb({ text: raw }: { text: string }) {
+/* Renders the document's real first page (stored HTML) inside the thumbnail card,
+   at true page geometry (816px wide, 1in margins) then uniformly scaled down so it
+   reads exactly like the live page — enterprise-grade WYSIWYG, not tiny placeholder
+   text. The card clips to the top of the page (aspect 85/110 ≈ US-Letter top). */
+function ScaledPage({ html }: { html: string }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [scale, setScale] = useState(0)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const measure = () => setScale(el.clientWidth / 816)
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    measure()
+    return () => ro.disconnect()
+  }, [])
+  return (
+    <div
+      ref={ref}
+      className="aspect-[85/110] w-full overflow-hidden rounded-[3px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.18)] ring-1 ring-black/5"
+    >
+      {scale > 0 && (
+        <div style={{ width: 816, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
+          <div className="tl-thumb" style={{ padding: '72px 88px', minHeight: 1056 }} dangerouslySetInnerHTML={{ __html: html }} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DocThumb({ html, text: raw }: { html: string; text: string }) {
+  if (html && html.includes('<')) return <ScaledPage html={html} />
   const text = (raw ?? '').trim()
   if (!text) {
     // genuinely empty document — show a neutral page
@@ -213,8 +244,14 @@ export default function ScriptHome() {
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [galleryOpen, setGalleryOpen] = useState(false)
   const previews = useMemo(() => {
-    const m: Record<string, string> = {}
-    ;(docs ?? []).forEach((d) => { m[d.id] = previewFromYdoc(d.ydoc) })
+    const m: Record<string, { html: string; text: string }> = {}
+    ;(docs ?? []).forEach((d) => {
+      // Prefer the stored first-page HTML snapshot (real WYSIWYG). Fall back to the
+      // Yjs-decoded plain text for docs saved before the snapshot existed.
+      const html = d.preview && d.preview.includes('<') ? d.preview : ''
+      const text = html ? '' : (d.preview || previewFromYdoc(d.ydoc))
+      m[d.id] = { html, text }
+    })
     return m
   }, [docs])
 
@@ -249,7 +286,7 @@ export default function ScriptHome() {
     () => async () => {
       const res = await supabase
         .from('documents')
-        .select('id, title, ydoc, updated_at, last_opened_at')
+        .select('id, title, preview, ydoc, updated_at, last_opened_at')
         .eq('kind', 'script')
         .order('last_opened_at', { ascending: false, nullsFirst: false })
         .order('updated_at', { ascending: false })
@@ -261,7 +298,7 @@ export default function ScriptHome() {
       // migration 0009 (last_opened_at) not applied yet — degrade gracefully (by edit time)
       const fb = await supabase
         .from('documents')
-        .select('id, title, ydoc, updated_at')
+        .select('id, title, preview, ydoc, updated_at')
         .eq('kind', 'script')
         .order('updated_at', { ascending: false })
         .limit(60)
@@ -419,7 +456,7 @@ export default function ScriptHome() {
             <div key={d.id} className="group">
               <button onClick={() => open(d.id)} className="block w-full text-left">
                 <div className="rounded-[3px] ring-1 ring-transparent transition-all group-hover:-translate-y-0.5 group-hover:ring-2 group-hover:ring-primary">
-                  <DocThumb text={previews[d.id] ?? ''} />
+                  <DocThumb html={previews[d.id]?.html ?? ''} text={previews[d.id]?.text ?? ''} />
                 </div>
               </button>
               <div className="mt-2 flex items-start gap-1.5">

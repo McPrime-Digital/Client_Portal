@@ -230,3 +230,16 @@
 .tl-editor .bn-editor { padding-inline: 0 !important; padding-block: 0 !important; }
 .tl-editor .ProseMirror { min-height: 8em; font-size: 1.05rem; line-height: var(--tl-line, 1.75); }
 .tl-page-spacer { user-select: none; display: block; }
+
+/* Recent-doc thumbnail: real first-page HTML, scaled to fit the card */
+.tl-thumb { font: 400 16px/1.55 Inter, system-ui, sans-serif; color: #1f2937; word-break: break-word; }
+.tl-thumb h1 { font-size: 30px; font-weight: 700; line-height: 1.2; margin: 0 0 12px; }
+.tl-thumb h2 { font-size: 23px; font-weight: 700; line-height: 1.25; margin: 16px 0 8px; }
+.tl-thumb h3 { font-size: 19px; font-weight: 600; margin: 12px 0 6px; }
+.tl-thumb p { margin: 0 0 10px; }
+.tl-thumb ul, .tl-thumb ol { margin: 0 0 10px; padding-left: 24px; }
+.tl-thumb li { margin: 2px 0; }
+.tl-thumb strong { font-weight: 700; }
+.tl-thumb blockquote { border-left: 3px solid #d1d5db; margin: 10px 0; padding-left: 12px; color: #6b7280; }
+.tl-thumb img { max-width: 100%; border-radius: 4px; }
+.tl-thumb a { color: #2563eb; }
