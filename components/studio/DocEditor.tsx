@@ -11,12 +11,12 @@ import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
 import {
   Undo2, Redo2, Pilcrow, Heading1, Heading2, Heading3,
-  Bold, Italic, Underline, Strikethrough, Code,
+  Bold, Italic, Underline, Strikethrough,
   List, ListOrdered, ListChecks, AlignLeft, AlignCenter, AlignRight, Link2, ListTree, Search, X,
-  Eye, PencilLine, Download, Upload, History, RotateCcw, FileCode2, Printer, MessageSquare, FileType,
-  Minus, Plus, ChevronDown, FileDown, StretchHorizontal, FileText, Aperture,
-  Baseline, Highlighter, Paintbrush, AlignJustify, Subscript, Superscript, Eraser,
-  Settings2, Ruler as RulerIcon, Indent, Outdent, ImagePlus, Rows3,
+  Eye, PencilLine, History, RotateCcw, Printer, MessageSquare,
+  Minus, Plus, ChevronDown, StretchHorizontal, FileText, Aperture,
+  Baseline, Highlighter, Paintbrush, AlignJustify, Eraser,
+  Ruler as RulerIcon, Indent, Outdent, ImagePlus, Rows3,
 } from 'lucide-react'
 import type { SupabaseYjsProvider } from '@/lib/collab/supabaseYjs'
 import { SCRIPT_TEMPLATES } from '@/lib/studio/scriptTemplates'
@@ -221,7 +221,6 @@ export default function DocEditor({
   const [colorOpen, setColorOpen] = useState(false)
   const [hlOpen, setHlOpen] = useState(false)
   const [gradOpen, setGradOpen] = useState(false)
-  const [downloadOpen, setDownloadOpen] = useState(false)
   const [viewOpen, setViewOpen] = useState(false)
   const [menuBar, setMenuBar] = useState<string | null>(null)
   const [styleOpen, setStyleOpen] = useState(false)
@@ -677,8 +676,13 @@ export default function DocEditor({
             { label: 'Bold', fn: () => toggle('bold') },
             { label: 'Italic', fn: () => toggle('italic') },
             { label: 'Underline', fn: () => toggle('underline') },
+            { label: 'Strikethrough', fn: () => toggle('strike') },
+            { label: 'Inline code', fn: () => toggle('code') },
+            { label: 'Superscript', fn: () => toggle('sup') },
+            { label: 'Subscript', fn: () => toggle('sub') },
             { label: 'Heading 1', fn: () => setBlock('heading', { level: 1 }) },
             { label: 'Heading 2', fn: () => setBlock('heading', { level: 2 }) },
+            { label: 'Heading 3', fn: () => setBlock('heading', { level: 3 }) },
             { label: 'Normal text', fn: () => setBlock('paragraph') },
             { label: 'Clear formatting', fn: clearFormatting },
           ]],
@@ -843,9 +847,6 @@ export default function DocEditor({
         <button className={`${btn} ${styles.italic ? on : ''}`} title="Italic" onClick={() => toggle('italic')}><Italic size={16} /></button>
         <button className={`${btn} ${styles.underline ? on : ''}`} title="Underline" onClick={() => toggle('underline')}><Underline size={16} /></button>
         <button className={`${btn} ${styles.strike ? on : ''}`} title="Strikethrough" onClick={() => toggle('strike')}><Strikethrough size={16} /></button>
-        <button className={`${btn} ${styles.code ? on : ''}`} title="Inline code" onClick={() => toggle('code')}><Code size={16} /></button>
-        <button className={`${btn} ${styles.sup ? on : ''}`} title="Superscript" onClick={() => toggle('sup')}><Superscript size={16} /></button>
-        <button className={`${btn} ${styles.sub ? on : ''}`} title="Subscript" onClick={() => toggle('sub')}><Subscript size={16} /></button>
         <Sep />
         {/* text color */}
         <div className="relative">
@@ -932,74 +933,7 @@ export default function DocEditor({
         <Sep />
         <button className={btn} title="Add link" onClick={addLink}><Link2 size={16} /></button>
         <button className={btn} title="Insert image" onClick={insertImage}><ImagePlus size={16} /></button>
-        <Sep />
-        <button className={`${btn} ${showFind ? on : ''}`} title="Find & replace" onClick={() => setShowFind((s) => !s)}><Search size={16} /></button>
-        <button className={`${btn} ${showHistory ? on : ''}`} title="Version history" onClick={toggleHistory}><History size={16} /></button>
-        <button className={`${btn} ${showComments ? on : ''}`} title="Comments" onClick={() => setShowComments((s) => !s)}><MessageSquare size={16} /></button>
-        <Sep />
-        <div className="relative">
-          <button className={`${btn} ${viewOpen ? on : ''}`} title="View options" onClick={() => setViewOpen((o) => !o)}><Settings2 size={16} /></button>
-          {viewOpen && (
-            <>
-              <button aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setViewOpen(false)} />
-              <div className={`absolute right-0 top-full z-20 mt-1 w-48 overflow-hidden rounded-xl border py-1 shadow-2xl ${isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#0f1c3f]'}`}>
-                <button onClick={() => { toggleLayout(); setViewOpen(false) }} className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}>
-                  {layout === 'page' ? <StretchHorizontal size={14} className="opacity-70" /> : <FileText size={14} className="opacity-70" />}
-                  {layout === 'page' ? 'Pageless view' : 'Pages view'}
-                </button>
-                <button onClick={toggleRuler} className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}>
-                  <RulerIcon size={14} className="opacity-70" /> {showRuler ? 'Hide ruler' : 'Show ruler'}
-                </button>
-                <button onClick={() => { setMode((m) => (m === 'editing' ? 'viewing' : 'editing')); setViewOpen(false) }} className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}>
-                  {mode === 'editing' ? <Eye size={14} className="opacity-70" /> : <PencilLine size={14} className="opacity-70" />}
-                  {mode === 'editing' ? 'View mode (read-only)' : 'Edit mode'}
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-        <Sep />
-        {/* download menu */}
-        <div className="relative">
-          <button
-            className={`${btn} ${downloadOpen ? on : ''}`}
-            title="Download"
-            onClick={() => setDownloadOpen((o) => !o)}
-          >
-            <FileDown size={16} />
-          </button>
-          {downloadOpen && (
-            <>
-              <button aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setDownloadOpen(false)} />
-              <div className={`absolute right-0 top-full z-20 mt-1 w-52 overflow-hidden rounded-xl border py-1 shadow-2xl ${isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#0f1c3f]'}`}>
-                {[
-                  { label: 'PDF (Print)', icon: Printer, fn: printDoc },
-                  { label: 'Microsoft Word (.doc)', icon: FileType, fn: exportWord },
-                  { label: 'Web page (.html)', icon: FileCode2, fn: exportHtml },
-                  { label: 'Markdown (.md)', icon: Download, fn: exportMarkdown },
-                ].map((it) => {
-                  const I = it.icon
-                  return (
-                    <button
-                      key={it.label}
-                      onClick={() => { setDownloadOpen(false); void it.fn() }}
-                      className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] transition-colors ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}
-                    >
-                      <I size={14} className="opacity-70" /> {it.label}
-                    </button>
-                  )
-                })}
-                <div className={`my-1 h-px ${isLight ? 'bg-black/10' : 'bg-white/10'}`} />
-                <button
-                  onClick={() => { setDownloadOpen(false); fileRef.current?.click() }}
-                  className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] transition-colors ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}
-                >
-                  <Upload size={14} className="opacity-70" /> Import Markdown…
-                </button>
-              </div>
-            </>
-          )}
-        </div>
+        {/* hidden import input (used by File ▸ Import Markdown) */}
         <input
           ref={fileRef}
           type="file"
@@ -1011,13 +945,24 @@ export default function DocEditor({
             e.target.value = ''
           }}
         />
-        <button
-          className={`${btn} ${mode === 'viewing' ? on : ''}`}
-          title={mode === 'editing' ? 'Switch to View mode' : 'Switch to Edit mode'}
-          onClick={() => setMode((m) => (m === 'editing' ? 'viewing' : 'editing'))}
-        >
-          {mode === 'editing' ? <Eye size={16} /> : <PencilLine size={16} />}
-        </button>
+        {/* mode + view (right-aligned, single control) */}
+        <div className="relative ml-auto">
+          <button onClick={() => setViewOpen((o) => !o)} title="Mode & view" className={`flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium ${viewOpen ? on : isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}>
+            {mode === 'editing' ? <PencilLine size={14} /> : <Eye size={14} />} {mode === 'editing' ? 'Editing' : 'Viewing'} <ChevronDown size={12} className="opacity-60" />
+          </button>
+          {viewOpen && (
+            <>
+              <button aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setViewOpen(false)} />
+              <div className={`absolute right-0 top-full z-20 mt-1 w-48 overflow-hidden rounded-xl border py-1 shadow-2xl ${isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#0f1c3f]'}`}>
+                <button onClick={() => { setMode('editing'); setViewOpen(false) }} className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] ${mode === 'editing' ? 'text-primary' : isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}><PencilLine size={14} className="opacity-70" /> Editing</button>
+                <button onClick={() => { setMode('viewing'); setViewOpen(false) }} className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] ${mode === 'viewing' ? 'text-primary' : isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}><Eye size={14} className="opacity-70" /> Viewing (read-only)</button>
+                <div className={`my-1 h-px ${isLight ? 'bg-black/10' : 'bg-white/10'}`} />
+                <button onClick={toggleRuler} className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}><RulerIcon size={14} className="opacity-70" /> {showRuler ? 'Hide ruler' : 'Show ruler'}</button>
+                <button onClick={() => { toggleLayout(); setViewOpen(false) }} className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}>{layout === 'page' ? <StretchHorizontal size={14} className="opacity-70" /> : <FileText size={14} className="opacity-70" />} {layout === 'page' ? 'Pageless' : 'Pages'}</button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {showFind && (

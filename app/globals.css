@@ -227,6 +227,6 @@
   background-color: transparent !important;
 }
 .tl-editor { min-height: 100%; }
-.tl-editor .bn-editor { padding-inline: 0 !important; }
-.tl-editor .ProseMirror { min-height: 66vh; font-size: 1.05rem; line-height: var(--tl-line, 1.75); }
-.tl-page-spacer { user-select: none; }
+.tl-editor .bn-editor { padding-inline: 0 !important; padding-block: 0 !important; }
+.tl-editor .ProseMirror { min-height: 8em; font-size: 1.05rem; line-height: var(--tl-line, 1.75); }
+.tl-page-spacer { user-select: none; display: block; }
