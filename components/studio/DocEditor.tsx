@@ -303,25 +303,32 @@ export default function DocEditor({
     const blocks = root
       ? Array.from(root.children).filter((el): el is HTMLElement => el instanceof HTMLElement && el.classList.contains('bn-block-outer'))
       : []
-    if (layoutRef.current !== 'page') {
-      blocks.forEach((el) => { if (el.style.marginTop) el.style.marginTop = '' })
+    // The spacer MUST go on the inner .bn-block — margin on .bn-block-outer is ignored.
+    const inners = blocks.map((b) => b.querySelector(':scope > .bn-block') as HTMLElement | null)
+    inners.forEach((i) => { if (i && i.style.marginTop) i.style.marginTop = '' })
+    if (layoutRef.current !== 'page' || blocks.length === 0) {
+      setContentHeight(surface.offsetHeight)
       return
     }
+    void surface.offsetHeight // flush the reset before measuring
+    // Real measured positions (anchored so the first block sits at the top margin).
+    const base = blocks[0].getBoundingClientRect().top
+    const relTop = blocks.map((b) => b.getBoundingClientRect().top - base + PAGE_TOP)
+    const heights = blocks.map((b) => b.offsetHeight)
     const maxBlock = PAGE_H - PAGE_TOP - PAGE_BOT - PAGE_GAP
-    let y = PAGE_TOP
+    let pushed = 0
     let page = 0
-    for (const el of blocks) {
-      const h = el.offsetHeight
+    for (let i = 0; i < blocks.length; i++) {
+      const top = relTop[i] + pushed
+      const bottom = top + heights[i]
       const pageBottom = page * PAGE_H + (PAGE_H - PAGE_GAP - PAGE_BOT)
-      let desired = ''
-      if (y + h > pageBottom + 1 && h <= maxBlock) {
-        const nextTop = (page + 1) * PAGE_H + PAGE_TOP
-        desired = `${Math.round(nextTop - y)}px`
-        y = nextTop
+      if (bottom > pageBottom + 1 && heights[i] <= maxBlock) {
+        const delta = Math.round((page + 1) * PAGE_H + PAGE_TOP - top)
+        const inner = inners[i]
+        if (inner) inner.style.marginTop = `${delta}px`
+        pushed += delta
         page += 1
       }
-      if (el.style.marginTop !== desired) el.style.marginTop = desired
-      y += h
     }
     setContentHeight(surface.offsetHeight)
   }
