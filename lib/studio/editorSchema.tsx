@@ -48,6 +48,15 @@ const Sup = createReactStyleSpec(
   { type: 'sup', propSchema: 'boolean' },
   { render: (props) => <sup ref={props.contentRef} /> },
 )
+// Suggesting / track-changes marks: insertions (green underline) + deletions (red strike).
+const Insertion = createReactStyleSpec(
+  { type: 'insertion', propSchema: 'boolean' },
+  { render: (props) => <span ref={props.contentRef} className="tl-insertion" style={{ color: '#15803d', textDecorationLine: 'underline', textDecorationColor: '#22c55e' }} /> },
+)
+const Deletion = createReactStyleSpec(
+  { type: 'deletion', propSchema: 'boolean' },
+  { render: (props) => <span ref={props.contentRef} className="tl-deletion" style={{ color: '#b91c1c', textDecorationLine: 'line-through' }} /> },
+)
 // Anchored comment highlight — value is the comment/anchor id (data-comment).
 const Comment = createReactStyleSpec(
   { type: 'comment', propSchema: 'string' },
@@ -74,6 +83,8 @@ export const docSchema = BlockNoteSchema.create({
     sub: Sub,
     sup: Sup,
     comment: Comment,
+    insertion: Insertion,
+    deletion: Deletion,
   },
 })
 

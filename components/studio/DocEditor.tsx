@@ -23,7 +23,6 @@ import { SCRIPT_TEMPLATES } from '@/lib/studio/scriptTemplates'
 import { docSchema } from '@/lib/studio/editorSchema'
 import { FONT_FAMILIES, FONT_SIZES } from '@/lib/studio/fonts'
 import { createClient } from '@/lib/supabase/client'
-import { paginationPlugin, paginationKey } from '@/lib/studio/pagination'
 import DocComments from './DocComments'
 import PrimeOSAssistant from './PrimeOSAssistant'
 
@@ -262,33 +261,11 @@ export default function DocEditor({
       return next
     })
 
-  // Live pagination: a ProseMirror plugin inserts page-break spacers so content
-  // flows onto the next page sheet (top + bottom margins), like Google Docs.
-  const PAGE_H = 1056 // Letter @ 96dpi
+  // Page geometry (Letter @ 96dpi). Page mode is one growing white page with
+  // subtle page-break guide lines; print/PDF produces real separate pages.
+  const PAGE_H = 1056
   const PAGE_TOP = 72
   const PAGE_BOT = 72
-  const PAGE_GAP = 24
-  const layoutRef = useRef(layout)
-  layoutRef.current = layout
-  useEffect(() => {
-    const tip = editor._tiptapEditor
-    if (!tip?.registerPlugin) return
-    const plugin = paginationPlugin(() => layoutRef.current === 'page', {
-      pageH: PAGE_H,
-      topM: PAGE_TOP,
-      botM: PAGE_BOT,
-      gap: PAGE_GAP,
-    })
-    tip.registerPlugin(plugin)
-    return () => {
-      try {
-        tip.unregisterPlugin(paginationKey)
-      } catch {
-        /* noop */
-      }
-    }
-  }, [editor])
-
   const surfaceRef = useRef<HTMLDivElement>(null)
   const [contentHeight, setContentHeight] = useState(PAGE_H)
   useEffect(() => {
@@ -1067,17 +1044,20 @@ export default function DocEditor({
             <div
               key="doc-surface"
               ref={surfaceRef}
-              className={layout === 'page' ? 'relative w-[816px] max-w-full' : 'relative mx-auto w-full max-w-4xl'}
+              className={
+                layout === 'page'
+                  ? `relative w-[816px] max-w-full rounded-sm shadow-xl ${isLight ? 'bg-white' : 'bg-[#0a1430]'}`
+                  : 'relative mx-auto w-full max-w-4xl'
+              }
               style={{ zoom, ...(layout === 'page' ? { minHeight: PAGE_H } : {}) }}
             >
-              {/* discrete page sheets with real gaps between them */}
+              {/* page-break guide lines (visual; print/PDF makes the real pages) */}
               {layout === 'page' &&
-                Array.from({ length: Math.max(1, Math.ceil(contentHeight / PAGE_H)) }).map((_, i) => (
-                  <div
-                    key={i}
-                    className={`pointer-events-none absolute inset-x-0 rounded-sm shadow-xl ${isLight ? 'bg-white' : 'bg-[#0a1430]'}`}
-                    style={{ top: i * PAGE_H, height: PAGE_H - PAGE_GAP }}
-                  />
+                Array.from({ length: Math.max(0, Math.ceil(contentHeight / PAGE_H) - 1) }).map((_, i) => (
+                  <div key={i} className="pointer-events-none absolute inset-x-0 z-10 flex items-center" style={{ top: (i + 1) * PAGE_H }}>
+                    <div className={`h-px w-full ${isLight ? 'bg-gray-200' : 'bg-white/10'}`} />
+                    <span className={`absolute text-[9px] ${isLight ? 'text-gray-400' : 'text-gray-500'}`} style={{ left: -28 }}>{i + 2}</span>
+                  </div>
                 ))}
               <div
                 key="content"
