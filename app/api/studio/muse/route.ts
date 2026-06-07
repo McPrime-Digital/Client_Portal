@@ -42,10 +42,11 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { modelId, instruction, selection, history } = await req.json().catch(() => ({}))
+  const { modelId, instruction, selection, history, persona } = await req.json().catch(() => ({}))
   if (!instruction || typeof instruction !== 'string') {
     return NextResponse.json({ error: 'instruction is required' }, { status: 400 })
   }
+  const system = typeof persona === 'string' && persona.trim() ? `${persona.trim()}\n\n${SYSTEM}` : SYSTEM
 
   const model = getModel(modelId) ?? getModel('anthropic/claude-sonnet')!
   const envName = PROVIDER_ENV[model.provider]
@@ -82,7 +83,7 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify({
           model: ANTHROPIC_MODEL[model.id] ?? 'claude-sonnet-4-5',
           max_tokens: 1500,
-          system: SYSTEM,
+          system,
           messages,
         }),
       })
@@ -103,7 +104,7 @@ export async function POST(req: NextRequest) {
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ systemInstruction: { parts: [{ text: SYSTEM }] }, contents }),
+          body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents }),
         },
       )
       const j = await r.json()
@@ -114,7 +115,7 @@ export async function POST(req: NextRequest) {
 
     // OpenAI
     const messages = [
-      { role: 'system' as const, content: SYSTEM },
+      { role: 'system' as const, content: system },
       ...turns.map((t) => ({ role: t.role, content: t.text })),
       { role: 'user' as const, content: userMessage },
     ]

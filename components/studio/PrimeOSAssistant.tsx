@@ -1,23 +1,44 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Aperture, ChevronDown, X, CornerDownLeft, Replace, CornerDownRight, Copy, Loader2, Check, GripHorizontal } from 'lucide-react'
+import { Aperture, ChevronDown, X, CornerDownLeft, Replace, CornerDownRight, Copy, Loader2, Check, GripHorizontal, Wand2 } from 'lucide-react'
 import { modelsByModality } from '@/lib/ai/models'
 
 type Turn = { role: 'user' | 'assistant'; text: string; applicable?: boolean }
-const QUICK_SEL = ['Improve writing', 'Make it shorter', 'Make it longer', 'Fix spelling & grammar', 'Rephrase', 'More formal', 'More casual', 'Summarize', 'Continue writing']
-const QUICK_NONE = ['Continue writing', 'Draft an opening paragraph', 'Brainstorm ideas', 'Outline this scene', 'Suggest a stronger title']
+const QUICK_SEL = ['Improve writing', 'Make it shorter', 'Make it longer', 'Fix grammar', 'Rephrase', 'More cinematic', 'Continue writing']
+const QUICK_NONE = ['Continue writing', 'Write the next scene', 'Brainstorm ideas', 'Outline this sequence', 'Suggest a stronger title']
+
+// Expert lenses — shape the model's system prompt for film + automation work.
+const PERSONAS = [
+  { id: 'screenwriter', label: 'Screenwriter', sys: 'You are a master screenwriter — vivid action lines, subtext-rich dialogue, correct screenplay format and rhythm.' },
+  { id: 'doctor', label: 'Script Doctor', sys: 'You are a veteran script doctor. Diagnose structure, pacing, motivation and dialogue, and fix them incisively.' },
+  { id: 'director', label: 'Director', sys: 'You are a film director. Think in shots, blocking, coverage, visual storytelling and tone.' },
+  { id: 'producer', label: 'Showrunner', sys: 'You are a showrunner/producer — story arcs, marketability, budget-aware choices and series logic.' },
+  { id: 'copy', label: 'Ad Copywriter', sys: 'You are a world-class advertising copywriter — punchy hooks, persuasion, brand-safe lines and strong CTAs.' },
+  { id: 'automation', label: 'Automation Architect', sys: 'You are an automation/workflow architect. Design robust automations — triggers, steps, integrations, data shapes, retries and error handling — and write precise specs or JSON when asked.' },
+]
+
+// Action library — high-leverage commands for drafting film + automations fast.
+const COMMANDS: { group: string; items: string[] }[] = [
+  { group: 'Write', items: ['Continue writing', 'Write the next scene', 'Draft dialogue for this beat', 'Write a logline', 'Write a one-paragraph synopsis', 'Write director’s coverage notes'] },
+  { group: 'Improve', items: ['Punch up the dialogue', 'Tighten for runtime', 'Stronger verbs & imagery', 'Show, don’t tell', 'Fix grammar & spelling', 'Make it more cinematic'] },
+  { group: 'Transform', items: ['Format as a screenplay', 'Turn into a beat sheet', 'Turn into a shot list', 'Turn into a treatment', 'Summarize', 'Translate to…'] },
+  { group: 'Film', items: ['Suggest shots & coverage', 'Continuity check', 'Character voice pass', 'Add stage directions', 'Shift the genre/tone', 'Generate 3 alternate takes'] },
+  { group: 'Automation', items: ['Draft an automation spec', 'Outline a workflow', 'Write integration steps', 'Generate a JSON config', 'Add error handling & retries'] },
+]
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
 
 export default function PrimeOSAssistant({
   selText,
+  docText = '',
   rect,
   isLight,
   onApply,
   onClose,
 }: {
   selText: string
+  docText?: string
   rect: DOMRect | null
   isLight: boolean
   onApply: (text: string, mode: 'replace' | 'after') => void
@@ -32,6 +53,11 @@ export default function PrimeOSAssistant({
   const [copied, setCopied] = useState<number | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const hasSel = selText.trim().length > 0
+  const [persona, setPersona] = useState(PERSONAS[0].id)
+  const [personaOpen, setPersonaOpen] = useState(false)
+  const [scope, setScope] = useState<'selection' | 'document'>(hasSel ? 'selection' : 'document')
+  const [cmdOpen, setCmdOpen] = useState(false)
+  const personaLabel = PERSONAS.find((p) => p.id === persona)?.label ?? 'Screenwriter'
 
   // ── floating position + size (draggable + resizable, remembered) ──────────
   const [size, setSize] = useState(() => {
@@ -115,7 +141,13 @@ export default function PrimeOSAssistant({
       const res = await fetch('/api/studio/muse', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ modelId: model, instruction: text, selection: selText, history }),
+        body: JSON.stringify({
+          modelId: model,
+          persona: PERSONAS.find((p) => p.id === persona)?.sys,
+          instruction: text,
+          selection: scope === 'document' ? (docText || selText) : selText,
+          history,
+        }),
       })
       const j = await res.json()
       let reply: string
@@ -179,8 +211,51 @@ export default function PrimeOSAssistant({
         </button>
       </div>
 
+      {/* controls — expert lens · scope · action library */}
+      <div className={`flex items-center gap-1.5 border-b px-2.5 py-1.5 ${isLight ? 'border-black/10' : 'border-white/10'}`}>
+        <div className="relative">
+          <button onClick={() => setPersonaOpen((o) => !o)} title="Expert lens" className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}>
+            {personaLabel} <ChevronDown size={11} />
+          </button>
+          {personaOpen && (
+            <>
+              <button aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setPersonaOpen(false)} />
+              <div className={`absolute left-0 top-full z-20 mt-1 w-52 overflow-hidden rounded-xl border py-1 shadow-2xl ${surface}`}>
+                {PERSONAS.map((p) => (
+                  <button key={p.id} onClick={() => { setPersona(p.id); setPersonaOpen(false) }} className={`block w-full px-3 py-1.5 text-left text-[12px] ${p.id === persona ? 'text-primary' : isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}>{p.label}</button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+        <div className={`flex overflow-hidden rounded-md border text-[10px] font-semibold ${isLight ? 'border-black/10' : 'border-white/10'}`} title="Use the selection or the whole document as context">
+          <button onClick={() => setScope('selection')} disabled={!hasSel} className={`px-1.5 py-1 ${scope === 'selection' ? 'bg-primary/15 text-primary' : subtle} disabled:opacity-40`}>SEL</button>
+          <button onClick={() => setScope('document')} className={`px-1.5 py-1 ${scope === 'document' ? 'bg-primary/15 text-primary' : subtle}`}>DOC</button>
+        </div>
+        <div className="relative ml-auto">
+          <button onClick={() => setCmdOpen((o) => !o)} className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/15">
+            <Wand2 size={12} /> Actions
+          </button>
+          {cmdOpen && (
+            <>
+              <button aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setCmdOpen(false)} />
+              <div className={`absolute right-0 top-full z-20 mt-1 max-h-72 w-64 overflow-y-auto rounded-xl border py-1 shadow-2xl ${surface}`}>
+                {COMMANDS.map((g) => (
+                  <div key={g.group}>
+                    <p className={`px-3 pb-0.5 pt-1.5 text-[9px] font-bold uppercase tracking-widest ${subtle}`}>{g.group}</p>
+                    {g.items.map((it) => (
+                      <button key={it} onClick={() => { setCmdOpen(false); void send(it) }} className={`block w-full px-3 py-1 text-left text-[12px] ${isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}>{it}</button>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
       {/* selected context */}
-      {hasSel && (
+      {hasSel && scope === 'selection' && (
         <div className={`border-b px-3 py-1.5 ${isLight ? 'border-black/10' : 'border-white/10'}`}>
           <p className={`line-clamp-2 text-[11px] italic ${subtle}`}>“{selText}”</p>
         </div>

@@ -1207,6 +1207,7 @@ export default function DocEditor({
       {muse && (
         <PrimeOSAssistant
           selText={muse.text}
+          docText={allText(editor)}
           rect={muse.rect}
           isLight={isLight}
           onApply={applyMuse}
