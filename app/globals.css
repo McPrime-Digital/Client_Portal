@@ -238,6 +238,28 @@
    contenteditable — so ProseMirror's mutation observer never fights it. */
 .bn-block-outer > .bn-block { margin-top: var(--tl-break, 0px); }
 
+/* ── PrimeOS identity badge + "pondering" animation (spinning star + halo glow) ── */
+.tl-primeos-badge {
+  display: inline-block;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 9999px;
+  box-shadow: 0 0 0 1px hsl(var(--foreground) / 0.06), 0 1px 4px hsl(var(--foreground) / 0.18);
+}
+.tl-primeos-badge > img { transform-origin: 50% 50%; }
+.tl-primeos-ponder { animation: tl-ponder 1.6s ease-in-out infinite; }
+@keyframes tl-ponder {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(227,189,99,0.30), 0 0 6px 1px rgba(227,189,99,0.35); }
+  50%      { box-shadow: 0 0 0 2px rgba(227,189,99,0.50), 0 0 18px 5px rgba(227,189,99,0.75); }
+}
+/* star spins fast while generating, then eases to a stop when the answer lands */
+@keyframes tl-mark-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.tl-mark-spin { animation: tl-mark-spin 0.7s linear infinite; }
+.tl-mark-slow { animation: tl-mark-spin 1.6s cubic-bezier(0.12, 0.7, 0.18, 1) forwards; }
+@media (prefers-reduced-motion: reduce) {
+  .tl-primeos-ponder, .tl-mark-spin, .tl-mark-slow { animation: none; }
+}
+
 /* Recent-doc thumbnail: real first-page HTML, scaled to fit the card */
 .tl-thumb { font: 400 16px/1.55 Inter, system-ui, sans-serif; color: #1f2937; word-break: break-word; }
 .tl-thumb h1 { font-size: 30px; font-weight: 700; line-height: 1.2; margin: 0 0 12px; }

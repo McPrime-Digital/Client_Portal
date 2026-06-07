@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Plus, Trash2, ChevronLeft, ChevronRight, ImageIcon, Loader2, Sparkles, Aperture } from 'lucide-react'
+import { ArrowLeft, Plus, Trash2, ChevronLeft, ChevronRight, ImageIcon, Loader2, Sparkles } from 'lucide-react'
+import PrimeOSMark from './PrimeOSMark'
 import { createClient } from '@/lib/supabase/client'
 import PrimeOSAssistant from './PrimeOSAssistant'
 
@@ -238,10 +239,10 @@ export default function StoryboardBoard({ boardId }: { boardId: string }) {
                   />
                   <button
                     onClick={(e) => openFieldMuse(shot, 'description', e)}
-                    title="PrimeOS AI — refine this with AI"
-                    className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                    title="PrimeOS — refine this"
+                    className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded transition-transform hover:scale-110"
                   >
-                    <Aperture size={13} />
+                    <PrimeOSMark size={14} />
                   </button>
                 </div>
                 <div className="relative">
@@ -255,10 +256,10 @@ export default function StoryboardBoard({ boardId }: { boardId: string }) {
                   />
                   <button
                     onClick={(e) => openFieldMuse(shot, 'prompt', e)}
-                    title="PrimeOS AI — refine this prompt with AI"
-                    className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                    title="PrimeOS — refine this prompt"
+                    className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded transition-transform hover:scale-110"
                   >
-                    <Aperture size={13} />
+                    <PrimeOSMark size={14} />
                   </button>
                 </div>
 

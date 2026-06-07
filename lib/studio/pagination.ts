@@ -120,16 +120,18 @@ export function createPaginationPlugin(ctrl: PaginationController) {
 
         const g = ctrl.geom()
         const z = ctrl.zoom() || 1
-        const editorTop = dom.getBoundingClientRect().top
         // Current break already applied to each block (read from the DOM the
         // decorations produced) so we can recover the natural, un-paginated flow.
         const cur = outers.map((o) => parseFloat(o.style.getPropertyValue(BREAK_VAR)) || 0)
+        // Anchor to the FIRST block rather than the editor element: pin the first
+        // block to the page's top margin and measure every other block relative to
+        // it. This is independent of any editor/container top padding, so the very
+        // first page break lands correctly (not just the ones below it).
+        const r0 = outers[0].getBoundingClientRect().top
         let cum = 0
         const tops = outers.map((o, i) => {
           cum += cur[i]
-          // editor-top corresponds to the page's top margin, so add it back to
-          // land in surface coordinates that computeBreaks expects.
-          return (o.getBoundingClientRect().top - editorTop) / z - cum + g.marginTop
+          return (o.getBoundingClientRect().top - r0) / z - (cum - cur[0]) + g.marginTop
         })
         const heights = outers.map((o) => o.getBoundingClientRect().height / z)
 

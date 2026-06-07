@@ -7,14 +7,21 @@ import {
   getFormattingToolbarItems, useComponentsContext,
 } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/mantine'
+import { en } from '@blocknote/core/locales'
 import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
+
+// Blank every placeholder so empty pages are truly blank (no "type / for commands").
+const BLANK_DICT = {
+  ...en,
+  placeholders: Object.fromEntries(Object.keys(en.placeholders).map((k) => [k, ''])) as typeof en.placeholders,
+}
 import {
   Undo2, Redo2,
   Bold, Italic, Underline, Strikethrough,
   List, ListOrdered, ListChecks, AlignLeft, AlignCenter, AlignRight, Link2, ListTree, Search, X,
   Eye, PencilLine, History, RotateCcw, Printer, MessageSquare,
-  Minus, Plus, ChevronDown, StretchHorizontal, FileText, Aperture,
+  Minus, Plus, ChevronDown, StretchHorizontal, FileText,
   Baseline, Highlighter, Paintbrush, AlignJustify, Eraser,
   Ruler as RulerIcon, Indent, Outdent, ImagePlus, Rows3,
 } from 'lucide-react'
@@ -26,6 +33,7 @@ import { createPaginationPlugin, paginationKey } from '@/lib/studio/pagination'
 import { createClient } from '@/lib/supabase/client'
 import DocComments from './DocComments'
 import PrimeOSAssistant from './PrimeOSAssistant'
+import PrimeOSMark from './PrimeOSMark'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type AnyEditor = any
@@ -166,7 +174,7 @@ function PrimeToolbarButton({ onMuse }: { onMuse: () => void }) {
       mainTooltip="PrimeOS AI — refine the selection"
       label="PrimeOS AI"
       onClick={onMuse}
-      icon={<Aperture size={16} />}
+      icon={<PrimeOSMark size={16} />}
     />
   )
 }
@@ -197,6 +205,7 @@ export default function DocEditor({
 }) {
   const editor = useCreateBlockNote({
     schema: docSchema,
+    dictionary: BLANK_DICT,
     collaboration: {
       provider,
       fragment: ydoc.getXmlFragment(fragmentKey),
@@ -342,10 +351,11 @@ export default function DocEditor({
       if (isPrimary) {
         clearTimeout(previewTimer.current)
         previewTimer.current = setTimeout(async () => {
-          // store a real first-page HTML snapshot (first ~16 blocks) for the home thumbnail
+          // store a real first-page HTML snapshot for the home thumbnail — enough
+          // blocks to fill a full page (the card clips to one page height).
           let html = ''
-          try { html = await editor.blocksToHTMLLossy((editor.document as any[]).slice(0, 16)) } catch { /* noop */ }
-          void supabase.from('documents').update({ preview: html || text.slice(0, 800) }).eq('id', docId)
+          try { html = await editor.blocksToHTMLLossy((editor.document as any[]).slice(0, 40)) } catch { /* noop */ }
+          void supabase.from('documents').update({ preview: html || text.slice(0, 1200) }).eq('id', docId)
         }, 600)
       }
     }
@@ -645,6 +655,8 @@ export default function DocEditor({
 
   // Muse inline — open a chat anchored to the current selection, apply to it.
   const [muse, setMuse] = useState<MuseAnchor | null>(null)
+  // PrimeOS conversation kept here so it survives the panel closing & reopening.
+  const primeTurns = useRef<{ role: 'user' | 'assistant'; text: string; applicable?: boolean }[]>([])
   const openMuse = (fromRail = false) => {
     const text = (editor.getSelectedText?.() || window.getSelection()?.toString() || '').trim()
     if (!text && !fromRail) return // toolbar needs a selection; the rail opens a general chat
@@ -1226,7 +1238,7 @@ export default function DocEditor({
         {/* right rail — functional tools + live counter */}
         <div className={`flex w-11 flex-shrink-0 flex-col items-center gap-1 border-l py-2 ${isLight ? 'border-black/10 bg-black/[0.02]' : 'border-white/10 bg-white/[0.02]'}`}>
           {[
-            { I: Aperture, title: 'PrimeOS AI', active: !!muse, fn: () => openMuse(true) },
+            { I: PrimeOSMark, title: 'PrimeOS AI', active: !!muse, fn: () => openMuse(true) },
             { I: ListTree, title: 'Outline', active: showOutline, fn: () => setShowOutline((s) => !s) },
             { I: MessageSquare, title: 'Comments', active: showComments, fn: () => setShowComments((s) => !s) },
             { I: History, title: 'Version history', active: showHistory, fn: toggleHistory },
@@ -1258,6 +1270,8 @@ export default function DocEditor({
           isLight={isLight}
           onApply={applyMuse}
           onClose={() => setMuse(null)}
+          initialTurns={primeTurns.current}
+          onTurns={(t) => { primeTurns.current = t }}
         />
       )}
     </div>

@@ -210,16 +210,8 @@ function DocThumb({ html, text: raw }: { html: string; text: string }) {
   if (html && html.includes('<')) return <ScaledPage html={html} />
   const text = (raw ?? '').trim()
   if (!text) {
-    // genuinely empty document — show a neutral page
-    return (
-      <Paper>
-        <div className="space-y-[5px] pt-[2px]">
-          <Bar w="55%" tone="bg-gray-200" />
-          <div className="pt-[3px]" />
-          <Bar /><Bar w="96%" /><Bar w="90%" /><Bar w="93%" /><Bar w="60%" />
-        </div>
-      </Paper>
-    )
+    // genuinely empty document — a truly blank page
+    return <Paper><span className="sr-only">Blank document</span></Paper>
   }
   const [head, ...rest] = text.split('\n')
   return (

@@ -1,8 +1,12 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Aperture, ChevronDown, X, CornerDownLeft, Replace, CornerDownRight, Copy, Loader2, Check, GripHorizontal, Wand2, Bookmark } from 'lucide-react'
+import {
+  ChevronDown, X, CornerDownLeft, Replace, CornerDownRight, Copy, Loader2, Check,
+  GripHorizontal, Wand2, Bookmark, RotateCcw, Pencil, Square, Plus, Sparkles,
+} from 'lucide-react'
 import { modelsByModality } from '@/lib/ai/models'
+import PrimeOSMark from './PrimeOSMark'
 
 type Turn = { role: 'user' | 'assistant'; text: string; applicable?: boolean }
 const QUICK_SEL = ['Improve writing', 'Make it shorter', 'Make it longer', 'Fix grammar', 'Rephrase', 'More cinematic', 'Continue writing']
@@ -15,6 +19,7 @@ const PERSONAS = [
   { id: 'director', label: 'Director', sys: 'You are a film director. Think in shots, blocking, coverage, visual storytelling and tone.' },
   { id: 'producer', label: 'Showrunner', sys: 'You are a showrunner/producer — story arcs, marketability, budget-aware choices and series logic.' },
   { id: 'copy', label: 'Ad Copywriter', sys: 'You are a world-class advertising copywriter — punchy hooks, persuasion, brand-safe lines and strong CTAs.' },
+  { id: 'editor', label: 'Story Editor', sys: 'You are a sharp story editor — clarity, continuity, theme and line-level polish without losing the writer’s voice.' },
   { id: 'automation', label: 'Automation Architect', sys: 'You are an automation/workflow architect. Design robust automations — triggers, steps, integrations, data shapes, retries and error handling — and write precise specs or JSON when asked.' },
 ]
 
@@ -36,6 +41,8 @@ export default function PrimeOSAssistant({
   isLight,
   onApply,
   onClose,
+  initialTurns,
+  onTurns,
 }: {
   selText: string
   docText?: string
@@ -43,15 +50,23 @@ export default function PrimeOSAssistant({
   isLight: boolean
   onApply: (text: string, mode: 'replace' | 'after') => void
   onClose: () => void
+  initialTurns?: Turn[]
+  onTurns?: (turns: Turn[]) => void
 }) {
   const textModels = useMemo(() => modelsByModality('text'), [])
   const [model, setModel] = useState(textModels[1]?.id ?? textModels[0]?.id ?? 'anthropic/claude-sonnet')
   const [modelOpen, setModelOpen] = useState(false)
-  const [turns, setTurns] = useState<Turn[]>([])
+  const [turns, setTurns] = useState<Turn[]>(initialTurns ?? [])
+  // Persist the conversation up to the parent so it survives close → reopen.
+  const onTurnsRef = useRef(onTurns)
+  onTurnsRef.current = onTurns
+  useEffect(() => { onTurnsRef.current?.(turns) }, [turns])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState<number | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
+  const taRef = useRef<HTMLTextAreaElement>(null)
+  const abortRef = useRef<AbortController | null>(null)
   const hasSel = selText.trim().length > 0
   const [persona, setPersona] = useState(PERSONAS[0].id)
   const [personaOpen, setPersonaOpen] = useState(false)
@@ -83,30 +98,39 @@ export default function PrimeOSAssistant({
   const removeSaved = (p: string) => persistSaved(saved.filter((x) => x !== p))
 
   // ── floating position + size (draggable + resizable, remembered) ──────────
-  const [size, setSize] = useState(() => {
-    if (typeof window === 'undefined') return { w: 400, h: 480 }
+  const [size, setSize] = useState({ w: 416, h: 520 })
+  const [pos, setPos] = useState({ x: 120, y: 96 })
+
+  useEffect(() => {
     try {
       const s = JSON.parse(localStorage.getItem('tl-primeos-size') || '')
-      if (s?.w && s?.h) return s
+      if (s?.w && s?.h) setSize(s)
     } catch { /* ignore */ }
-    return { w: 400, h: 480 }
-  })
-  const [pos, setPos] = useState(() => {
-    if (typeof window === 'undefined') return { x: 120, y: 96 }
-    const W = 400
-    const H = 480
+
+    const W = 416
+    const H = 520
+    let initialPos = { x: window.innerWidth - W - 36, y: 104 }
     try {
       const p = JSON.parse(localStorage.getItem('tl-primeos-pos') || '')
-      if (typeof p?.x === 'number') return { x: clamp(p.x, 8, window.innerWidth - 80), y: clamp(p.y, 8, window.innerHeight - 60) }
-    } catch { /* ignore */ }
-    if (rect) {
-      return {
-        x: clamp(rect.left, 8, window.innerWidth - W - 8),
-        y: clamp(rect.bottom + 10, 8, window.innerHeight - H - 8),
+      if (typeof p?.x === 'number') {
+        initialPos = { x: clamp(p.x, 8, window.innerWidth - 80), y: clamp(p.y, 8, window.innerHeight - 60) }
+      } else if (rect) {
+        initialPos = {
+          x: clamp(rect.left, 8, window.innerWidth - W - 8),
+          y: clamp(rect.bottom + 10, 8, window.innerHeight - H - 8),
+        }
+      }
+    } catch {
+      if (rect) {
+        initialPos = {
+          x: clamp(rect.left, 8, window.innerWidth - W - 8),
+          y: clamp(rect.bottom + 10, 8, window.innerHeight - H - 8),
+        }
       }
     }
-    return { x: window.innerWidth - W - 36, y: 104 }
-  })
+    setPos(initialPos)
+  }, [rect])
+
   const drag = useRef<{ dx: number; dy: number } | null>(null)
   const resz = useRef<{ x: number; y: number; w: number; h: number } | null>(null)
   useEffect(() => {
@@ -118,8 +142,8 @@ export default function PrimeOSAssistant({
         })
       } else if (resz.current) {
         setSize({
-          w: clamp(resz.current.w + (e.clientX - resz.current.x), 320, Math.min(760, window.innerWidth - 16)),
-          h: clamp(resz.current.h + (e.clientY - resz.current.y), 300, window.innerHeight - 24),
+          w: clamp(resz.current.w + (e.clientX - resz.current.x), 340, Math.min(820, window.innerWidth - 16)),
+          h: clamp(resz.current.h + (e.clientY - resz.current.y), 320, window.innerHeight - 24),
         })
       }
     }
@@ -142,11 +166,8 @@ export default function PrimeOSAssistant({
     resz.current = { x: e.clientX, y: e.clientY, w: size.w, h: size.h }
   }
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Intentionally sticky: the panel stays open (movable) until the user closes it
+  // with the × — it does not dismiss on Escape or outside interaction.
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: 'smooth' })
   }, [turns, loading])
@@ -160,6 +181,8 @@ export default function PrimeOSAssistant({
     const history = turns.map((t) => ({ role: t.role, text: t.text }))
     setTurns((t) => [...t, { role: 'user', text }])
     setLoading(true)
+    const ac = new AbortController()
+    abortRef.current = ac
     try {
       const res = await fetch('/api/studio/muse', {
         method: 'POST',
@@ -171,15 +194,15 @@ export default function PrimeOSAssistant({
           selection: scope === 'document' ? (docText || selText) : selText,
           history,
         }),
+        signal: ac.signal,
       })
       const ct = res.headers.get('content-type') || ''
       if (ct.includes('application/json') || !res.body) {
-        // key / unsupported / error — non-streamed
         const j = await res.json()
         let reply: string
         let applicable = false
         if (j.outOfCredits) reply = j.message
-        else if (j.needsKey) reply = `Add a ${j.needsKey} to enable ${modelLabel}. PrimeOS AI is fully wired — it answers the moment a key is set.`
+        else if (j.needsKey) reply = `Add a ${j.needsKey} to enable ${modelLabel}. PrimeOS is fully wired — it answers the moment a key is set.`
         else if (j.unsupported) reply = j.message
         else if (j.error) reply = `Couldn’t reach the model: ${j.error}`
         else { reply = j.reply || '(empty response)'; applicable = true }
@@ -190,24 +213,40 @@ export default function PrimeOSAssistant({
         const reader = res.body.getReader()
         const dec = new TextDecoder()
         let acc = ''
-        for (;;) {
-          const { done, value } = await reader.read()
-          if (done) break
-          acc += dec.decode(value, { stream: true })
-          setTurns((t) => { const c = [...t]; c[c.length - 1] = { ...c[c.length - 1], text: acc }; return c })
+        try {
+          for (;;) {
+            const { done, value } = await reader.read()
+            if (done) break
+            acc += dec.decode(value, { stream: true })
+            setTurns((t) => { const c = [...t]; c[c.length - 1] = { ...c[c.length - 1], text: acc }; return c })
+          }
+        } catch (err) {
+          if (!ac.signal.aborted) throw err
         }
-        if (!acc.trim()) setTurns((t) => { const c = [...t]; c[c.length - 1] = { role: 'assistant', text: '(empty response)', applicable: false }; return c })
+        if (!acc.trim() && !ac.signal.aborted) setTurns((t) => { const c = [...t]; c[c.length - 1] = { role: 'assistant', text: '(empty response)', applicable: false }; return c })
       }
     } catch (e) {
-      setTurns((t) => [...t, { role: 'assistant', text: `Request failed: ${(e as Error).message}` }])
+      if (!ac.signal.aborted) setTurns((t) => [...t, { role: 'assistant', text: `Request failed: ${(e as Error).message}` }])
     } finally {
       setLoading(false)
+      abortRef.current = null
       setTimeout(fetchBalance, 1000) // reflect the credit charge once metering settles
     }
   }
 
+  const stop = () => abortRef.current?.abort()
+  const newChat = () => { abortRef.current?.abort(); setTurns([]); setInput('') }
+  const editPrompt = (text: string) => { setInput(text); setTimeout(() => taRef.current?.focus(), 0) }
+  const regenerate = (i: number) => {
+    for (let k = i - 1; k >= 0; k--) if (turns[k].role === 'user') { void send(turns[k].text); return }
+  }
+  const copyText = (text: string, i: number) => {
+    navigator.clipboard?.writeText(text).then(() => { setCopied(i); setTimeout(() => setCopied(null), 1500) }).catch(() => {})
+  }
+
   const surface = isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#0f1c3f]'
   const subtle = isLight ? 'text-gray-500' : 'text-gray-400'
+  const miniBtn = `inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium transition-colors ${isLight ? 'text-gray-500 hover:bg-black/5 hover:text-gray-800' : 'text-gray-400 hover:bg-white/10 hover:text-gray-100'}`
 
   return (
     <div
@@ -215,47 +254,53 @@ export default function PrimeOSAssistant({
       style={{ left: pos.x, top: pos.y, width: size.w, height: size.h }}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      {/* header (drag handle) */}
+      {/* header (drag handle) — enterprise chrome with the PrimeOS mark */}
       <div
         onPointerDown={startDrag}
-        className={`flex cursor-move touch-none items-center gap-2 border-b px-3 py-2 ${isLight ? 'border-black/10' : 'border-white/10'}`}
+        className={`relative flex cursor-move touch-none items-center gap-2.5 border-b px-3 py-2.5 ${isLight ? 'border-black/10' : 'border-white/10'}`}
+        style={{ background: isLight ? 'linear-gradient(90deg, rgba(227,189,99,0.10), rgba(227,189,99,0) 60%)' : 'linear-gradient(90deg, rgba(227,189,99,0.14), rgba(227,189,99,0) 60%)' }}
       >
-        <Aperture size={16} className="text-primary" />
-        <span className={`text-sm font-semibold ${isLight ? 'text-gray-800' : 'text-gray-100'}`}>PrimeOS AI</span>
-        <GripHorizontal size={14} className={subtle} />
-        {balance !== null && (
-          <button onClick={topUp} title="Credit balance — click to top up" className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold transition-colors ${balance <= 0 ? 'bg-destructive/15 text-destructive' : isLight ? 'bg-black/5 text-gray-600 hover:bg-black/10' : 'bg-white/10 text-gray-300 hover:bg-white/15'}`}>
-            ${(balance / 100).toFixed(2)}
-          </button>
-        )}
-        <div className="relative ml-auto">
-          <button
-            onClick={() => setModelOpen((o) => !o)}
-            className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium ${isLight ? 'text-gray-600 hover:bg-black/5' : 'text-gray-300 hover:bg-white/10'}`}
-          >
-            {modelLabel} <ChevronDown size={12} />
-          </button>
-          {modelOpen && (
-            <>
-              <button aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setModelOpen(false)} />
-              <div className={`absolute right-0 top-full z-20 mt-1 max-h-64 w-52 overflow-y-auto rounded-xl border py-1 shadow-2xl ${surface}`}>
-                {textModels.map((m) => (
-                  <button
-                    key={m.id}
-                    onClick={() => { setModel(m.id); setModelOpen(false) }}
-                    className={`flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs ${m.id === model ? 'text-primary' : isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}
-                  >
-                    <span className="truncate">{m.label}</span>
-                    <span className={`flex-shrink-0 text-[10px] ${subtle}`}>{m.provider}</span>
-                  </button>
-                ))}
-              </div>
-            </>
+        <PrimeOSMark size={26} pondering={loading} />
+        <span className={`text-[14px] font-semibold tracking-tight ${isLight ? 'text-gray-900' : 'text-gray-50'}`}>PrimeOS</span>
+        <GripHorizontal size={14} className={`${subtle} ml-0.5`} />
+        <div className="ml-auto flex items-center gap-1">
+          {balance !== null && (
+            <button onClick={topUp} title="Credit balance — click to top up" className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold transition-colors ${balance <= 0 ? 'bg-destructive/15 text-destructive' : isLight ? 'bg-black/5 text-gray-600 hover:bg-black/10' : 'bg-white/10 text-gray-300 hover:bg-white/15'}`}>
+              ${(balance / 100).toFixed(2)}
+            </button>
           )}
+          <div className="relative">
+            <button
+              onClick={() => setModelOpen((o) => !o)}
+              className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium ${isLight ? 'text-gray-600 hover:bg-black/5' : 'text-gray-300 hover:bg-white/10'}`}
+            >
+              {modelLabel} <ChevronDown size={12} />
+            </button>
+            {modelOpen && (
+              <>
+                <button aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setModelOpen(false)} />
+                <div className={`absolute right-0 top-full z-20 mt-1 max-h-64 w-52 overflow-y-auto rounded-xl border py-1 shadow-2xl ${surface}`}>
+                  {textModels.map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => { setModel(m.id); setModelOpen(false) }}
+                      className={`flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs ${m.id === model ? 'text-primary' : isLight ? 'text-gray-700 hover:bg-black/5' : 'text-gray-200 hover:bg-white/10'}`}
+                    >
+                      <span className="truncate">{m.label}</span>
+                      <span className={`flex-shrink-0 text-[10px] ${subtle}`}>{m.provider}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          <button onClick={newChat} title="New chat" className={`grid h-6 w-6 place-items-center rounded-md ${isLight ? 'text-gray-500 hover:bg-black/5' : 'text-gray-300 hover:bg-white/10'}`}>
+            <Plus size={15} />
+          </button>
+          <button onClick={onClose} title="Close" className={`grid h-6 w-6 place-items-center rounded-md ${isLight ? 'text-gray-500 hover:bg-black/5' : 'text-gray-300 hover:bg-white/10'}`}>
+            <X size={14} />
+          </button>
         </div>
-        <button onClick={onClose} className={`grid h-6 w-6 place-items-center rounded-md ${isLight ? 'text-gray-500 hover:bg-black/5' : 'text-gray-300 hover:bg-white/10'}`}>
-          <X size={14} />
-        </button>
       </div>
 
       {/* controls — expert lens · scope · action library */}
@@ -320,32 +365,44 @@ export default function PrimeOSAssistant({
       )}
 
       {/* transcript */}
-      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-3 py-2.5">
         {turns.length === 0 && !loading && (
-          <div className="flex flex-wrap gap-1.5 py-1">
-            {(hasSel ? QUICK_SEL : QUICK_NONE).map((q) => (
-              <button
-                key={q}
-                onClick={() => send(q)}
-                className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${isLight ? 'border-black/10 text-gray-700 hover:bg-black/5' : 'border-white/10 text-gray-200 hover:bg-white/10'}`}
-              >
-                {q}
-              </button>
-            ))}
+          <div className="space-y-2 py-1">
+            <p className={`flex items-center gap-1.5 text-[12px] font-medium ${subtle}`}><Sparkles size={13} /> Start with a quick action</p>
+            <div className="flex flex-wrap gap-1.5">
+              {(hasSel ? QUICK_SEL : QUICK_NONE).map((q) => (
+                <button
+                  key={q}
+                  onClick={() => send(q)}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${isLight ? 'border-black/10 text-gray-700 hover:bg-black/5' : 'border-white/10 text-gray-200 hover:bg-white/10'}`}
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
           </div>
         )}
-        <div className="space-y-2.5">
+        <div className="space-y-3">
           {turns.map((t, i) => (
-            <div key={i} className={t.role === 'user' ? 'text-right' : ''}>
+            <div key={i} className={`group ${t.role === 'user' ? 'text-right' : ''}`}>
               <div
-                className={`inline-block max-w-[92%] whitespace-pre-wrap break-words rounded-xl px-2.5 py-1.5 text-[13px] leading-snug ${
+                className={`inline-block max-w-[92%] whitespace-pre-wrap break-words rounded-xl px-2.5 py-1.5 text-[13px] leading-relaxed ${
                   t.role === 'user'
                     ? 'bg-primary text-primary-foreground'
                     : isLight ? 'bg-black/[0.04] text-gray-800' : 'bg-white/[0.06] text-gray-100'
                 }`}
               >
-                {t.text}
+                {t.text || (t.role === 'assistant' && loading ? '…' : '')}
               </div>
+              {/* user-turn actions: rerun · edit · copy (on hover) */}
+              {t.role === 'user' && (
+                <div className="mt-0.5 flex items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                  <button onClick={() => void send(t.text)} disabled={loading} className={miniBtn} title="Run again"><RotateCcw size={12} /> Rerun</button>
+                  <button onClick={() => editPrompt(t.text)} className={miniBtn} title="Edit & resend"><Pencil size={12} /> Edit</button>
+                  <button onClick={() => copyText(t.text, i)} className={miniBtn} title="Copy">{copied === i ? <Check size={12} /> : <Copy size={12} />}</button>
+                </div>
+              )}
+              {/* assistant-turn actions */}
               {t.role === 'assistant' && t.applicable && (
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <button onClick={() => onApply(t.text, 'replace')} className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline">
@@ -354,51 +411,74 @@ export default function PrimeOSAssistant({
                   <button onClick={() => onApply(t.text, 'after')} className={`inline-flex items-center gap-1 text-[11px] font-medium ${subtle} hover:text-foreground`}>
                     <CornerDownRight size={12} /> Insert below
                   </button>
-                  <button
-                    onClick={async () => { try { await navigator.clipboard.writeText(t.text); setCopied(i); setTimeout(() => setCopied(null), 1500) } catch { /* ignore */ } }}
-                    className={`inline-flex items-center gap-1 text-[11px] font-medium ${subtle} hover:text-foreground`}
-                  >
+                  <button onClick={() => copyText(t.text, i)} className={`inline-flex items-center gap-1 text-[11px] font-medium ${subtle} hover:text-foreground`}>
                     {copied === i ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
+                  </button>
+                  <button onClick={() => regenerate(i)} disabled={loading} className={`inline-flex items-center gap-1 text-[11px] font-medium ${subtle} hover:text-foreground disabled:opacity-40`}>
+                    <RotateCcw size={12} /> Regenerate
                   </button>
                 </div>
               )}
             </div>
           ))}
           {loading && (
-            <div className={`inline-flex items-center gap-1.5 text-[12px] ${subtle}`}>
-              <Loader2 size={13} className="animate-spin" /> PrimeOS AI is thinking…
+            <div className={`inline-flex items-center gap-2 text-[12px] ${subtle}`}>
+              <PrimeOSMark size={16} pondering />
+              <span>PrimeOS is thinking…</span>
+              <button onClick={stop} className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${isLight ? 'border-black/10 hover:bg-black/5' : 'border-white/10 hover:bg-white/10'}`} title="Stop generating">
+                <Square size={10} /> Stop
+              </button>
             </div>
           )}
         </div>
       </div>
 
-      {/* input */}
-      <div className={`flex items-end gap-2 border-t p-2 ${isLight ? 'border-black/10' : 'border-white/10'}`}>
-        <textarea
-          autoFocus
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(input) } }}
-          rows={1}
-          placeholder={hasSel ? 'Refine, rewrite, translate…' : 'Ask PrimeOS AI to write…'}
-          className={`max-h-28 min-h-[34px] flex-1 resize-none rounded-lg border px-2.5 py-1.5 text-sm outline-none ${isLight ? 'border-black/10 bg-white text-gray-800 placeholder:text-gray-400' : 'border-white/10 bg-white/5 text-gray-100 placeholder:text-gray-500'}`}
-        />
-        <button
-          onClick={savePrompt}
-          disabled={!input.trim()}
-          title="Save this prompt"
-          className={`grid h-[34px] w-8 flex-shrink-0 place-items-center rounded-lg transition-colors disabled:opacity-40 ${isLight ? 'text-gray-500 hover:bg-black/5' : 'text-gray-300 hover:bg-white/10'}`}
-        >
-          <Bookmark size={15} />
-        </button>
-        <button
-          onClick={() => void send(input)}
-          disabled={!input.trim() || loading}
-          className="grid h-[34px] w-9 flex-shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-          title="Send (Enter)"
-        >
-          <CornerDownLeft size={15} />
-        </button>
+      {/* input — one unified, mature composer bar */}
+      <div className={`border-t p-2.5 ${isLight ? 'border-black/10' : 'border-white/10'}`}>
+        <div className={`flex items-end gap-1.5 rounded-2xl border px-2.5 py-1.5 transition-colors focus-within:border-primary/50 ${isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-white/[0.04]'}`}>
+          <textarea
+            ref={taRef}
+            autoFocus
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(input) }
+              else if (e.key === 'ArrowUp' && !input.trim()) {
+                const last = [...turns].reverse().find((t) => t.role === 'user')
+                if (last) { e.preventDefault(); setInput(last.text) }
+              }
+            }}
+            rows={1}
+            placeholder={hasSel ? 'Refine, rewrite, translate…' : 'Message PrimeOS…'}
+            className={`max-h-32 min-h-[28px] flex-1 resize-none bg-transparent py-1 text-[13.5px] leading-snug outline-none ${isLight ? 'text-gray-800 placeholder:text-gray-400' : 'text-gray-100 placeholder:text-gray-500'}`}
+          />
+          <button
+            onClick={savePrompt}
+            disabled={!input.trim()}
+            title="Save this prompt"
+            className={`grid h-7 w-7 flex-shrink-0 place-items-center rounded-lg transition-colors disabled:opacity-30 ${isLight ? 'text-gray-400 hover:bg-black/5 hover:text-gray-700' : 'text-gray-400 hover:bg-white/10 hover:text-gray-100'}`}
+          >
+            <Bookmark size={15} />
+          </button>
+          {loading ? (
+            <button
+              onClick={stop}
+              className="grid h-7 w-7 flex-shrink-0 place-items-center rounded-lg bg-destructive/90 text-white transition-opacity hover:opacity-90"
+              title="Stop generating"
+            >
+              <Square size={13} />
+            </button>
+          ) : (
+            <button
+              onClick={() => void send(input)}
+              disabled={!input.trim()}
+              className="grid h-7 w-7 flex-shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+              title="Send (Enter)"
+            >
+              <CornerDownLeft size={14} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* resize grip */}

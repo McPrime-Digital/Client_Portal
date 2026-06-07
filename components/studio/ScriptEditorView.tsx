@@ -75,6 +75,9 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
   const prevTab = useRef('main')
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
   const saveNow = useRef<() => void>(() => {})
+  const titleRef = useRef('')
+  titleRef.current = title
+  const persistTitleNow = useRef<() => void>(() => {})
 
   // Per-document theme (independent of the app theme), remembered per doc.
   useEffect(() => {
@@ -154,14 +157,20 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
         }
         const onBeforeUnload = () => {
           void persist()
+          persistTitleNow.current() // flush a just-typed title before the tab closes
         }
         window.addEventListener('beforeunload', onBeforeUnload)
+        // Persist on tab-hide too (covers mobile/background where unload never fires).
+        const onHide = () => { if (document.visibilityState === 'hidden') { void persist(); persistTitleNow.current() } }
+        document.addEventListener('visibilitychange', onHide)
 
         cleanup.current = () => {
           ydoc.off('update', save)
           clearTimeout(t)
           void persist()
+          persistTitleNow.current() // flush the title on navigate-away (SPA unmount)
           window.removeEventListener('beforeunload', onBeforeUnload)
+          document.removeEventListener('visibilitychange', onHide)
           provider.destroy()
         }
 
@@ -253,15 +262,18 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab])
 
-  // Persist the title (debounced).
+  // Persist the title — debounced while typing, and flushable on exit (the
+  // exit flush is wired into the document cleanup / beforeunload above so a title
+  // typed right before leaving is never lost).
   useEffect(() => {
     if (!ready) return
-    const t = setTimeout(() => {
-      void supabase
+    const persist = () =>
+      supabase
         .from('documents')
-        .update({ title: title.trim() || 'Untitled', updated_at: new Date().toISOString() })
+        .update({ title: (titleRef.current || '').trim() || 'Untitled', updated_at: new Date().toISOString() })
         .eq('id', docId)
-    }, 600)
+    persistTitleNow.current = () => { void persist() }
+    const t = setTimeout(() => { void persist() }, 500)
     return () => clearTimeout(t)
   }, [title, ready, supabase, docId])
 
@@ -281,6 +293,7 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
+          onBlur={() => persistTitleNow.current()}
           placeholder="Untitled"
           aria-label="Document title"
           className="min-w-0 flex-1 bg-transparent font-display text-2xl font-semibold text-foreground outline-none placeholder:text-faint"
