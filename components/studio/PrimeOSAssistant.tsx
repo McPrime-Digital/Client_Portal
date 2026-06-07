@@ -1,11 +1,14 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Aperture, ChevronDown, X, CornerDownLeft, Replace, CornerDownRight, Copy, Loader2, Check } from 'lucide-react'
+import { Aperture, ChevronDown, X, CornerDownLeft, Replace, CornerDownRight, Copy, Loader2, Check, GripHorizontal } from 'lucide-react'
 import { modelsByModality } from '@/lib/ai/models'
 
 type Turn = { role: 'user' | 'assistant'; text: string; applicable?: boolean }
-const QUICK = ['Improve writing', 'Make it shorter', 'Make it longer', 'Fix spelling & grammar', 'More formal', 'More casual', 'Rephrase']
+const QUICK_SEL = ['Improve writing', 'Make it shorter', 'Make it longer', 'Fix spelling & grammar', 'Rephrase', 'More formal', 'More casual', 'Summarize', 'Continue writing']
+const QUICK_NONE = ['Continue writing', 'Draft an opening paragraph', 'Brainstorm ideas', 'Outline this scene', 'Suggest a stronger title']
+
+const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
 
 export default function PrimeOSAssistant({
   selText,
@@ -28,6 +31,67 @@ export default function PrimeOSAssistant({
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState<number | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
+  const hasSel = selText.trim().length > 0
+
+  // ── floating position + size (draggable + resizable, remembered) ──────────
+  const [size, setSize] = useState(() => {
+    if (typeof window === 'undefined') return { w: 400, h: 480 }
+    try {
+      const s = JSON.parse(localStorage.getItem('tl-primeos-size') || '')
+      if (s?.w && s?.h) return s
+    } catch { /* ignore */ }
+    return { w: 400, h: 480 }
+  })
+  const [pos, setPos] = useState(() => {
+    if (typeof window === 'undefined') return { x: 120, y: 96 }
+    const W = 400
+    const H = 480
+    try {
+      const p = JSON.parse(localStorage.getItem('tl-primeos-pos') || '')
+      if (typeof p?.x === 'number') return { x: clamp(p.x, 8, window.innerWidth - 80), y: clamp(p.y, 8, window.innerHeight - 60) }
+    } catch { /* ignore */ }
+    if (rect) {
+      return {
+        x: clamp(rect.left, 8, window.innerWidth - W - 8),
+        y: clamp(rect.bottom + 10, 8, window.innerHeight - H - 8),
+      }
+    }
+    return { x: window.innerWidth - W - 36, y: 104 }
+  })
+  const drag = useRef<{ dx: number; dy: number } | null>(null)
+  const resz = useRef<{ x: number; y: number; w: number; h: number } | null>(null)
+  useEffect(() => {
+    const move = (e: PointerEvent) => {
+      if (drag.current) {
+        setPos({
+          x: clamp(e.clientX - drag.current.dx, 8, window.innerWidth - 80),
+          y: clamp(e.clientY - drag.current.dy, 8, window.innerHeight - 48),
+        })
+      } else if (resz.current) {
+        setSize({
+          w: clamp(resz.current.w + (e.clientX - resz.current.x), 320, Math.min(760, window.innerWidth - 16)),
+          h: clamp(resz.current.h + (e.clientY - resz.current.y), 300, window.innerHeight - 24),
+        })
+      }
+    }
+    const up = () => {
+      if (drag.current) { try { localStorage.setItem('tl-primeos-pos', JSON.stringify(pos)) } catch { /* ignore */ } }
+      if (resz.current) { try { localStorage.setItem('tl-primeos-size', JSON.stringify(size)) } catch { /* ignore */ } }
+      drag.current = null
+      resz.current = null
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up) }
+  }, [pos, size])
+  const startDrag = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest('button')) return // don't drag from buttons
+    drag.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y }
+  }
+  const startResize = (e: React.PointerEvent) => {
+    e.stopPropagation()
+    resz.current = { x: e.clientX, y: e.clientY, w: size.w, h: size.h }
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -68,24 +132,23 @@ export default function PrimeOSAssistant({
     }
   }
 
-  // position below the selection, clamped to the viewport
-  const W = 380
-  const left = rect ? Math.min(Math.max(8, rect.left), (typeof window !== 'undefined' ? window.innerWidth : 1200) - W - 8) : 80
-  const top = rect ? Math.min(rect.bottom + 8, (typeof window !== 'undefined' ? window.innerHeight : 800) - 80) : 80
-
   const surface = isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#0f1c3f]'
   const subtle = isLight ? 'text-gray-500' : 'text-gray-400'
 
   return (
     <div
-      className={`fixed z-[60] flex max-h-[60vh] w-[380px] max-w-[calc(100vw-16px)] flex-col rounded-2xl border shadow-2xl ${surface}`}
-      style={{ left, top }}
+      className={`fixed z-[60] flex flex-col overflow-hidden rounded-2xl border shadow-2xl ${surface}`}
+      style={{ left: pos.x, top: pos.y, width: size.w, height: size.h }}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      {/* header */}
-      <div className={`flex items-center gap-2 border-b px-3 py-2 ${isLight ? 'border-black/10' : 'border-white/10'}`}>
+      {/* header (drag handle) */}
+      <div
+        onPointerDown={startDrag}
+        className={`flex cursor-move touch-none items-center gap-2 border-b px-3 py-2 ${isLight ? 'border-black/10' : 'border-white/10'}`}
+      >
         <Aperture size={16} className="text-primary" />
         <span className={`text-sm font-semibold ${isLight ? 'text-gray-800' : 'text-gray-100'}`}>PrimeOS AI</span>
+        <GripHorizontal size={14} className={subtle} />
         <div className="relative ml-auto">
           <button
             onClick={() => setModelOpen((o) => !o)}
@@ -117,15 +180,17 @@ export default function PrimeOSAssistant({
       </div>
 
       {/* selected context */}
-      <div className={`border-b px-3 py-1.5 ${isLight ? 'border-black/10' : 'border-white/10'}`}>
-        <p className={`line-clamp-2 text-[11px] italic ${subtle}`}>“{selText}”</p>
-      </div>
+      {hasSel && (
+        <div className={`border-b px-3 py-1.5 ${isLight ? 'border-black/10' : 'border-white/10'}`}>
+          <p className={`line-clamp-2 text-[11px] italic ${subtle}`}>“{selText}”</p>
+        </div>
+      )}
 
       {/* transcript */}
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
         {turns.length === 0 && !loading && (
           <div className="flex flex-wrap gap-1.5 py-1">
-            {QUICK.map((q) => (
+            {(hasSel ? QUICK_SEL : QUICK_NONE).map((q) => (
               <button
                 key={q}
                 onClick={() => send(q)}
@@ -149,9 +214,9 @@ export default function PrimeOSAssistant({
                 {t.text}
               </div>
               {t.role === 'assistant' && t.applicable && (
-                <div className="mt-1 flex items-center gap-2">
+                <div className="mt-1 flex flex-wrap items-center gap-2">
                   <button onClick={() => onApply(t.text, 'replace')} className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline">
-                    <Replace size={12} /> Replace
+                    <Replace size={12} /> {hasSel ? 'Replace selection' : 'Insert at cursor'}
                   </button>
                   <button onClick={() => onApply(t.text, 'after')} className={`inline-flex items-center gap-1 text-[11px] font-medium ${subtle} hover:text-foreground`}>
                     <CornerDownRight size={12} /> Insert below
@@ -182,8 +247,8 @@ export default function PrimeOSAssistant({
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(input) } }}
           rows={1}
-          placeholder="Tell PrimeOS AI what to do…"
-          className={`max-h-24 min-h-[34px] flex-1 resize-none rounded-lg border px-2.5 py-1.5 text-sm outline-none ${isLight ? 'border-black/10 bg-white text-gray-800 placeholder:text-gray-400' : 'border-white/10 bg-white/5 text-gray-100 placeholder:text-gray-500'}`}
+          placeholder={hasSel ? 'Refine, rewrite, translate…' : 'Ask PrimeOS AI to write…'}
+          className={`max-h-28 min-h-[34px] flex-1 resize-none rounded-lg border px-2.5 py-1.5 text-sm outline-none ${isLight ? 'border-black/10 bg-white text-gray-800 placeholder:text-gray-400' : 'border-white/10 bg-white/5 text-gray-100 placeholder:text-gray-500'}`}
         />
         <button
           onClick={() => void send(input)}
@@ -193,6 +258,15 @@ export default function PrimeOSAssistant({
         >
           <CornerDownLeft size={15} />
         </button>
+      </div>
+
+      {/* resize grip */}
+      <div
+        onPointerDown={startResize}
+        className="absolute bottom-0 right-0 h-4 w-4 cursor-nwse-resize touch-none"
+        title="Drag to resize"
+      >
+        <div className={`absolute bottom-1 right-1 h-2 w-2 border-b-2 border-r-2 ${isLight ? 'border-gray-400' : 'border-gray-500'}`} />
       </div>
     </div>
   )
