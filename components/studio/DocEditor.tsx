@@ -684,7 +684,18 @@ export default function DocEditor({
           ]],
           ['Tools', [
             { label: 'PrimeOS AI', fn: () => openMuse(true) },
-            { label: `Word count: ${counts.words.toLocaleString()}`, fn: () => editor.focus() },
+            { label: `Word count: ${counts.words.toLocaleString()} words`, fn: () => editor.focus() },
+            { label: `${counts.chars.toLocaleString()} characters`, fn: () => editor.focus() },
+          ]],
+          ['Extensions', [
+            { label: 'PrimeOS AI', fn: () => openMuse(true) },
+            { label: 'Comments', fn: () => setShowComments(true) },
+            { label: 'Version history', fn: toggleHistory },
+          ]],
+          ['Help', [
+            { label: 'Slash “/” for commands', fn: () => editor.focus() },
+            { label: '⌘F — find & replace', fn: () => setShowFind(true) },
+            { label: 'Select text → PrimeOS AI', fn: () => openMuse(true) },
           ]],
         ] as [string, { label: string; fn: () => void }[]][]).map(([name, items]) => (
           <div key={name} className="relative">
