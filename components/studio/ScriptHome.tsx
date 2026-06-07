@@ -12,22 +12,31 @@ import { fromB64 } from '@/lib/collab/supabaseYjs'
 
 type Doc = { id: string; title: string; ydoc: string | null; updated_at: string; last_opened_at: string | null }
 
-// Definitive first-page preview: decode the stored Yjs snapshot and extract the
-// document's leading text — works for any doc, no cached column required.
+// Definitive first-page preview: decode the stored Yjs snapshot and walk its text
+// nodes (via deltas, so marks/nesting are handled) — works for any doc, no cached
+// column, no fragile tag-stripping.
+const BLOCK_NODE = /^(paragraph|heading|bulletListItem|numberedListItem|checkListItem|toggleListItem|quote|codeBlock|blockContainer|tableCell)$/i
 function previewFromYdoc(b64: string | null): string {
   if (!b64) return ''
   try {
     const d = new Y.Doc()
     Y.applyUpdate(d, fromB64(b64))
-    let xml = d.getXmlFragment('blocknote').toString()
+    const out: string[] = []
+    const walk = (node: unknown) => {
+      const n = node as { toDelta?: () => { insert?: unknown }[]; toArray?: () => unknown[]; nodeName?: string }
+      // leaf text node (Y.XmlText) — has toDelta but not toArray
+      if (n && typeof n.toDelta === 'function' && typeof n.toArray !== 'function') {
+        const text = n.toDelta().map((op) => (typeof op.insert === 'string' ? op.insert : '')).join('')
+        if (text) out.push(text)
+        return
+      }
+      const children = n && typeof n.toArray === 'function' ? n.toArray() : []
+      for (const c of children) walk(c)
+      if (n?.nodeName && BLOCK_NODE.test(n.nodeName)) out.push('\n')
+    }
+    walk(d.getXmlFragment('blocknote'))
     d.destroy()
-    xml = xml.replace(/<\/blockContainer>/g, '\n') // one line per block
-    return xml
-      .replace(/<[^>]+>/g, '')
-      .replace(/[ \t]+/g, ' ')
-      .replace(/\n{2,}/g, '\n')
-      .trim()
-      .slice(0, 700)
+    return out.join('').replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n').trim().slice(0, 700)
   } catch {
     return ''
   }

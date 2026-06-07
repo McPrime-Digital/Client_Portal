@@ -551,13 +551,13 @@ export default function DocEditor({
 
   // Muse inline — open a chat anchored to the current selection, apply to it.
   const [muse, setMuse] = useState<MuseAnchor | null>(null)
-  const openMuse = () => {
+  const openMuse = (fromRail = false) => {
     const text = (editor.getSelectedText?.() || window.getSelection()?.toString() || '').trim()
-    if (!text) return
+    if (!text && !fromRail) return // toolbar needs a selection; the rail opens a general chat
     const sel = typeof window !== 'undefined' ? window.getSelection() : null
-    const rect = sel && sel.rangeCount ? sel.getRangeAt(0).getBoundingClientRect() : null
+    const rect = text && sel && sel.rangeCount ? sel.getRangeAt(0).getBoundingClientRect() : null
     const tip = editor._tiptapEditor
-    const range = tip ? { from: tip.state.selection.from, to: tip.state.selection.to } : null
+    const range = text && tip ? { from: tip.state.selection.from, to: tip.state.selection.to } : null
     setMuse({ text, rect, range })
   }
   const applyMuse = (newText: string, modeKind: 'replace' | 'after') => {
@@ -579,7 +579,7 @@ export default function DocEditor({
         formattingToolbar={() => (
           <FormattingToolbar>
             {getFormattingToolbarItems()}
-            <PrimeToolbarButton key="primeos" onMuse={openMuse} />
+            <PrimeToolbarButton key="primeos" onMuse={() => openMuse()} />
           </FormattingToolbar>
         )}
       />
@@ -994,7 +994,7 @@ export default function DocEditor({
         {/* right rail — functional tools + live counter */}
         <div className={`flex w-11 flex-shrink-0 flex-col items-center gap-1 border-l py-2 ${isLight ? 'border-black/10 bg-black/[0.02]' : 'border-white/10 bg-white/[0.02]'}`}>
           {[
-            { I: Aperture, title: 'PrimeOS AI — refine selection', active: !!muse, fn: openMuse },
+            { I: Aperture, title: 'PrimeOS AI', active: !!muse, fn: () => openMuse(true) },
             { I: ListTree, title: 'Outline', active: showOutline, fn: () => setShowOutline((s) => !s) },
             { I: MessageSquare, title: 'Comments', active: showComments, fn: () => setShowComments((s) => !s) },
             { I: History, title: 'Version history', active: showHistory, fn: toggleHistory },

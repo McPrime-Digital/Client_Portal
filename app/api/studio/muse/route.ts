@@ -15,9 +15,9 @@ const PROVIDER_ENV: Record<string, string> = {
 }
 // registry id → provider's API model name (adjust as providers rev their names)
 const ANTHROPIC_MODEL: Record<string, string> = {
-  'anthropic/claude-opus': 'claude-opus-4-1',
-  'anthropic/claude-sonnet': 'claude-sonnet-4-5',
-  'anthropic/claude-haiku': 'claude-haiku-4-5',
+  'anthropic/claude-opus': 'claude-opus-4-1-20250805',
+  'anthropic/claude-sonnet': 'claude-sonnet-4-5-20250929',
+  'anthropic/claude-haiku': 'claude-3-5-haiku-latest',
 }
 const OPENAI_MODEL: Record<string, string> = {
   'openai/gpt-5': 'gpt-5',
