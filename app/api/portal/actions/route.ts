@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { createAdminNotification, pushMessageAlert } from '@/lib/notify'
 import { messagePreview } from '@/lib/messagePreview'
-import { recordActivity } from '@/lib/logActivity'
+import { recordActivity } from '@/lib/logActivity.server'
 
 // Verify the calling user is an authenticated client
 async function verifyClient() {

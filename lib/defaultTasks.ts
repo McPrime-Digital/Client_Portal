@@ -1,3 +1,5 @@
+import 'server-only'
+
 import { SupabaseClient } from '@supabase/supabase-js'
 
 // ── Default task processes, grouped per production phase ───────────────────

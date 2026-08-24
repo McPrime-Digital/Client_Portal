@@ -5,7 +5,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { computeProjectProgress, deriveProjectStatus } from '@/lib/projectProgress'
 import { createNotification, clientIdForProject, pushMessageAlert } from '@/lib/notify'
 import { messagePreview } from '@/lib/messagePreview'
-import { recordActivity } from '@/lib/logActivity'
+import { recordActivity } from '@/lib/logActivity.server'
 import { seedDefaultTasks, buildPhaseTaskRows, safeCategory } from '@/lib/defaultTasks'
 
 // Records an approval-gate send into the Approvals & Records ledger when a

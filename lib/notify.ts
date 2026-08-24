@@ -1,3 +1,5 @@
+import 'server-only'
+
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { sendPushToUser, sendPushToAdmins } from '@/lib/push'
 import { sendSms } from '@/lib/sms'

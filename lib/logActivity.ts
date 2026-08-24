@@ -1,16 +1,18 @@
 /**
- * logActivity — fire-and-forget activity log helper.
+ * logActivity — fire-and-forget activity log helper. Browser-safe.
  *
- * Calls the `log_activity` RPC on Supabase.
- * If the activity_log table / function doesn't exist yet,
- * the error is silently swallowed so it never crashes the caller.
+ * This module must stay free of any service-role import: it is pulled into the
+ * client bundle by `"use client"` callers. The service-role writers live in
+ * `@/lib/logActivity.server`, which is guarded by `server-only`. A dynamic
+ * `await import()` is NOT enough to keep them out of the client chunk graph —
+ * the bundler still creates the edge.
  *
- * Usage:
+ * Usage (client or server):
  *   import { logActivity } from '@/lib/logActivity'
  *   await logActivity({ eventType: 'file_uploaded', title: '...', actorId, actorName, actorRole })
  */
 
-type EventType =
+export type EventType =
   | 'project_created'
   | 'project_status_changed'
   | 'file_uploaded'
@@ -28,7 +30,7 @@ type EventType =
   | 'changes_requested'
   | 'task_auto_approved'
 
-type ActivityParams = {
+export type ActivityParams = {
   projectId?: string | null
   clientId?: string | null
   actorId: string
@@ -59,76 +61,5 @@ export async function logActivity(params: ActivityParams): Promise<void> {
     })
   } catch {
     // Silently swallow — activity logging must never crash the app
-  }
-}
-
-/**
- * recordActivity — the reliable, transparent writer for the Approvals & Records
- * ledger. Inserts straight into `activity_log` with the service role (which
- * bypasses RLS), so it does NOT depend on the `log_activity` RPC existing. A
- * failed write is logged (not silently swallowed) so records can never vanish
- * without a trace. Never throws into the caller.
- *
- * Use this for anything that must appear in Approvals & Records (approval-gate
- * sends, client approvals, change requests, auto-proceeds).
- */
-export async function recordActivity(params: ActivityParams): Promise<void> {
-  try {
-    const { supabaseAdmin } = await import('@/lib/supabase/admin')
-    const { error } = await supabaseAdmin.from('activity_log').insert({
-      project_id: params.projectId ?? null,
-      client_id: params.clientId ?? null,
-      actor_id: params.actorId,
-      actor_name: params.actorName,
-      actor_role: params.actorRole,
-      event_type: params.eventType,
-      title: params.title,
-      body: params.body ?? null,
-      meta: params.meta ?? {},
-    })
-    if (error) {
-      console.error('[recordActivity] insert failed:', params.eventType, error.message)
-    }
-  } catch (e) {
-    console.error('[recordActivity] threw:', e)
-  }
-}
-
-/**
- * Server-side variant — uses the service-role client.
- * Import from API routes / server actions only.
- */
-export async function logActivityServer(params: ActivityParams): Promise<void> {
-  try {
-    // Dynamic import to avoid bundling server code client-side
-    const { supabaseAdmin } = await import('@/lib/supabase/admin')
-
-    const { error } = await supabaseAdmin.rpc('log_activity', {
-      p_project_id: params.projectId ?? null,
-      p_client_id: params.clientId ?? null,
-      p_actor_id: params.actorId,
-      p_actor_name: params.actorName,
-      p_actor_role: params.actorRole,
-      p_event_type: params.eventType,
-      p_title: params.title,
-      p_body: params.body ?? null,
-      p_meta: params.meta ?? {},
-    })
-
-    if (error) {
-      await supabaseAdmin.from('activity_log').insert({
-        project_id: params.projectId ?? null,
-        client_id: params.clientId ?? null,
-        actor_id: params.actorId,
-        actor_name: params.actorName,
-        actor_role: params.actorRole,
-        event_type: params.eventType,
-        title: params.title,
-        body: params.body ?? null,
-        meta: params.meta ?? {},
-      })
-    }
-  } catch {
-    // Silently swallow
   }
 }

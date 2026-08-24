@@ -1,3 +1,5 @@
+import 'server-only'
+
 import { supabaseAdmin } from '@/lib/supabase/admin'
 
 // SaaS credit metering. Credits are held in cents on org_credits.balance_cents.

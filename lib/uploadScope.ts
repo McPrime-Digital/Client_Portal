@@ -1,3 +1,5 @@
+import 'server-only'
+
 import { supabaseAdmin } from '@/lib/supabase/admin'
 
 // Resolves an upload's client/project scope and the R2 key prefix,

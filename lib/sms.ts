@@ -1,3 +1,5 @@
+import 'server-only'
+
 // Server-side SMS via Twilio's REST API (no SDK dependency). No-ops unless
 // TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM are configured, so the
 // app runs fine without SMS until those are added. Never throws.

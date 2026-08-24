@@ -1,7 +1,7 @@
 import { userRole } from '@/lib/auth/role'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { logActivityServer } from '@/lib/logActivity'
+import { logActivityServer } from '@/lib/logActivity.server'
 
 // Logs an activity entry server-side (service role), so the browser never
 // touches activity_log directly (which RLS blocks). The actor is taken from
