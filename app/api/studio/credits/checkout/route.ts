@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { userOrgId } from '@/lib/auth/role'
-import { stripe } from '@/lib/stripe'
+import { getStripe } from '@/lib/stripe'
 
 // Create a Stripe Checkout session to buy credits. On success the webhook tops up
 // the org's balance via add_credits(). Amount is in cents ($5 min, $10k max).
@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
   const origin = process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin
 
   try {
-    const session = await stripe.checkout.sessions.create({
+    const session = await getStripe().checkout.sessions.create({
       mode: 'payment',
       line_items: [
         {

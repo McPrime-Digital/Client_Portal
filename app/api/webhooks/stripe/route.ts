@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { stripe } from '@/lib/stripe'
+import { getStripe } from '@/lib/stripe'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 
 // Stripe webhook — on a completed credit purchase, top up the org's balance.
@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
   const body = await req.text() // raw body required for signature verification
   let event
   try {
-    event = stripe.webhooks.constructEvent(body, sig, process.env.STRIPE_WEBHOOK_SECRET ?? '')
+    event = getStripe().webhooks.constructEvent(body, sig, process.env.STRIPE_WEBHOOK_SECRET ?? '')
   } catch (e) {
     return new Response(`Webhook signature error: ${(e as Error).message}`, { status: 400 })
   }
