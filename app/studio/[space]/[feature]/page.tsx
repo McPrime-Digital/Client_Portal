@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { getSpace } from '@/lib/studio/spaces'
 import ScriptDesign from '@/components/studio/ScriptDesign'
@@ -15,6 +15,10 @@ export default async function FeaturePage({
   const space = getSpace(spaceId)
   const feature = space?.features.find((f) => f.slug === slug)
   if (!space || !feature) notFound()
+
+  // Features whose studio-native version isn't built yet route to the working
+  // legacy tool — a space entry must never dead-end in a stub.
+  if (feature.legacyHref) redirect(feature.legacyHref)
 
   // Real features progressively replace the stub below.
   if (space.id === 'workspace' && feature.slug === 'script') {

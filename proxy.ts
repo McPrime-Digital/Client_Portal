@@ -64,12 +64,12 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Admin trying to access client portal
+  // Admin trying to access client portal — send to the Throughline studio home
   if (user && isPortalRoute) {
     const role = userRole(user)
     if (role === 'admin') {
       const url = request.nextUrl.clone()
-      url.pathname = '/admin'
+      url.pathname = '/studio'
       return NextResponse.redirect(url)
     }
   }
@@ -88,7 +88,7 @@ export async function proxy(request: NextRequest) {
   if (user && pathname === '/login') {
     const role = userRole(user)
     const url = request.nextUrl.clone()
-    url.pathname = role === 'admin' ? '/admin' : '/dashboard'
+    url.pathname = role === 'admin' ? '/studio' : '/dashboard'
     return NextResponse.redirect(url)
   }
 
