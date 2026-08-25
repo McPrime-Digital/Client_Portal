@@ -1,3 +1,4 @@
+import { portalClientIdByUserId } from '@/lib/team'
 import 'server-only'
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -31,7 +32,7 @@ export async function resolveUploadScope(
     let clientId: string | null = project.client_id ?? null
     if (role !== 'admin') {
       const { data: clientRow } = await supabaseAdmin
-        .from('clients').select('id').eq('user_id', userId).single()
+        .from('clients').select('id').eq('id', await portalClientIdByUserId(userId)).single()
       if (!clientRow || clientRow.id !== project.client_id) {
         return { error: 'Access denied.', status: 403 }
       }
@@ -42,7 +43,7 @@ export async function resolveUploadScope(
 
   if (role !== 'admin') {
     const { data: clientRow } = await supabaseAdmin
-      .from('clients').select('id').eq('user_id', userId).single()
+      .from('clients').select('id').eq('id', await portalClientIdByUserId(userId)).single()
     if (!clientRow) return { error: 'Client not found.', status: 403 }
     if (bodyClientId && bodyClientId !== clientRow.id) {
       return { error: 'Access denied.', status: 403 }

@@ -12,6 +12,7 @@ import {
   LogOut,
   Receipt,
   Settings,
+  UsersRound,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useSidebarStore } from '@/lib/stores/sidebar-store'
@@ -50,6 +51,7 @@ const navItems = [
   {
     section: 'Account',
     items: [
+      { label: 'Team', href: '/team', icon: UsersRound },
       { label: 'Settings', href: '/dashboard/settings', icon: Settings },
     ],
   },

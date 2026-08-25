@@ -16,6 +16,7 @@ const routeNames: Record<string, string> = {
   '/dashboard': 'Overview',
   '/projects': 'Projects',
   '/approvals': 'Review & Approvals',
+  '/team': 'Your team',
   '/files': 'File Vault',
   '/messages': 'Messages',
   '/invoices': 'Invoices',

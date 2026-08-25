@@ -1,3 +1,4 @@
+import { portalClientId } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { NextRequest, NextResponse } from 'next/server'
@@ -24,14 +25,14 @@ export async function POST(req: NextRequest) {
   const { data: existing } = await supabaseAdmin
     .from('clients')
     .select('onboarded_at')
-    .eq('user_id', user.id)
+    .eq('id', await portalClientId(user))
     .single()
   if (existing && !existing.onboarded_at) updates.onboarded_at = now
 
   const { error } = await supabaseAdmin
     .from('clients')
     .update(updates)
-    .eq('user_id', user.id)
+    .eq('id', await portalClientId(user))
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }

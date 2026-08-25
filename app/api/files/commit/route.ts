@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { resolveUploadScope } from '@/lib/uploadScope'
 import { createNotification, createAdminNotification } from '@/lib/notify'
+import { recordUsage } from '@/lib/usage'
+import { userOrgId } from '@/lib/auth/role'
 import { resolveFolder } from '@/lib/fileCategories'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -90,6 +92,9 @@ export async function POST(req: NextRequest) {
     if (insertError) {
       throw new Error(insertError.message)
     }
+
+    // Meter storage at the commit boundary (fire-and-forget).
+    void recordUsage(userOrgId(user), 'storage.bytes', fileRecord.file_size ?? 0, 0, { file_id: fileRecord.id }, user.id)
 
     // Link this upload to an invoice as its payment receipt, if asked.
     // Authorize: admins any invoice; clients only their own.

@@ -28,7 +28,7 @@ export const SPACES: Space[] = [
       { slug: 'crm', label: 'CRM · Pipeline', icon: GitBranchPlus, phase: 5 },
       { slug: 'leads', label: 'Lead-Gen Pipelines', icon: Radar, phase: 5 },
       { slug: 'control-tower', label: 'Control Tower', icon: Gauge, phase: 3, badge: 'COST' },
-      { slug: 'directory', label: 'Team Directory', icon: Contact, phase: 4 },
+      { slug: 'directory', label: 'Team', icon: Contact, phase: 1, badge: 'LIVE' },
       { slug: 'settings', label: 'Settings', icon: Settings, phase: 1, badge: 'LIVE' },
     ],
   },

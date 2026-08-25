@@ -1,3 +1,4 @@
+import { portalClientId } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect, notFound } from 'next/navigation'
@@ -18,7 +19,7 @@ export default async function ProjectDetailPage({
   const { data: client } = await supabaseAdmin
     .from('clients')
     .select('*')
-    .eq('user_id', user.id)
+    .eq('id', await portalClientId(user))
     .single()
 
   if (!client) {

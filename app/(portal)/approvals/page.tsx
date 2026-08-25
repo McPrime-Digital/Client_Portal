@@ -1,3 +1,4 @@
+import { portalClientId } from '@/lib/team'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { CheckCircle2, Clock3, MessageSquareWarning, ScanEye, ChevronRight } from 'lucide-react'
@@ -72,7 +73,7 @@ export default async function ClientApprovalsPage() {
   const { data: client } = await supabaseAdmin
     .from('clients')
     .select('id')
-    .eq('user_id', user.id)
+    .eq('id', await portalClientId(user))
     .single()
   if (!client) redirect('/dashboard')
 

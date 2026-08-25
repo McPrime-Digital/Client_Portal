@@ -1,3 +1,4 @@
+import { portalClientId } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
@@ -17,7 +18,7 @@ export default async function ClientInvoicesPage() {
   const { data: client } = await supabaseAdmin
     .from('clients')
     .select('id')
-    .eq('user_id', user.id)
+    .eq('id', await portalClientId(user))
     .single()
 
   if (!client) redirect('/login')

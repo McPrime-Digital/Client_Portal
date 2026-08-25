@@ -4,21 +4,26 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { createAdminNotification, pushMessageAlert } from '@/lib/notify'
 import { messagePreview } from '@/lib/messagePreview'
 import { recordActivity } from '@/lib/logActivity.server'
+import { clientMembershipOf, canApprove, type ClientRole } from '@/lib/team'
 
-// Verify the calling user is an authenticated client
+// Verify the calling user belongs to a client company — the primary login
+// (clients.user_id) or an invited teammate (client_members). Returns the
+// member's role so approval actions can be role-gated.
 async function verifyClient() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
 
-  // Use service role to bypass RLS on the clients table
+  const membership = await clientMembershipOf(user)
+  if (!membership) return null
+
   const { data: client } = await supabaseAdmin
     .from('clients')
     .select('*')
-    .eq('user_id', user.id)
+    .eq('id', membership.clientId)
     .single()
 
-  return client ? { user, client } : null
+  return client ? { user, client, memberRole: membership.role as ClientRole } : null
 }
 
 export async function POST(req: NextRequest) {
@@ -49,6 +54,9 @@ export async function POST(req: NextRequest) {
 
       // ── Client approves a shared task ───────────────────────
       case 'approve_task': {
+        if (!canApprove(auth.memberRole)) {
+          return NextResponse.json({ error: 'Only the account owner or an approver can approve deliverables.' }, { status: 403 })
+        }
         const { task_id, note, attachment_url, attachment_name, attachment_file_id } = body
         const { data: task } = await supabaseAdmin
           .from('tasks')
@@ -113,6 +121,9 @@ export async function POST(req: NextRequest) {
       // Client requests changes on an approval-gate task. A note is required
       // and is auto-posted into the project chat for further discussion.
       case 'request_changes': {
+        if (!canApprove(auth.memberRole)) {
+          return NextResponse.json({ error: 'Only the account owner or an approver can request changes.' }, { status: 403 })
+        }
         const { task_id, note, attachment_url, attachment_name, attachment_file_id } = body
         if (!note || !String(note).trim()) {
           return NextResponse.json({ error: 'A note is required to request changes.' }, { status: 400 })

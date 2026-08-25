@@ -1,3 +1,4 @@
+import { portalClientId } from '@/lib/team'
 import { isAdmin } from '@/lib/auth/role'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
       const { data: clientRow } = await supabaseAdmin
         .from('clients')
         .select('id')
-        .eq('user_id', user.id)
+        .eq('id', await portalClientId(user))
         .single()
 
       if (!clientRow || clientRow.id !== file.client_id) {

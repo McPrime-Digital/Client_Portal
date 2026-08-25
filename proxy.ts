@@ -49,6 +49,7 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith('/dashboard') ||
     pathname.startsWith('/projects') ||
     pathname.startsWith('/approvals') ||
+    pathname.startsWith('/team') ||
     pathname.startsWith('/files') ||
     pathname.startsWith('/messages') ||
     pathname.startsWith('/invoices')

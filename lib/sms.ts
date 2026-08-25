@@ -1,5 +1,8 @@
 import 'server-only'
 
+import { recordUsage } from '@/lib/usage'
+import { DEFAULT_ORG_ID } from '@/lib/auth/role'
+
 // Server-side SMS via Twilio's REST API (no SDK dependency). No-ops unless
 // TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM are configured, so the
 // app runs fine without SMS until those are added. Never throws.
@@ -18,6 +21,7 @@ export async function sendSms(to: string | null | undefined, body: string): Prom
       },
       body: params.toString(),
     })
+    void recordUsage(DEFAULT_ORG_ID, 'sms.sent', 1, 0, { to_suffix: to.slice(-4) })
   } catch {
     // best-effort
   }

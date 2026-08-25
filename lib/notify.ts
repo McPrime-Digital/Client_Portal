@@ -13,6 +13,8 @@ export type NotificationType =
   | 'status_change'
   | 'invoice_created'
   | 'task_updated'
+  | 'member_invited'
+  | 'member_invite_pending'
 
 // Maps a bell notification type → preference category (used for the per-channel
 // notification preferences).
@@ -24,6 +26,8 @@ const TYPE_CATEGORY: Record<NotificationType, NotifyCategory> = {
   status_change: 'status',
   invoice_created: 'invoices',
   task_updated: 'tasks',
+  member_invited: 'status',
+  member_invite_pending: 'status',
 }
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || ''

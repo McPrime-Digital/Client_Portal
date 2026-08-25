@@ -1,3 +1,4 @@
+import { portalClientId } from '@/lib/team'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -24,7 +25,7 @@ export default async function PortalLayout({
   const { data: clientData, error: clientError } = await supabaseAdmin
     .from('clients')
     .select('*')
-    .eq('user_id', session.user.id)
+    .eq('id', await portalClientId(session.user))
     .single()
 
   if (clientError && clientError.code !== 'PGRST116') {
@@ -48,6 +49,15 @@ export default async function PortalLayout({
     name: session?.user?.user_metadata?.full_name || session?.user?.email?.split('@')[0] || 'User',
     company: null,
     avatar_url: null,
+  }
+
+  // First login of an invited teammate — flip their membership to active.
+  if (clientData) {
+    await supabaseAdmin
+      .from('client_members')
+      .update({ status: 'active', accepted_at: new Date().toISOString() })
+      .eq('user_id', session.user.id)
+      .is('accepted_at', null)
   }
 
   const activeClient = clientData || fallbackClient

@@ -1,3 +1,4 @@
+import { portalClientId } from '@/lib/team'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -18,7 +19,7 @@ export async function GET(req: NextRequest) {
   const { data: client } = await supabaseAdmin
     .from('clients')
     .select('id')
-    .eq('user_id', user.id)
+    .eq('id', await portalClientId(user))
     .single()
 
   if (!client) {
@@ -63,7 +64,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   const { data: client } = await supabaseAdmin
-    .from('clients').select('id').eq('user_id', user.id).single()
+    .from('clients').select('id').eq('id', await portalClientId(user)).single()
   if (!client) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const { data: project } = await supabaseAdmin

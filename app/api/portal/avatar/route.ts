@@ -1,3 +1,4 @@
+import { portalClientId } from '@/lib/team'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -20,7 +21,7 @@ export async function POST(req: NextRequest) {
     const { data: client } = await supabaseAdmin
       .from('clients')
       .select('id')
-      .eq('user_id', user.id)
+      .eq('id', await portalClientId(user))
       .single()
 
     if (!client) {
@@ -100,7 +101,7 @@ export async function DELETE() {
     const { data: client } = await supabaseAdmin
       .from('clients')
       .select('id')
-      .eq('user_id', user.id)
+      .eq('id', await portalClientId(user))
       .single()
 
     if (!client) {

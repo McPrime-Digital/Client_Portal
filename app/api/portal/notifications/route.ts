@@ -1,3 +1,4 @@
+import { portalClientId } from '@/lib/team'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -10,7 +11,7 @@ async function getClientId() {
   const { data: client } = await supabaseAdmin
     .from('clients')
     .select('id')
-    .eq('user_id', user.id)
+    .eq('id', await portalClientId(user))
     .single()
   return { user, clientId: client?.id ?? null }
 }

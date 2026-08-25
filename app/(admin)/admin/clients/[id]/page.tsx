@@ -7,6 +7,7 @@ import { redirect, notFound }
   from 'next/navigation'
 import Link from 'next/link'
 import RealtimeRefresh from '@/components/shared/RealtimeRefresh'
+import ClientTeamPanel from '@/components/admin/ClientTeamPanel'
 import {
   ArrowLeft,
   Mail,
@@ -480,6 +481,9 @@ export default async function ClientDetailPage({
               <p className="text-sm py-2 text-center" style={{ color: 'hsl(var(--text-faint))' }}>No invoices yet</p>
             )}
           </div>
+
+          {/* Team — roster, pending invite approvals, roles, invite policy */}
+          <ClientTeamPanel clientId={id} />
 
           {/* Recent activity */}
           <div
