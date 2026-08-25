@@ -49,6 +49,8 @@ type Props = {
   initialMessages: Message[]
   client: Client
   involvement?: any[]
+  // the signed-in member's own display name (never the company owner's)
+  memberName?: string
 }
 
 function getFileIcon(fileType: string | null) {
@@ -95,6 +97,7 @@ export default function ProjectDetail({
   initialMessages,
   client,
   involvement,
+  memberName,
 }: Props) {
   const [activeTab, setActiveTab] = useState('overview')
   // Honour a ?tab= deep-link (e.g. notification → opens the chat directly).
@@ -387,7 +390,7 @@ export default function ProjectDetail({
       project_id: project.id,
       sender_id: client.user_id ?? client.id,
       sender_role: 'client',
-      sender_name: client.name,
+      sender_name: memberName ?? client.name,
       body,
       read_at: null,
       delivered_at: null,
@@ -805,7 +808,7 @@ export default function ProjectDetail({
             clientId={client.id}
             userId={client.id}
             userRole="client"
-            userName={client.name}
+            userName={memberName ?? client.name}
             initialFiles={files as any}
           />
         </div>
@@ -873,7 +876,7 @@ export default function ProjectDetail({
             <MessageThread
               messages={messages}
               currentRole="client"
-              currentName={client.name}
+              currentName={memberName ?? client.name}
               otherName="McPrime Digital"
               projectId={project.id}
               onSendMessage={sendMessage}

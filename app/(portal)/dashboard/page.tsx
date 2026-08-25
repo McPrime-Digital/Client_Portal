@@ -314,7 +314,7 @@ export default async function DashboardPage() {
     projectId: n.project_id ?? null,
   }))
 
-  const firstName = (client.name ?? '').split(' ')[0]
+  const firstName = ((access?.name ?? client.name) ?? '').split(' ')[0]
   const now = new Date()
   const dateLabel = now.toLocaleDateString('en-US', { weekday: 'long' })
   const dateSub = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
@@ -370,7 +370,7 @@ export default async function DashboardPage() {
       />
 
       {/* Welcome banner — stays until the client closes it themselves */}
-      <WelcomeBanner clientName={client?.name ?? 'there'} dismissed={welcomeDismissed} />
+      <WelcomeBanner clientName={access?.name ?? client?.name ?? 'there'} dismissed={welcomeDismissed} />
 
       {/* Pending approvals — items awaiting the client's review */}
       {pendingApprovals.length > 0 && (

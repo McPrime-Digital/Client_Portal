@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { isAdmin } from '@/lib/auth/role'
-import { orgRoleOf, canManageOrg } from '@/lib/team'
+import { orgRolesOf, canManageOrg } from '@/lib/team'
 import { createNotification } from '@/lib/notify'
 
 // Org oversight of a client company's team: full roster, approve pending
@@ -12,7 +12,7 @@ async function requireManager() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || !isAdmin(user)) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
-  const role = await orgRoleOf(user)
+  const role = await orgRolesOf(user)
   if (!canManageOrg(role)) return { error: NextResponse.json({ error: 'Only org owners and admins can manage client teams.' }, { status: 403 }) }
   return { user }
 }
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
       .order('created_at', { ascending: true }),
     supabaseAdmin.from('clients').select('invite_policy').eq('id', clientId).single(),
   ])
-  const me = await orgRoleOf(user)
+  const me = await orgRolesOf(user)
   return NextResponse.json({
     members: members ?? [],
     invitePolicy: company?.invite_policy ?? 'open',

@@ -11,61 +11,94 @@ import { isAdmin, userClientId } from '@/lib/auth/role'
 export type OrgRole = 'owner' | 'admin' | 'producer' | 'member'
 export type ClientRole = 'owner' | 'approver' | 'member' | 'viewer'
 
-/** The org-side role of an admin user. Bootstrap: an admin with no membership
- *  row (pre-teams account) is treated as owner. Null for non-admins. */
-export async function orgRoleOf(user: User): Promise<OrgRole | null> {
-  if (!isAdmin(user)) return null
+/** Every org-side role this admin user holds (primary + additional).
+ *  LEAST PRIVILEGE by default: an admin with no membership row is 'member' —
+ *  unless the roster is completely empty (fresh environment), where the sole
+ *  admin bootstraps as owner. Empty array for non-admins / inactive members. */
+export async function orgRolesOf(user: User): Promise<OrgRole[]> {
+  if (!isAdmin(user)) return []
   const { data } = await supabaseAdmin
     .from('organization_members')
-    .select('role, status')
+    .select('role, roles, status')
     .eq('user_id', user.id)
     .single()
-  if (!data) return 'owner'
-  if (data.status !== 'active') return null
-  return data.role as OrgRole
+  if (!data) {
+    const { count } = await supabaseAdmin
+      .from('organization_members')
+      .select('*', { count: 'exact', head: true })
+    return (count ?? 0) === 0 ? ['owner'] : ['member']
+  }
+  if (data.status !== 'active') return []
+  const extras = Array.isArray((data as { roles?: string[] }).roles)
+    ? ((data as { roles?: string[] }).roles as OrgRole[])
+    : []
+  return [data.role as OrgRole, ...extras.filter((r) => r !== data.role)]
+}
+
+/** The primary org-side role (first of orgRolesOf), or null. */
+export async function orgRoleOf(user: User): Promise<OrgRole | null> {
+  const roles = await orgRolesOf(user)
+  return roles[0] ?? null
 }
 
 /** True when the admin may manage the org team / settings / billing. */
-export function canManageOrg(role: OrgRole | null): boolean {
-  return role === 'owner' || role === 'admin'
+export function canManageOrg(role: OrgRole | OrgRole[] | null): boolean {
+  const list = Array.isArray(role) ? role : role ? [role] : []
+  return list.includes('owner') || list.includes('admin')
+}
+
+export type ClientMembership = {
+  clientId: string
+  role: ClientRole
+  /** The member's OWN display name — never the company owner's. */
+  name: string
+}
+
+function ownName(user: User, fallback: string | null | undefined): string {
+  return (
+    (user.user_metadata?.name as string | undefined) ??
+    fallback ??
+    user.email?.split('@')[0] ??
+    'Member'
+  )
 }
 
 /** Resolve the client company + this user's role in it. Legacy primary logins
  *  (clients.user_id) are owners; invited teammates come from client_members. */
-export async function clientMembershipOf(
-  user: User
-): Promise<{ clientId: string; role: ClientRole } | null> {
+export async function clientMembershipOf(user: User): Promise<ClientMembership | null> {
   const claimed = userClientId(user as never)
   if (claimed) {
     const { data: c } = await supabaseAdmin
       .from('clients')
-      .select('id, user_id')
+      .select('id, user_id, name')
       .eq('id', claimed)
       .single()
-    if (c?.user_id === user.id) return { clientId: c.id, role: 'owner' }
+    if (c?.user_id === user.id) return { clientId: c.id, role: 'owner', name: ownName(user, c.name) }
     const { data: m } = await supabaseAdmin
       .from('client_members')
-      .select('client_id, role, status')
+      .select('client_id, role, status, name')
       .eq('client_id', claimed)
       .eq('user_id', user.id)
       .single()
-    if (m && m.status === 'active') return { clientId: m.client_id, role: m.role as ClientRole }
+    if (m && m.status === 'active') {
+      return { clientId: m.client_id, role: m.role as ClientRole, name: ownName(user, m.name) }
+    }
     return null
   }
   // legacy sessions without the client_id claim
   const { data: c } = await supabaseAdmin
     .from('clients')
-    .select('id')
+    .select('id, name')
     .eq('user_id', user.id)
     .single()
-  if (c) return { clientId: c.id, role: 'owner' }
+  if (c) return { clientId: c.id, role: 'owner', name: ownName(user, c.name) }
   const { data: m } = await supabaseAdmin
     .from('client_members')
-    .select('client_id, role')
+    .select('client_id, role, name')
     .eq('user_id', user.id)
     .eq('status', 'active')
     .single()
-  return m ? { clientId: m.client_id, role: m.role as ClientRole } : null
+  return m ? { clientId: m.client_id, role: m.role as ClientRole, name: ownName(user, m.name) } : null
 }
 
 // Matches no row — lookups against it behave exactly like today's failed
@@ -81,6 +114,8 @@ export async function portalClientId(user: User): Promise<string> {
 export type PortalAccess = {
   clientId: string
   role: ClientRole
+  /** The member's OWN display name — never the company owner's. */
+  name: string
   /** Only messages at/after this instant are visible; null = full history. */
   historyFrom: string | null
   /** Projects this member may see; null = all of the company's projects. */
@@ -94,7 +129,7 @@ export async function portalAccess(user: User): Promise<PortalAccess | null> {
   const membership = await clientMembershipOf(user)
   if (!membership) return null
   if (membership.role === 'owner') {
-    return { clientId: membership.clientId, role: 'owner', historyFrom: null, projectIds: null }
+    return { clientId: membership.clientId, role: 'owner', name: membership.name, historyFrom: null, projectIds: null }
   }
   const { data: m } = await supabaseAdmin
     .from('client_members')
@@ -114,6 +149,7 @@ export async function portalAccess(user: User): Promise<PortalAccess | null> {
   return {
     clientId: membership.clientId,
     role: membership.role,
+    name: membership.name,
     historyFrom: m?.history_from ?? null,
     projectIds,
   }

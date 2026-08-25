@@ -34,11 +34,16 @@ export function clientNavAllowed(role: ClientRole | null | undefined, href: stri
 }
 
 // ── organization side (studio) ──────────────────────────────────────────────
-// Deep crew roles. owner/admin run the org; producer runs production and the
-// client relationship; member creates inside Workspace. The finer per-feature
-// matrix (finishing, generation, budgets…) is specced in the Teams/Rooms/Roles
-// document and lands as those features ship — gates here are the v1 spine.
-export type OrgRole = 'owner' | 'admin' | 'producer' | 'member'
+// Deep crew roles — a member holds a primary role plus any number of
+// additional roles; their capabilities are the UNION of everything they hold.
+//   owner/admin  run the org (settings, team, money, everything)
+//   producer     runs production and the client relationship
+//   finance      invoices, billing, cost control — nothing else extra
+//   editor       the workspace craft seats (script, storyboard, AI tools)
+//   member       baseline: project work + workspace
+// The finer per-feature matrix (finishing, generation, budgets…) deepens as
+// those features ship — these gates are the enforcement spine.
+export type OrgRole = 'owner' | 'admin' | 'producer' | 'finance' | 'editor' | 'member'
 
 export type OrgCap =
   | 'org_settings'    // business settings, billing, plans
@@ -53,12 +58,24 @@ const ORG_CAPS: Record<OrgRole, OrgCap[]> = {
   owner: ['org_settings', 'manage_team', 'manage_clients', 'client_money', 'run_projects', 'workspace', 'cost_control'],
   admin: ['org_settings', 'manage_team', 'manage_clients', 'client_money', 'run_projects', 'workspace', 'cost_control'],
   producer: ['manage_clients', 'run_projects', 'workspace', 'cost_control'],
+  finance: ['client_money', 'cost_control'],
+  editor: ['run_projects', 'workspace'],
   member: ['run_projects', 'workspace'],
 }
 
-export function orgCan(role: OrgRole | null | undefined, cap: OrgCap): boolean {
-  if (!role) return false
-  return ORG_CAPS[role]?.includes(cap) ?? false
+export const ORG_ROLE_HELP: Record<OrgRole, string> = {
+  owner: 'Everything, including billing and ownership',
+  admin: 'Manage team, clients, settings, and money',
+  producer: 'Run projects and the client relationship',
+  finance: 'Invoices, billing, and cost control',
+  editor: 'Workspace craft — script, storyboard, AI tools',
+  member: 'Work inside projects and the workspace',
+}
+
+/** Union-of-roles capability check: pass one role or everything they hold. */
+export function orgCan(role: OrgRole | OrgRole[] | null | undefined, cap: OrgCap): boolean {
+  const list = Array.isArray(role) ? role : role ? [role] : []
+  return list.some((r) => ORG_CAPS[r]?.includes(cap))
 }
 
 /** Which studio features a crew role sees, keyed `${spaceId}/${slug}`.
@@ -74,7 +91,7 @@ const ORG_FEATURE_CAP: Record<string, OrgCap> = {
   'client/settings': 'org_settings',
 }
 
-export function orgFeatureAllowed(role: OrgRole | null | undefined, spaceId: string, slug: string): boolean {
+export function orgFeatureAllowed(role: OrgRole | OrgRole[] | null | undefined, spaceId: string, slug: string): boolean {
   const cap = ORG_FEATURE_CAP[`${spaceId}/${slug}`]
   if (!cap) return true
   return orgCan(role, cap)

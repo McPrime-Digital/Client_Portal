@@ -24,7 +24,9 @@ async function verifyClient() {
     .eq('id', membership.clientId)
     .single()
 
-  return client ? { user, client, memberRole: membership.role as ClientRole } : null
+  return client
+    ? { user, client, memberRole: membership.role as ClientRole, memberName: membership.name }
+    : null
 }
 
 export async function POST(req: NextRequest) {
@@ -91,7 +93,7 @@ export async function POST(req: NextRequest) {
           project_id: task.project_id,
           sender_id: user.id,
           sender_role: 'client',
-          sender_name: client.name,
+          sender_name: auth.memberName,
           body: approvalBody,
           attachment_url: attachment_url || null,
           attachment_name: attachment_name || null,
@@ -101,14 +103,14 @@ export async function POST(req: NextRequest) {
           clientId: client.id,
           projectId: data.project_id,
           type: 'task_updated',
-          title: `${client.name} approved a task`,
+          title: `${auth.memberName} approved a task`,
           body: data.title ?? null,
         })
         // Persist to the Approvals & Records ledger — reliable direct insert.
         await recordActivity({
           projectId: data.project_id, clientId: client.id, actorId: user.id,
-          actorName: client.name, actorRole: 'client',
-          eventType: 'task_approved', title: `${client.name} approved “${data.title}”`,
+          actorName: auth.memberName, actorRole: 'client',
+          eventType: 'task_approved', title: `${auth.memberName} approved “${data.title}”`,
           body: trimmedNote || null,
           meta: {
             task_id: data.id,
@@ -160,7 +162,7 @@ export async function POST(req: NextRequest) {
           project_id: task.project_id,
           sender_id: user.id,
           sender_role: 'client',
-          sender_name: client.name,
+          sender_name: auth.memberName,
           body: changesBody,
           attachment_url: attachment_url || null,
           attachment_name: attachment_name || null,
@@ -170,14 +172,14 @@ export async function POST(req: NextRequest) {
           clientId: client.id,
           projectId: task.project_id,
           type: 'task_updated',
-          title: `${client.name} requested changes`,
+          title: `${auth.memberName} requested changes`,
           body: task.title,
         })
         // Persist to the Approvals & Records ledger — reliable direct insert.
         await recordActivity({
           projectId: task.project_id, clientId: client.id, actorId: user.id,
-          actorName: client.name, actorRole: 'client',
-          eventType: 'changes_requested', title: `${client.name} requested changes on “${task.title}”`,
+          actorName: auth.memberName, actorRole: 'client',
+          eventType: 'changes_requested', title: `${auth.memberName} requested changes on “${task.title}”`,
           body: trimmed.slice(0, 140),
           meta: {
             task_id: task.id,
@@ -218,7 +220,7 @@ export async function POST(req: NextRequest) {
             project_id,
             sender_id: user.id,
             sender_role: 'client',
-            sender_name: client.name,
+            sender_name: auth.memberName,
             body: msgBody,
             attachment_url: attachment_url || null,
             attachment_name: attachment_name || null,
@@ -235,7 +237,7 @@ export async function POST(req: NextRequest) {
         await pushMessageAlert({
           recipient: 'admin',
           projectId: project_id,
-          senderName: client.name,
+          senderName: auth.memberName,
           preview: messagePreview({ body: msgBody, attachment_name }),
         })
         return NextResponse.json({ message: data })

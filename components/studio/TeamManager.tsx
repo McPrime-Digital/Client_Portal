@@ -9,17 +9,22 @@ type Member = {
   user_id: string | null
   name: string | null
   email: string
-  role: 'owner' | 'admin' | 'producer' | 'member'
+  role: 'owner' | 'admin' | 'producer' | 'finance' | 'editor' | 'member'
+  roles?: string[]
   status: 'invited' | 'active' | 'revoked'
   invited_at: string
   accepted_at: string | null
 }
 
+const ASSIGNABLE = ['admin', 'producer', 'finance', 'editor', 'member'] as const
+
 const ROLE_HELP: Record<string, string> = {
   owner: 'Everything, including billing and this page',
-  admin: 'Manage team, clients, and settings',
-  producer: 'Run projects and client work',
-  member: 'Work inside projects',
+  admin: 'Manage team, clients, settings, and money',
+  producer: 'Run projects and the client relationship',
+  finance: 'Invoices, billing, and cost control',
+  editor: 'Workspace craft — script, storyboard, AI tools',
+  member: 'Work inside projects and the workspace',
 }
 
 const fmt = (d: string | null) =>
@@ -90,6 +95,20 @@ export default function TeamManager() {
     await load(); setBusy(null)
   }
 
+  // Toggle an ADDITIONAL role — capabilities are the union of everything held.
+  async function toggleExtraRole(m: Member, r: string) {
+    const current = m.roles ?? []
+    const next = current.includes(r) ? current.filter((x) => x !== r) : [...current, r]
+    setBusy(m.id); setError(null)
+    const res = await fetch('/api/admin/team', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memberId: m.id, roles: next }),
+    })
+    if (!res.ok) setError((await res.json()).error ?? 'Could not change roles.')
+    await load(); setBusy(null)
+  }
+
   async function revoke(memberId: string, name: string) {
     if (!confirm(`Remove ${name} from the team? Their access ends immediately.`)) return
     setBusy(memberId); setError(null)
@@ -140,9 +159,9 @@ export default function TeamManager() {
               onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
               className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
             >
-              <option value="admin">Admin</option>
-              <option value="producer">Producer</option>
-              <option value="member">Member</option>
+              {ASSIGNABLE.map((r) => (
+                <option key={r} value={r}>{r[0].toUpperCase() + r.slice(1)}</option>
+              ))}
             </select>
             <button
               type="submit" disabled={sending}
@@ -171,6 +190,28 @@ export default function TeamManager() {
                   {m.role === 'owner' && <ShieldCheck size={13} className="flex-shrink-0 text-primary" />}
                 </p>
                 <p className="truncate text-xs text-muted-foreground">{m.email}</p>
+                {canManage && m.role !== 'owner' && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                    <span className="text-[9.5px] uppercase tracking-wide text-faint">also:</span>
+                    {ASSIGNABLE.filter((r) => r !== m.role).map((r) => {
+                      const on = (m.roles ?? []).includes(r)
+                      return (
+                        <button
+                          key={r} type="button" disabled={busy === m.id}
+                          onClick={() => toggleExtraRole(m, r)}
+                          className={`rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                            on ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-faint hover:text-muted-foreground'
+                          }`}
+                        >
+                          {r}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+                {!canManage && (m.roles?.length ?? 0) > 0 && (
+                  <p className="mt-0.5 text-[10px] text-faint">also: {m.roles!.join(', ')}</p>
+                )}
               </div>
               <span className={`hidden flex-shrink-0 rounded-full px-2.5 py-1 text-[10.5px] font-semibold sm:block ${
                 m.status === 'active' ? 'bg-primary/10 text-primary' : 'bg-secondary text-muted-foreground'
@@ -184,9 +225,9 @@ export default function TeamManager() {
                     onChange={(e) => setRole(m.id, e.target.value)}
                     className="flex-shrink-0 rounded-lg border border-border bg-background px-2 py-1.5 text-xs text-foreground focus:border-primary focus:outline-none"
                   >
-                    <option value="admin">Admin</option>
-                    <option value="producer">Producer</option>
-                    <option value="member">Member</option>
+                    {ASSIGNABLE.map((r) => (
+                      <option key={r} value={r}>{r[0].toUpperCase() + r.slice(1)}</option>
+                    ))}
                   </select>
                   <button
                     type="button" disabled={busy === m.id}

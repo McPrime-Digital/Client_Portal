@@ -1,4 +1,4 @@
-import { portalClientId } from '@/lib/team'
+import { portalClientId, clientMembershipOf } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { NextRequest, NextResponse } from 'next/server'
@@ -10,6 +10,13 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Company onboarding belongs to the PRIMARY login only — an invited
+  // teammate completing it would overwrite the company profile as themselves.
+  const membership = await clientMembershipOf(user)
+  if (!membership || membership.role !== 'owner') {
+    return NextResponse.json({ error: 'Only the account owner can complete company onboarding.' }, { status: 403 })
   }
 
   const { name, company, phone, notification_prefs } = await req.json()

@@ -1,4 +1,4 @@
-import { portalClientId, clientMembershipOf } from '@/lib/team'
+import { clientMembershipOf } from '@/lib/team'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -21,11 +21,21 @@ export default async function PortalLayout({
     redirect('/login')
   }
 
-  // 3. Fetch the client record associated with this user
+  // First login of an invited teammate — flip their membership to active
+  // BEFORE resolving it, so their very first page load carries their role.
+  await supabaseAdmin
+    .from('client_members')
+    .update({ status: 'active', accepted_at: new Date().toISOString() })
+    .eq('user_id', session.user.id)
+    .eq('status', 'invited')
+
+  // 3. Resolve membership ONCE: who they are, which company, which role.
+  const membership = await clientMembershipOf(session.user)
+
   const { data: clientData, error: clientError } = await supabaseAdmin
     .from('clients')
     .select('*')
-    .eq('id', await portalClientId(session.user))
+    .eq('id', membership?.clientId ?? '00000000-0000-0000-0000-000000000000')
     .single()
 
   if (clientError && clientError.code !== 'PGRST116') {
@@ -33,10 +43,12 @@ export default async function PortalLayout({
     console.error('Error fetching client data:', clientError.message)
   }
 
-  // Enforce self-serve onboarding for brand-new clients (no onboarding
-  // completed AND never onboarded). Existing/active clients are unaffected.
+  // Enforce self-serve onboarding for brand-new clients — the PRIMARY login
+  // only. An invited teammate must never walk the company's onboarding (they
+  // would overwrite the company profile as themselves).
   if (
     clientData &&
+    membership?.role === 'owner' &&
     !(clientData as any).onboarding_completed_at &&
     !(clientData as any).onboarded_at
   ) {
@@ -51,16 +63,11 @@ export default async function PortalLayout({
     avatar_url: null,
   }
 
-  // First login of an invited teammate — flip their membership to active.
-  if (clientData) {
-    await supabaseAdmin
-      .from('client_members')
-      .update({ status: 'active', accepted_at: new Date().toISOString() })
-      .eq('user_id', session.user.id)
-      .eq('status', 'invited')
-  }
-
   const activeClient = clientData || fallbackClient
+
+  // The signed-in person's OWN identity — never the company owner's.
+  const memberRole = membership?.role ?? 'viewer'
+  const memberName = membership?.name ?? fallbackClient.name
 
   // The studio/agency serving this client — shown in the sidebar co-brand.
   let orgName = 'McPrime Digital'
@@ -88,10 +95,10 @@ export default async function PortalLayout({
         clientId={(activeClient as any).id}
         clientAvatar={(activeClient as any).avatar_url ?? null}
         orgName={orgName}
-        memberRole={(await clientMembershipOf(session.user))?.role ?? 'owner'}
+        memberRole={memberRole}
       />
       <div className="flex flex-col flex-1 overflow-hidden">
-        <Topbar clientName={activeClient.name} clientId={(activeClient as any).id} />
+        <Topbar clientName={memberName} clientId={(activeClient as any).id} memberRole={memberRole} />
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
           {children}
         </main>

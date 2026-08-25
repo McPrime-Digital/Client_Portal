@@ -98,7 +98,7 @@ export default async function MessagesPage() {
     <MessagesHub
       threads={threads}
       clientId={client.id}
-      clientName={client.name}
+      clientName={access?.name ?? client.name}
     />
   )
 }

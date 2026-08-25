@@ -81,11 +81,18 @@ export default async function ProjectDetailPage({
       .select('*')
       .eq('project_id', project.id)
       .order('created_at', { ascending: false }),
-    supabaseAdmin
-      .from('messages')
-      .select('*')
-      .eq('project_id', project.id)
-      .order('created_at', { ascending: true }),
+    access?.historyFrom
+      ? supabaseAdmin
+          .from('messages')
+          .select('*')
+          .eq('project_id', project.id)
+          .gte('created_at', access.historyFrom)
+          .order('created_at', { ascending: true })
+      : supabaseAdmin
+          .from('messages')
+          .select('*')
+          .eq('project_id', project.id)
+          .order('created_at', { ascending: true }),
   ])
 
   return (
@@ -104,6 +111,7 @@ export default async function ProjectDetailPage({
       files={files ?? []}
       initialMessages={messages ?? []}
         client={client}
+        memberName={access?.name}
         involvement={involvement}
       />
     </>

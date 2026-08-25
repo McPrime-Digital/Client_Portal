@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { isAdmin } from '@/lib/auth/role'
-import { orgRoleOf } from '@/lib/team'
+import { orgRolesOf } from '@/lib/team'
 import StudioSidebar from '@/components/studio/StudioSidebar'
 import StudioTopbar from '@/components/studio/StudioTopbar'
 import SessionDock from '@/components/studio/SessionDock'
@@ -44,7 +44,8 @@ export default async function StudioLayout({ children }: { children: React.React
     .eq('user_id', user.id)
     .eq('status', 'invited')
 
-  const orgRole = (await orgRoleOf(user)) ?? 'member'
+  const orgRoles = await orgRolesOf(user)
+  const roles = orgRoles.length ? orgRoles : (['member'] as const)
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -54,7 +55,7 @@ export default async function StudioLayout({ children }: { children: React.React
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       <link rel="stylesheet" href={GOOGLE_FONTS_HREF} />
-      <StudioSidebar userName={userName} orgName={orgName} orgRole={orgRole} />
+      <StudioSidebar userName={userName} orgName={orgName} orgRoles={[...roles]} />
       <div className="flex flex-1 flex-col overflow-hidden">
         <StudioTopbar />
         <main className="flex-1 overflow-y-auto p-6 lg:p-8">{children}</main>

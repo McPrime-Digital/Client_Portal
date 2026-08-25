@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
-import { orgRoleOf, canManageOrg } from '@/lib/team'
+import { orgRolesOf, canManageOrg } from '@/lib/team'
 import { recordUsage } from '@/lib/usage'
 
 // Org crew management. GET roster · POST invite · PATCH role · DELETE revoke.
@@ -12,7 +12,7 @@ async function requireManager() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || !isAdmin(user)) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
-  const role = await orgRoleOf(user)
+  const role = await orgRolesOf(user)
   if (!canManageOrg(role)) return { error: NextResponse.json({ error: 'Only org owners and admins can manage the team.' }, { status: 403 }) }
   return { user, role }
 }
@@ -23,10 +23,10 @@ export async function GET() {
   if (!user || !isAdmin(user)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { data } = await supabaseAdmin
     .from('organization_members')
-    .select('id, user_id, name, email, role, status, invited_at, accepted_at, invited_by')
+    .select('id, user_id, name, email, role, roles, status, invited_at, accepted_at, invited_by')
     .neq('status', 'revoked')
     .order('created_at', { ascending: true })
-  const me = await orgRoleOf(user)
+  const me = await orgRolesOf(user)
   return NextResponse.json({ members: data ?? [], myRole: me, canManage: canManageOrg(me) })
 }
 
@@ -35,9 +35,11 @@ export async function POST(req: NextRequest) {
   if ('error' in gate) return gate.error
   const { user } = gate
 
-  const { name, email, role } = await req.json().catch(() => ({}))
+  const { name, email, role, roles: extraRoles } = await req.json().catch(() => ({}))
   const cleanEmail = String(email ?? '').trim().toLowerCase()
-  const memberRole = ['admin', 'producer', 'member'].includes(role) ? role : 'member'
+  const VALID = ['admin', 'producer', 'finance', 'editor', 'member']
+  const memberRole = VALID.includes(role) ? role : 'member'
+  const additional = Array.isArray(extraRoles) ? extraRoles.filter((r) => VALID.includes(r) && r !== memberRole) : []
   if (!cleanEmail || !name?.trim()) return NextResponse.json({ error: 'Name and email are required.' }, { status: 400 })
 
   const { data: existing } = await supabaseAdmin
@@ -68,6 +70,7 @@ export async function POST(req: NextRequest) {
       name: name.trim(),
       email: cleanEmail,
       role: memberRole,
+      roles: additional,
       status: 'invited',
       invited_by: user.id,
     })
@@ -82,22 +85,33 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const gate = await requireManager()
   if ('error' in gate) return gate.error
-  const { memberId, role } = await req.json().catch(() => ({}))
-  if (!memberId || !['owner', 'admin', 'producer', 'member'].includes(role)) {
+  const { memberId, role, roles: extraRoles } = await req.json().catch(() => ({}))
+  const VALID = ['owner', 'admin', 'producer', 'finance', 'editor', 'member']
+  if (!memberId || (role !== undefined && !VALID.includes(role))) {
     return NextResponse.json({ error: 'Invalid role.' }, { status: 400 })
   }
+  const additional =
+    extraRoles !== undefined && Array.isArray(extraRoles)
+      ? extraRoles.filter((r) => VALID.includes(r) && r !== 'owner')
+      : undefined
   const { data: target } = await supabaseAdmin
     .from('organization_members')
     .select('id, user_id, role')
     .eq('id', memberId)
     .single()
   if (!target) return NextResponse.json({ error: 'Member not found.' }, { status: 404 })
-  if (target.role === 'owner' && gate.role !== 'owner') {
+  if (target.role === 'owner' && !gate.role.includes('owner')) {
     return NextResponse.json({ error: 'Only an owner can change an owner.' }, { status: 403 })
   }
-  const { error } = await supabaseAdmin.from('organization_members').update({ role }).eq('id', memberId)
+  const patch: Record<string, unknown> = {}
+  if (role !== undefined) patch.role = role
+  if (additional !== undefined) patch.roles = additional.filter((r) => r !== (role ?? target.role))
+  if (Object.keys(patch).length === 0) {
+    return NextResponse.json({ error: 'Nothing to change — pass role and/or roles.' }, { status: 400 })
+  }
+  const { error } = await supabaseAdmin.from('organization_members').update(patch).eq('id', memberId)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (target.user_id) {
+  if (target.user_id && role !== undefined) {
     await supabaseAdmin.auth.admin.updateUserById(target.user_id, { app_metadata: { org_role: role } })
   }
   return NextResponse.json({ success: true })
@@ -115,7 +129,7 @@ export async function DELETE(req: NextRequest) {
     .single()
   if (!target) return NextResponse.json({ error: 'Member not found.' }, { status: 404 })
   if (target.user_id === user.id) return NextResponse.json({ error: 'You cannot revoke yourself.' }, { status: 400 })
-  if (target.role === 'owner' && gate.role !== 'owner') {
+  if (target.role === 'owner' && !gate.role.includes('owner')) {
     return NextResponse.json({ error: 'Only an owner can revoke an owner.' }, { status: 403 })
   }
   const { error } = await supabaseAdmin

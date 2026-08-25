@@ -9,7 +9,7 @@ import { SPACES, getSpace } from '@/lib/studio/spaces'
 import { orgFeatureAllowed, type OrgRole } from '@/lib/permissions'
 import PrimeOSMark from './PrimeOSMark'
 
-export default function StudioSidebar({ userName, orgName, orgRole = 'owner' }: { userName: string; orgName: string; orgRole?: OrgRole }) {
+export default function StudioSidebar({ userName, orgName, orgRoles = ['owner'] }: { userName: string; orgName: string; orgRoles?: OrgRole[] }) {
   const parts = usePathname().split('/').filter(Boolean) // ['studio', space?, feature?]
   const activeId = parts[1] ?? 'workspace'
   const activeFeature = parts[2]
@@ -104,7 +104,7 @@ export default function StudioSidebar({ userName, orgName, orgRole = 'owner' }: 
 
       {/* feature nav */}
       <nav className="mt-2 flex-1 space-y-0.5 overflow-y-auto px-3 pb-4 scrollbar-thin">
-        {space.features.filter((f) => orgFeatureAllowed(orgRole, space.id, f.slug)).map((f) => {
+        {space.features.filter((f) => orgFeatureAllowed(orgRoles, space.id, f.slug)).map((f) => {
           const Icon = f.icon
           const active = f.slug === activeFeature
           return (

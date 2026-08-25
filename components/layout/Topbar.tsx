@@ -10,6 +10,14 @@ import ThemeToggle from '../ThemeToggle'
 type Props = {
   clientName: string
   clientId: string
+  memberRole?: 'owner' | 'approver' | 'member' | 'viewer'
+}
+
+const ROLE_LABEL: Record<string, string> = {
+  owner: 'Account owner',
+  approver: 'Approver',
+  member: 'Team member',
+  viewer: 'Viewer',
 }
 
 const routeNames: Record<string, string> = {
@@ -23,7 +31,7 @@ const routeNames: Record<string, string> = {
   '/dashboard/settings': 'Settings',
 }
 
-export default function Topbar({ clientName, clientId }: Props) {
+export default function Topbar({ clientName, clientId, memberRole = 'owner' }: Props) {
   const pathname = usePathname()
   const { toggle } = useSidebarStore()
 
@@ -54,13 +62,13 @@ export default function Topbar({ clientName, clientId }: Props) {
           <NotificationBell clientId={clientId} />
         )}
 
-        {/* Account owner / manager — first name at the extreme top-right */}
+        {/* The signed-in member — their own name and role, top-right */}
         <div className="flex items-center gap-2.5 pl-1">
           <div className="hidden sm:block text-right leading-tight">
             <p className="text-sm font-semibold text-foreground truncate max-w-[140px]">
               {clientName?.split(' ')[0] ?? 'Account'}
             </p>
-            <p className="text-[11px] text-primary">Account owner</p>
+            <p className="text-[11px] text-primary">{ROLE_LABEL[memberRole] ?? 'Member'}</p>
           </div>
           <div
             className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold cursor-pointer transition-opacity hover:opacity-80 bg-primary text-primary-foreground"
