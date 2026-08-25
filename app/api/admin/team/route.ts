@@ -85,10 +85,13 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const gate = await requireManager()
   if ('error' in gate) return gate.error
-  const { memberId, role, roles: extraRoles } = await req.json().catch(() => ({}))
+  const { memberId, role, roles: extraRoles, status } = await req.json().catch(() => ({}))
   const VALID = ['owner', 'admin', 'producer', 'finance', 'editor', 'member']
   if (!memberId || (role !== undefined && !VALID.includes(role))) {
     return NextResponse.json({ error: 'Invalid role.' }, { status: 400 })
+  }
+  if (status !== undefined && !['paused', 'active'].includes(status)) {
+    return NextResponse.json({ error: 'status must be "paused" or "active".' }, { status: 400 })
   }
   const additional =
     extraRoles !== undefined && Array.isArray(extraRoles)
@@ -106,13 +109,24 @@ export async function PATCH(req: NextRequest) {
   const patch: Record<string, unknown> = {}
   if (role !== undefined) patch.role = role
   if (additional !== undefined) patch.roles = additional.filter((r) => r !== (role ?? target.role))
+  if (status !== undefined) patch.status = status
   if (Object.keys(patch).length === 0) {
-    return NextResponse.json({ error: 'Nothing to change — pass role and/or roles.' }, { status: 400 })
+    return NextResponse.json({ error: 'Nothing to change — pass role, roles, or status.' }, { status: 400 })
   }
   const { error } = await supabaseAdmin.from('organization_members').update(patch).eq('id', memberId)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (target.user_id && role !== undefined) {
-    await supabaseAdmin.auth.admin.updateUserById(target.user_id, { app_metadata: { org_role: role } })
+  if (target.user_id) {
+    if (status === 'paused') {
+      // Hold: studio access is cut instantly (proxy reads fresh app_metadata).
+      await supabaseAdmin.auth.admin.updateUserById(target.user_id, { app_metadata: { role: null } })
+    } else if (status === 'active') {
+      // Reinstate: restore studio access with their stored role.
+      await supabaseAdmin.auth.admin.updateUserById(target.user_id, {
+        app_metadata: { role: 'admin', org_role: role ?? target.role },
+      })
+    } else if (role !== undefined) {
+      await supabaseAdmin.auth.admin.updateUserById(target.user_id, { app_metadata: { org_role: role } })
+    }
   }
   return NextResponse.json({ success: true })
 }
@@ -132,16 +146,12 @@ export async function DELETE(req: NextRequest) {
   if (target.role === 'owner' && !gate.role.includes('owner')) {
     return NextResponse.json({ error: 'Only an owner can revoke an owner.' }, { status: 403 })
   }
-  const { error } = await supabaseAdmin
-    .from('organization_members')
-    .update({ status: 'revoked' })
-    .eq('id', memberId)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  // cut studio access immediately
+  // Deletion is forever: the auth account itself goes — no Throughline access
+  // of any kind remains. (Pause is the reversible option.)
   if (target.user_id) {
-    await supabaseAdmin.auth.admin.updateUserById(target.user_id, {
-      app_metadata: { role: null, org_role: null },
-    })
+    await supabaseAdmin.auth.admin.deleteUser(target.user_id)
   }
+  const { error } = await supabaseAdmin.from('organization_members').delete().eq('id', memberId)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ success: true })
 }

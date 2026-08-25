@@ -116,23 +116,32 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true })
   }
 
-  if (action === 'revoke') {
+  if (action === 'pause' || action === 'resume') {
+    const { error } = await supabaseAdmin
+      .from('client_members')
+      .update({ status: action === 'pause' ? 'paused' : 'active' })
+      .eq('id', body.memberId)
+      .neq('role', 'owner')
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ success: true })
+  }
+
+  if (action === 'delete') {
     const { data: target } = await supabaseAdmin
       .from('client_members')
       .select('id, user_id, role')
       .eq('id', body.memberId)
       .single()
     if (!target) return NextResponse.json({ error: 'Member not found.' }, { status: 404 })
-    if (target.role === 'owner') return NextResponse.json({ error: 'The account owner cannot be revoked.' }, { status: 400 })
-    const { error } = await supabaseAdmin.from('client_members').update({ status: 'revoked' }).eq('id', target.id)
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (target.role === 'owner') return NextResponse.json({ error: 'The account owner cannot be deleted here.' }, { status: 400 })
+    // Deletion is forever: the auth account itself goes.
     if (target.user_id) {
-      await supabaseAdmin.auth.admin.updateUserById(target.user_id, {
-        app_metadata: { role: null, client_id: null },
-      })
+      await supabaseAdmin.auth.admin.deleteUser(target.user_id)
     }
+    const { error } = await supabaseAdmin.from('client_members').delete().eq('id', target.id)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ success: true })
   }
 
-  return NextResponse.json({ error: `Unknown action: ${action ?? '(none)'} — expected approve, reject, set_policy, set_role, or revoke.` }, { status: 400 })
+  return NextResponse.json({ error: `Unknown action: ${action ?? '(none)'} — expected approve, reject, set_policy, set_role, pause, resume, or delete.` }, { status: 400 })
 }

@@ -13,6 +13,9 @@ export type ThreadMessagePayload = {
   projectId?: string
   messageId?: string
   senderRole?: 'admin' | 'client'
+  /** auth user id of the sender — echo suppression compares THIS, never the
+   *  role (multiple members share a role on both sides of the house). */
+  senderId?: string
   senderName?: string
   body?: string | null
   attachmentName?: string | null

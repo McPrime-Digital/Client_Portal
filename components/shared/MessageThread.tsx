@@ -26,6 +26,8 @@ import AudioPlayer from './AudioPlayer'
 import VoiceRecorder from './VoiceRecorder'
 
 type Props = {
+  // view-only members get no composer at all — hidden, not disabled
+  readOnly?: boolean
   messages: Message[]
   currentRole: 'admin' | 'client'
   currentName: string
@@ -85,6 +87,7 @@ export default function MessageThread({
   currentUserId,
   otherName,
   projectId,
+  readOnly = false,
   onSendMessage,
   onUploadAttachment,
   onDeleteMessage,
@@ -639,6 +642,7 @@ export default function MessageThread({
           )
         })()}
 
+        {!readOnly && (
         <form onSubmit={handleSubmit} className="flex items-center gap-2">
           {recording ? (
             <VoiceRecorder
@@ -761,6 +765,7 @@ export default function MessageThread({
           </>
           )}
         </form>
+        )}
       </div>
     </div>
   )

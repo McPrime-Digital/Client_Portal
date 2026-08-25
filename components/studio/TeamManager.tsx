@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { UsersRound, UserPlus, ShieldCheck, Loader2, X } from 'lucide-react'
+import { UsersRound, UserPlus, ShieldCheck, Loader2, Pause, Play, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 type Member = {
@@ -11,7 +11,7 @@ type Member = {
   email: string
   role: 'owner' | 'admin' | 'producer' | 'finance' | 'editor' | 'member'
   roles?: string[]
-  status: 'invited' | 'active' | 'revoked'
+  status: 'invited' | 'active' | 'paused' | 'revoked'
   invited_at: string
   accepted_at: string | null
 }
@@ -109,15 +109,26 @@ export default function TeamManager() {
     await load(); setBusy(null)
   }
 
-  async function revoke(memberId: string, name: string) {
-    if (!confirm(`Remove ${name} from the team? Their access ends immediately.`)) return
+  async function setStatus(memberId: string, status: 'paused' | 'active') {
+    setBusy(memberId); setError(null)
+    const res = await fetch('/api/admin/team', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memberId, status }),
+    })
+    if (!res.ok) setError((await res.json()).error ?? 'Could not change status.')
+    await load(); setBusy(null)
+  }
+
+  async function remove(memberId: string, name: string) {
+    if (!confirm(`Delete  permanently? Their account is removed entirely — no Throughline access of any kind. This cannot be undone. (Use pause to hold access instead.)`)) return
     setBusy(memberId); setError(null)
     const res = await fetch('/api/admin/team', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ memberId }),
     })
-    if (!res.ok) setError((await res.json()).error ?? 'Could not remove member.')
+    if (!res.ok) setError((await res.json()).error ?? 'Could not delete member.')
     await load(); setBusy(null)
   }
 
@@ -214,9 +225,13 @@ export default function TeamManager() {
                 )}
               </div>
               <span className={`hidden flex-shrink-0 rounded-full px-2.5 py-1 text-[10.5px] font-semibold sm:block ${
-                m.status === 'active' ? 'bg-primary/10 text-primary' : 'bg-secondary text-muted-foreground'
+                m.status === 'active' ? 'bg-primary/10 text-primary'
+                : m.status === 'paused' ? 'bg-destructive/10 text-destructive'
+                : 'bg-secondary text-muted-foreground'
               }`}>
-                {m.status === 'active' ? `Joined ${fmt(m.accepted_at)}` : `Invited ${fmt(m.invited_at)}`}
+                {m.status === 'active' ? `Joined ${fmt(m.accepted_at)}`
+                : m.status === 'paused' ? 'Paused'
+                : `Invited ${fmt(m.invited_at)}`}
               </span>
               {canManage && m.role !== 'owner' ? (
                 <>
@@ -231,11 +246,19 @@ export default function TeamManager() {
                   </select>
                   <button
                     type="button" disabled={busy === m.id}
-                    onClick={() => revoke(m.id, m.name ?? m.email)}
-                    title="Remove from team"
+                    onClick={() => setStatus(m.id, m.status === 'paused' ? 'active' : 'paused')}
+                    title={m.status === 'paused' ? 'Reinstate access' : 'Pause access (reversible)'}
+                    className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  >
+                    {m.status === 'paused' ? <Play size={14} /> : <Pause size={14} />}
+                  </button>
+                  <button
+                    type="button" disabled={busy === m.id}
+                    onClick={() => remove(m.id, m.name ?? m.email)}
+                    title="Delete permanently — account removed forever"
                     className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive"
                   >
-                    <X size={14} />
+                    <Trash2 size={14} />
                   </button>
                 </>
               ) : (

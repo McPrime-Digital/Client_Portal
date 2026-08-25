@@ -139,6 +139,8 @@ type Props = {
   initialTasks: Task[]
   phases?: Phase[]
   userRole: 'admin' | 'client'
+  // client-side only: whether this member's role may approve/request changes
+  canApprove?: boolean
   onProgressUpdate?: (pct: number) => void
   involvement?: InvolvementEntry[]
 }
@@ -149,6 +151,7 @@ export default function TaskBoard({
   initialTasks,
   phases,
   userRole,
+  canApprove = true,
   onProgressUpdate,
   involvement,
 }: Props) {
@@ -668,6 +671,7 @@ export default function TaskBoard({
   const rowProps = (task: Task) => ({
     task,
     userRole,
+    canApprove,
     isUpdating: updating === task.id,
     isAttaching: attaching === task.id,
     isExpanded: expandedId === task.id,
@@ -1122,6 +1126,7 @@ type RowProps = {
   isUpdating: boolean
   isAttaching: boolean
   isExpanded: boolean
+  canApprove?: boolean
   onToggleExpand: () => void
   onCycleStatus: () => void
   onSetStatus: (status: string) => void
@@ -1137,7 +1142,7 @@ type RowProps = {
 }
 
 function TaskRow({
-  task, userRole, isUpdating, isAttaching, isExpanded,
+  task, userRole, canApprove = true, isUpdating, isAttaching, isExpanded,
   onToggleExpand, onCycleStatus, onSetStatus, onUpdateFields, onApprove, onRequestChanges, onAttachMedia, onResend, onViewFile, attachment, onDelete, phases,
 }: RowProps) {
   const cfg = STATUS_CONFIG[task.status] ?? STATUS_CONFIG.pending
@@ -1156,7 +1161,7 @@ function TaskRow({
   const [adminNote, setAdminNote] = useState('')
   const [adminFile, setAdminFile] = useState<File | null>(null)
 
-  const clientCanAct = userRole === 'client' && task.visible_to_client && task.status === 'review' && task.approval_status !== 'approved' && !task.approved_at
+  const clientCanAct = userRole === 'client' && canApprove && task.visible_to_client && task.status === 'review' && task.approval_status !== 'approved' && !task.approved_at
 
   function resetAction() {
     setActionMode(null); setNote(''); setActionFile(null)

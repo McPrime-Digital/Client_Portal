@@ -1,4 +1,5 @@
-import { portalClientId } from '@/lib/team'
+import { portalClientId, portalAccess } from '@/lib/team'
+import { clientCan } from '@/lib/permissions'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -43,7 +44,17 @@ export async function GET() {
     ;({ data: notifications } = await base())
   }
 
-  return NextResponse.json({ notifications: notifications ?? [] })
+  // Role shelling: billing events exist only for roles that hold the invoices
+  // cap; project-scoped members see only their listed projects' events.
+  const access = await portalAccess(user)
+  const canBilling = clientCan(access?.role ?? 'owner', 'invoices')
+  const visible = (notifications ?? []).filter(
+    (n) =>
+      (canBilling || !String(n.type).includes('invoice')) &&
+      (!access?.projectIds || !n.project_id || access.projectIds.includes(n.project_id))
+  )
+
+  return NextResponse.json({ notifications: visible })
 }
 
 export async function PATCH(req: NextRequest) {

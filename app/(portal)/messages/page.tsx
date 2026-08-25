@@ -1,3 +1,4 @@
+import { clientCan } from '@/lib/permissions'
 import { portalClientId, portalAccess } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -99,6 +100,7 @@ export default async function MessagesPage() {
       threads={threads}
       clientId={client.id}
       clientName={access?.name ?? client.name}
+      canSend={clientCan(access?.role ?? 'owner', 'message')}
     />
   )
 }

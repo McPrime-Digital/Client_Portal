@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { UsersRound, UserPlus, ShieldCheck, Loader2, X, Lock, History, FolderLock } from 'lucide-react'
+import { UsersRound, UserPlus, ShieldCheck, Loader2, Lock, History, FolderLock, Pause, Play, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 type Member = {
@@ -10,7 +10,7 @@ type Member = {
   name: string | null
   email: string
   role: 'owner' | 'approver' | 'member' | 'viewer'
-  status: 'pending' | 'invited' | 'active' | 'revoked'
+  status: 'pending' | 'invited' | 'active' | 'paused' | 'revoked'
   invited_at: string
   accepted_at: string | null
   history_from?: string | null
@@ -27,6 +27,7 @@ const STATUS_LABEL: Record<string, string> = {
   pending: 'Awaiting studio approval',
   invited: 'Invite sent',
   active: 'Active',
+  paused: 'Paused',
 }
 
 const fmt = (d: string | null) =>
@@ -107,15 +108,26 @@ export default function ClientTeamManager() {
     await load(); setBusy(null)
   }
 
+  async function setStatus(memberId: string, status: 'paused' | 'active') {
+    setBusy(memberId); setError(null)
+    const res = await fetch('/api/portal/team', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memberId, status }),
+    })
+    if (!res.ok) setError((await res.json()).error ?? 'Could not change status.')
+    await load(); setBusy(null)
+  }
+
   async function remove(memberId: string, name: string) {
-    if (!confirm(`Remove ${name} from your team? Their access ends immediately.`)) return
+    if (!confirm(`Delete ${name} permanently? Their account is removed entirely and cannot be restored. (Use pause to hold their access instead.)`)) return
     setBusy(memberId); setError(null)
     const res = await fetch('/api/portal/team', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ memberId }),
     })
-    if (!res.ok) setError((await res.json()).error ?? 'Could not remove member.')
+    if (!res.ok) setError((await res.json()).error ?? 'Could not delete member.')
     await load(); setBusy(null)
   }
 
@@ -291,12 +303,20 @@ export default function ClientTeamManager() {
                     <option value="viewer">Viewer</option>
                   </select>
                   <button
+                    type="button" disabled={busy === m.id || m.status === 'pending'}
+                    onClick={() => setStatus(m.id, m.status === 'paused' ? 'active' : 'paused')}
+                    title={m.status === 'paused' ? 'Reinstate access' : 'Pause access (reversible)'}
+                    className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  >
+                    {m.status === 'paused' ? <Play size={14} /> : <Pause size={14} />}
+                  </button>
+                  <button
                     type="button" disabled={busy === m.id}
                     onClick={() => remove(m.id, m.name ?? m.email)}
-                    title="Remove from team"
+                    title="Delete permanently — account removed forever"
                     className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive"
                   >
-                    <X size={14} />
+                    <Trash2 size={14} />
                   </button>
                 </>
               ) : (

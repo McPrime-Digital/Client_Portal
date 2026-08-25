@@ -86,6 +86,11 @@ export default function AdminMessagesHub({
   const [messages, setMessages] = useState<Message[]>([])
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
+  // Own auth uid — echo suppression compares sender identity, never role.
+  const ownIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    createClient().auth.getUser().then(({ data }) => { ownIdRef.current = data.user?.id ?? null })
+  }, [])
   // One persistent broadcast channel per thread (`thread:${projectId}`),
   // subscribed for EVERY thread — so a message in any thread reorders the list,
   // bumps its unread badge and flips ticks live, not just the open one.
@@ -208,7 +213,8 @@ export default function AdminMessagesHub({
       const projectId = payload?.projectId
       if (!projectId) return
       // Our own outgoing message is already reflected locally on send.
-      if (payload.senderRole === 'admin') return
+      // Compare IDENTITY, never role — crew members share the admin role.
+      if (payload.senderId ? payload.senderId === ownIdRef.current : payload.senderRole === 'admin') return
 
       const open =
         activeThreadIdRef.current === projectId &&
@@ -416,6 +422,7 @@ export default function AdminMessagesHub({
           projectId: activeThread.id,
           messageId: inserted.id,
           senderRole: 'admin',
+          senderId: inserted.sender_id,
           senderName: inserted.sender_name,
           body: inserted.body,
           attachmentName: inserted.attachment_name,

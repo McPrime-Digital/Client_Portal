@@ -141,12 +141,20 @@ export async function PATCH(req: NextRequest) {
   const gate = await requireMembership()
   if ('error' in gate) return gate.error
   const { membership } = gate
-  if (membership.role !== 'owner') return NextResponse.json({ error: 'Only the account owner can change roles.' }, { status: 403 })
-  const { memberId, role } = await req.json().catch(() => ({}))
-  if (!memberId || !INVITABLE_ROLES.includes(role)) return NextResponse.json({ error: 'Invalid role.' }, { status: 400 })
+  if (membership.role !== 'owner') return NextResponse.json({ error: 'Only the account owner can manage teammates.' }, { status: 403 })
+  const { memberId, role, status } = await req.json().catch(() => ({}))
+  if (!memberId) return NextResponse.json({ error: 'memberId required.' }, { status: 400 })
+  if (role !== undefined && !INVITABLE_ROLES.includes(role)) return NextResponse.json({ error: 'Invalid role.' }, { status: 400 })
+  if (status !== undefined && !['paused', 'active'].includes(status)) {
+    return NextResponse.json({ error: 'status must be "paused" or "active".' }, { status: 400 })
+  }
+  const patch: Record<string, unknown> = {}
+  if (role !== undefined) patch.role = role
+  if (status !== undefined) patch.status = status
+  if (Object.keys(patch).length === 0) return NextResponse.json({ error: 'Nothing to change.' }, { status: 400 })
   const { error } = await supabaseAdmin
     .from('client_members')
-    .update({ role })
+    .update(patch)
     .eq('id', memberId)
     .eq('client_id', membership.clientId)
     .neq('role', 'owner')
@@ -170,13 +178,12 @@ export async function DELETE(req: NextRequest) {
   if (target.role === 'owner' || target.user_id === user.id) {
     return NextResponse.json({ error: 'The account owner cannot be removed here.' }, { status: 400 })
   }
-  const { error } = await supabaseAdmin.from('client_members').update({ status: 'revoked' }).eq('id', target.id)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  // cut portal access immediately
+  // Deletion is forever: the auth account itself goes — no portal, no
+  // Throughline access of any kind. (Pause is the reversible option.)
   if (target.user_id) {
-    await supabaseAdmin.auth.admin.updateUserById(target.user_id, {
-      app_metadata: { role: null, client_id: null },
-    })
+    await supabaseAdmin.auth.admin.deleteUser(target.user_id)
   }
+  const { error } = await supabaseAdmin.from('client_members').delete().eq('id', target.id)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ success: true })
 }

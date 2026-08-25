@@ -112,6 +112,7 @@ export default async function ProjectDetailPage({
       initialMessages={messages ?? []}
         client={client}
         memberName={access?.name}
+        memberRole={access?.role}
         involvement={involvement}
       />
     </>

@@ -33,6 +33,8 @@ type Props = {
   threads: Thread[]
   clientId: string
   clientName: string
+  // view-only members read the thread but get no composer
+  canSend?: boolean
 }
 
 // Returns true if the persisted message set is unchanged (ignoring optimistic
@@ -75,6 +77,7 @@ export default function MessagesHub({
   threads: initialThreads,
   clientId,
   clientName,
+  canSend = true,
 }: Props) {
   const supabase = createClient()
   const [threads, setThreads] = useState(initialThreads)
@@ -83,6 +86,11 @@ export default function MessagesHub({
   const [messages, setMessages] = useState<Message[]>([])
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
+  // Own auth uid — echo suppression compares sender identity, never role.
+  const ownIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    createClient().auth.getUser().then(({ data }) => { ownIdRef.current = data.user?.id ?? null })
+  }, [])
   // One persistent broadcast channel per thread (`thread:${projectId}`),
   // subscribed for EVERY thread — so a message in any thread reorders the list,
   // bumps its unread badge and flips ticks live, not just the open one.
@@ -210,8 +218,10 @@ export default function MessagesHub({
     (payload: ThreadMessagePayload) => {
       const projectId = payload?.projectId
       if (!projectId) return
-      // Our own outgoing message is already reflected locally on send.
-      if (payload.senderRole === 'client') return
+      // Our own outgoing message is already reflected locally on send. Compare
+      // IDENTITY — another teammate's message must come through even though
+      // they share our role.
+      if (payload.senderId ? payload.senderId === ownIdRef.current : payload.senderRole === 'client') return
 
       const open =
         activeThreadIdRef.current === projectId &&
@@ -417,6 +427,7 @@ export default function MessagesHub({
           projectId: activeThread.id,
           messageId: inserted.id,
           senderRole: 'client',
+          senderId: inserted.sender_id,
           senderName: inserted.sender_name,
           body: inserted.body,
           attachmentName: inserted.attachment_name,
@@ -811,6 +822,7 @@ export default function MessagesHub({
                     otherName="McPrime Digital"
                     projectId={activeThread.id}
                     onSendMessage={sendMessage}
+                    readOnly={!canSend}
                     onUploadAttachment={handleAttachmentUpload}
                     onDeleteMessage={handleDeleteMessage}
                     onEditMessage={handleEditMessage}

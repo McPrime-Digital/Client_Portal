@@ -1,3 +1,4 @@
+import { clientCan } from '@/lib/permissions'
 import { portalClientId, portalAccess } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -159,6 +160,8 @@ export default async function DashboardPage() {
   )
   const projectIds = scopedProjects.map((p) => p.id)
   const hasProjects = projectIds.length > 0
+  // Role shelling — billing exists ONLY for roles that hold the invoices cap.
+  const canBilling = clientCan(access?.role ?? 'owner', 'invoices')
 
   const [
     { data: tasks },
@@ -305,7 +308,10 @@ export default async function DashboardPage() {
     time: string
     projectId: string | null
   }
-  const activity: ActivityItem[] = (recentNotifs ?? []).slice(0, 12).map((n) => ({
+  const activity: ActivityItem[] = (recentNotifs ?? [])
+    .filter((n) => canBilling || !String(n.type).includes('invoice'))
+    .filter((n) => !access?.projectIds || !n.project_id || access.projectIds.includes(n.project_id))
+    .slice(0, 12).map((n) => ({
     id: n.id,
     type: n.type,
     title: n.title,
@@ -412,14 +418,14 @@ export default async function DashboardPage() {
       {/* Account standing — a premium relationship ribbon. Billing detail
           lives in the Billing Summary card; this is the at-a-glance status. */}
       {(() => {
-        const standing = overdueAmount > 0
+        const standing = canBilling && overdueAmount > 0
           ? { label: 'Action needed', tint: 'hsl(var(--destructive))', note: `${formatCurrency(overdueAmount)} overdue` }
-          : dueCount > 0
+          : canBilling && dueCount > 0
           ? { label: 'Payment due', tint: 'hsl(var(--primary))', note: `${formatCurrency(outstanding)} across ${dueCount} invoice${dueCount !== 1 ? 's' : ''}` }
           : pendingApprovals.length > 0
           ? { label: 'Review pending', tint: 'hsl(var(--status-amber))', note: `${pendingApprovals.length} item${pendingApprovals.length !== 1 ? 's' : ''} awaiting you` }
           : { label: 'In good standing', tint: 'hsl(var(--status-green))', note: 'Everything is up to date' }
-        const ctaHref = (overdueAmount > 0 || dueCount > 0) ? '/invoices' : pendingApprovals.length > 0 ? '/projects' : '/projects'
+        const ctaHref = (canBilling && (overdueAmount > 0 || dueCount > 0)) ? '/invoices' : pendingApprovals.length > 0 ? '/projects' : '/projects'
         const facts: string[] = [`${activeProjects.length} active project${activeProjects.length !== 1 ? 's' : ''}`]
         if (upcoming?.due_date) facts.push(`Next delivery ${shortDate(upcoming.due_date)}`)
         return (
@@ -438,7 +444,7 @@ export default async function DashboardPage() {
                 </div>
               </div>
               <span className="flex items-center gap-1 text-sm font-semibold flex-shrink-0" style={{ color: standing.tint }}>
-                {(overdueAmount > 0 || dueCount > 0) ? 'View invoices' : pendingApprovals.length > 0 ? 'Review now' : 'View projects'}
+                {(canBilling && (overdueAmount > 0 || dueCount > 0)) ? 'View invoices' : pendingApprovals.length > 0 ? 'Review now' : 'View projects'}
                 <ArrowRight size={14} />
               </span>
             </div>
@@ -755,7 +761,8 @@ export default async function DashboardPage() {
         {/* ── Right column ── */}
         <div className="space-y-6">
 
-          {/* Account snapshot */}
+          {/* Account snapshot — billing roles only */}
+          {canBilling && (
           <section
             className="rounded-xl p-5"
             style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
@@ -826,6 +833,7 @@ export default async function DashboardPage() {
               )}
             </div>
           </section>
+          )}
 
           {/* Recent activity */}
           <section

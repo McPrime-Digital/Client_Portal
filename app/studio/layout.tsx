@@ -44,6 +44,25 @@ export default async function StudioLayout({ children }: { children: React.React
     .eq('user_id', user.id)
     .eq('status', 'invited')
 
+  // A paused crew member sees a hold screen — nothing else in the studio.
+  const { data: crewRow } = await supabaseAdmin
+    .from('organization_members')
+    .select('status')
+    .eq('user_id', user.id)
+    .maybeSingle()
+  if (crewRow && crewRow.status === 'paused') {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background px-6">
+        <div className="max-w-sm rounded-2xl border border-border bg-card p-8 text-center">
+          <p className="font-display text-lg font-semibold text-foreground">Access on hold</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Your studio access has been paused by an owner. You&apos;ll be able to sign back in once it&apos;s reinstated.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   const orgRoles = await orgRolesOf(user)
   const roles = orgRoles.length ? orgRoles : (['member'] as const)
 

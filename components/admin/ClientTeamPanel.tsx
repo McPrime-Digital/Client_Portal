@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { UsersRound, ShieldCheck, Check, X } from 'lucide-react'
+import { UsersRound, ShieldCheck, Check, X, Pause, Play, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 // Org oversight of one client company's team: roster with invite states,
@@ -13,7 +13,7 @@ type Member = {
   name: string | null
   email: string
   role: 'owner' | 'approver' | 'member' | 'viewer'
-  status: 'pending' | 'invited' | 'active' | 'revoked'
+  status: 'pending' | 'invited' | 'active' | 'paused' | 'revoked'
   invited_at: string
   accepted_at: string | null
 }
@@ -142,7 +142,10 @@ export default function ClientTeamPanel({ clientId }: { clientId: string }) {
                 {m.role === 'owner' && <ShieldCheck size={12} className="flex-shrink-0 text-primary" />}
               </p>
               <p className="truncate text-xs text-muted-foreground">
-                {m.email} · {m.status === 'active' ? `joined ${fmt(m.accepted_at)}` : `invited ${fmt(m.invited_at)}`}
+                {m.email} ·{' '}
+                {m.status === 'active' ? `joined ${fmt(m.accepted_at)}`
+                : m.status === 'paused' ? <span className="font-semibold text-destructive">paused</span>
+                : `invited ${fmt(m.invited_at)}`}
               </p>
             </div>
             {canManage && m.role !== 'owner' ? (
@@ -158,11 +161,19 @@ export default function ClientTeamPanel({ clientId }: { clientId: string }) {
                 </select>
                 <button
                   type="button" disabled={busy === m.id}
-                  onClick={() => { if (confirm(`Revoke ${m.name ?? m.email}? Their access ends immediately.`)) act({ action: 'revoke', memberId: m.id }, m.id) }}
-                  className="grid h-7 w-7 flex-shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive"
-                  title="Revoke access"
+                  onClick={() => act({ action: m.status === 'paused' ? 'resume' : 'pause', memberId: m.id }, m.id)}
+                  className="grid h-7 w-7 flex-shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  title={m.status === 'paused' ? 'Reinstate access' : 'Pause access (reversible)'}
                 >
-                  <X size={13} />
+                  {m.status === 'paused' ? <Play size={13} /> : <Pause size={13} />}
+                </button>
+                <button
+                  type="button" disabled={busy === m.id}
+                  onClick={() => { if (confirm(`Delete ${m.name ?? m.email} permanently? Their account is removed entirely and cannot be restored.`)) act({ action: 'delete', memberId: m.id }, m.id) }}
+                  className="grid h-7 w-7 flex-shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive"
+                  title="Delete permanently — account removed forever"
+                >
+                  <Trash2 size={13} />
                 </button>
               </>
             ) : (

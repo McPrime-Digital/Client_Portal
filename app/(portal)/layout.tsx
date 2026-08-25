@@ -32,6 +32,26 @@ export default async function PortalLayout({
   // 3. Resolve membership ONCE: who they are, which company, which role.
   const membership = await clientMembershipOf(session.user)
 
+  // A paused member (either side of the house) sees a hold screen, nothing else.
+  if (!membership) {
+    const [{ data: heldClient }, { data: heldCrew }] = await Promise.all([
+      supabaseAdmin.from('client_members').select('id').eq('user_id', session.user.id).eq('status', 'paused').maybeSingle(),
+      supabaseAdmin.from('organization_members').select('id').eq('user_id', session.user.id).eq('status', 'paused').maybeSingle(),
+    ])
+    if (heldClient || heldCrew) {
+      return (
+        <div className="flex h-screen items-center justify-center bg-background px-6">
+          <div className="max-w-sm rounded-2xl border border-border bg-card p-8 text-center">
+            <p className="font-display text-lg font-semibold text-foreground">Access on hold</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Your access has been paused by the account owner. You&apos;ll be able to sign back in once it&apos;s reinstated.
+            </p>
+          </div>
+        </div>
+      )
+    }
+  }
+
   const { data: clientData, error: clientError } = await supabaseAdmin
     .from('clients')
     .select('*')
