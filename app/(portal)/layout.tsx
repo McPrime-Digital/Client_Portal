@@ -57,7 +57,7 @@ export default async function PortalLayout({
       .from('client_members')
       .update({ status: 'active', accepted_at: new Date().toISOString() })
       .eq('user_id', session.user.id)
-      .is('accepted_at', null)
+      .eq('status', 'invited')
   }
 
   const activeClient = clientData || fallbackClient

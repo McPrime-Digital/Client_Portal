@@ -35,6 +35,15 @@ export default async function StudioLayout({ children }: { children: React.React
 
   const userName =
     (user.user_metadata?.name as string | undefined) ?? user.email?.split('@')[0] ?? 'Owner'
+
+  // First login of an invited crew member — flip their membership to active
+  // BEFORE resolving the role, or their permissions would read as a stranger's.
+  await supabaseAdmin
+    .from('organization_members')
+    .update({ status: 'active', accepted_at: new Date().toISOString() })
+    .eq('user_id', user.id)
+    .eq('status', 'invited')
+
   const orgRole = (await orgRoleOf(user)) ?? 'member'
 
   return (
