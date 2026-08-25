@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { getSpace } from '@/lib/studio/spaces'
 import { createClient } from '@/lib/supabase/server'
-import { orgRolesOf } from '@/lib/team'
+import { orgAccessOf } from '@/lib/team'
 import { orgFeatureAllowed } from '@/lib/permissions'
 
 export default async function SpacePage({ params }: { params: Promise<{ space: string }> }) {
@@ -12,9 +12,9 @@ export default async function SpacePage({ params }: { params: Promise<{ space: s
 
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  const orgRoles = user ? await orgRolesOf(user) : []
+  const orgAccess = user ? await orgAccessOf(user) : { roles: [], extraCaps: [], title: null }
   const features = space.features.filter((f) =>
-    orgFeatureAllowed(orgRoles.length ? orgRoles : ['member'], space.id, f.slug)
+    orgFeatureAllowed(orgAccess.roles.length ? orgAccess.roles : ['member'], space.id, f.slug, orgAccess.extraCaps)
   )
 
   const Icon = space.icon

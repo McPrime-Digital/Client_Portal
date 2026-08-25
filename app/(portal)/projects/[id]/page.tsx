@@ -1,3 +1,4 @@
+import { clientCan } from '@/lib/permissions'
 import { portalClientId, portalAccess } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -113,6 +114,8 @@ export default async function ProjectDetailPage({
         client={client}
         memberName={access?.name}
         memberRole={access?.role}
+        canApprove={clientCan(access?.role ?? 'owner', 'approve', access?.extraCaps)}
+        canMessage={clientCan(access?.role ?? 'owner', 'message', access?.extraCaps)}
         involvement={involvement}
       />
     </>

@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
     const role = userRole(user)
     if (role === 'client') {
       const membership = await clientMembershipOf(user)
-      if (!membership || !clientCan(membership.role, 'upload')) {
+      if (!membership || !clientCan(membership.role, 'upload', membership.extraCaps)) {
         return NextResponse.json({ error: 'Your role is view-only — uploads are not available.' }, { status: 403 })
       }
     }

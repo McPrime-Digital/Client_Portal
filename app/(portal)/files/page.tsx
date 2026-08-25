@@ -47,7 +47,7 @@ export default async function FilesPage() {
   // (company-level files with no project stay visible). Viewers don't get the
   // vault at all — project pages carry what they may see.
   const access = await portalAccess(user)
-  if (access && !clientCan(access.role, 'upload')) redirect('/dashboard')
+  if (access && !clientCan(access.role, 'upload', access.extraCaps)) redirect('/dashboard')
   const projects = (allProjects ?? []).filter(
     (p) => !access?.projectIds || access.projectIds.includes(p.id)
   )

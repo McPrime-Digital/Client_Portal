@@ -53,6 +53,9 @@ type Props = {
   memberName?: string
   // the member's client-side role — gates the approval buttons
   memberRole?: 'owner' | 'approver' | 'member' | 'viewer'
+  // capability overrides (role default + owner grants), computed server-side
+  canApprove?: boolean
+  canMessage?: boolean
 }
 
 function getFileIcon(fileType: string | null) {
@@ -101,6 +104,8 @@ export default function ProjectDetail({
   involvement,
   memberName,
   memberRole = 'owner',
+  canApprove,
+  canMessage,
 }: Props) {
   const [activeTab, setActiveTab] = useState('overview')
   // Honour a ?tab= deep-link (e.g. notification → opens the chat directly).
@@ -880,7 +885,7 @@ export default function ProjectDetail({
               messages={messages}
               currentRole="client"
               currentName={memberName ?? client.name}
-              readOnly={memberRole === 'viewer'}
+              readOnly={canMessage === false}
               otherName="McPrime Digital"
               projectId={project.id}
               onSendMessage={sendMessage}
@@ -926,7 +931,7 @@ export default function ProjectDetail({
           initialTasks={(tasks ?? []) as any}
           phases={phases}
           userRole="client"
-          canApprove={memberRole === 'owner' || memberRole === 'approver'}
+          canApprove={canApprove ?? (memberRole === 'owner' || memberRole === 'approver')}
           involvement={involvement}
         />
       )}

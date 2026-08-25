@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { userOrgId } from '@/lib/auth/role'
 import { clientMembershipOf } from '@/lib/team'
+import { clientCan } from '@/lib/permissions'
 import { recordUsage } from '@/lib/usage'
 import { createAdminNotification } from '@/lib/notify'
 
@@ -28,7 +29,7 @@ export async function GET() {
   const [{ data: members }, { data: company }, { data: projects }] = await Promise.all([
     supabaseAdmin
       .from('client_members')
-      .select('id, user_id, name, email, role, status, invited_at, accepted_at, history_from, client_member_projects(project_id)')
+      .select('id, user_id, name, email, role, status, invited_at, accepted_at, history_from, extra_caps, title, client_member_projects(project_id)')
       .eq('client_id', membership.clientId)
       .neq('status', 'revoked')
       .order('created_at', { ascending: true }),
@@ -38,6 +39,7 @@ export async function GET() {
   return NextResponse.json({
     members: members ?? [],
     myRole: membership.role,
+    canManage: clientCan(membership.role, 'manage_team', membership.extraCaps),
     invitePolicy: company?.invite_policy ?? 'open',
     projects: projects ?? [],
   })
@@ -47,8 +49,8 @@ export async function POST(req: NextRequest) {
   const gate = await requireMembership()
   if ('error' in gate) return gate.error
   const { user, membership } = gate
-  if (membership.role !== 'owner') {
-    return NextResponse.json({ error: 'Only the account owner can invite teammates.' }, { status: 403 })
+  if (!clientCan(membership.role, 'manage_team', membership.extraCaps)) {
+    return NextResponse.json({ error: 'You need team-management access to invite teammates.' }, { status: 403 })
   }
 
   const { data: company } = await supabaseAdmin
@@ -141,16 +143,19 @@ export async function PATCH(req: NextRequest) {
   const gate = await requireMembership()
   if ('error' in gate) return gate.error
   const { membership } = gate
-  if (membership.role !== 'owner') return NextResponse.json({ error: 'Only the account owner can manage teammates.' }, { status: 403 })
-  const { memberId, role, status } = await req.json().catch(() => ({}))
+  if (!clientCan(membership.role, 'manage_team', membership.extraCaps)) return NextResponse.json({ error: 'You need team-management access to manage teammates.' }, { status: 403 })
+  const { memberId, role, status, extraCaps, title } = await req.json().catch(() => ({}))
   if (!memberId) return NextResponse.json({ error: 'memberId required.' }, { status: 400 })
   if (role !== undefined && !INVITABLE_ROLES.includes(role)) return NextResponse.json({ error: 'Invalid role.' }, { status: 400 })
   if (status !== undefined && !['paused', 'active'].includes(status)) {
     return NextResponse.json({ error: 'status must be "paused" or "active".' }, { status: 400 })
   }
+  const CAPS = ['view', 'message', 'upload', 'approve', 'invoices', 'manage_team']
   const patch: Record<string, unknown> = {}
   if (role !== undefined) patch.role = role
   if (status !== undefined) patch.status = status
+  if (extraCaps !== undefined && Array.isArray(extraCaps)) patch.extra_caps = extraCaps.filter((c) => CAPS.includes(c))
+  if (title !== undefined) patch.title = String(title ?? '').trim().slice(0, 40) || null
   if (Object.keys(patch).length === 0) return NextResponse.json({ error: 'Nothing to change.' }, { status: 400 })
   const { error } = await supabaseAdmin
     .from('client_members')
@@ -166,7 +171,7 @@ export async function DELETE(req: NextRequest) {
   const gate = await requireMembership()
   if ('error' in gate) return gate.error
   const { user, membership } = gate
-  if (membership.role !== 'owner') return NextResponse.json({ error: 'Only the account owner can remove teammates.' }, { status: 403 })
+  if (!clientCan(membership.role, 'manage_team', membership.extraCaps)) return NextResponse.json({ error: 'You need team-management access to remove teammates.' }, { status: 403 })
   const { memberId } = await req.json().catch(() => ({}))
   const { data: target } = await supabaseAdmin
     .from('client_members')

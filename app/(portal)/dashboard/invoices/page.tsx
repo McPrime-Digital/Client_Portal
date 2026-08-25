@@ -26,7 +26,7 @@ export default async function ClientInvoicesPage() {
 
   // Invoices are for owners and approvers only.
   const access = await portalAccess(user)
-  if (access && !clientCan(access.role, 'invoices')) redirect('/dashboard')
+  if (access && !clientCan(access.role, 'invoices', access.extraCaps)) redirect('/dashboard')
 
   // Mark overdue on client view too
   await supabaseAdmin.rpc('mark_overdue_invoices')

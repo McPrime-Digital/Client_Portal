@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { UsersRound, UserPlus, ShieldCheck, Loader2, Pause, Play, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { ORG_GRANTABLE } from '@/lib/permissions'
 
 type Member = {
   id: string
@@ -11,6 +12,8 @@ type Member = {
   email: string
   role: 'owner' | 'admin' | 'producer' | 'finance' | 'editor' | 'member'
   roles?: string[]
+  extra_caps?: string[]
+  title?: string | null
   status: 'invited' | 'active' | 'paused' | 'revoked'
   invited_at: string
   accepted_at: string | null
@@ -93,6 +96,32 @@ export default function TeamManager() {
     })
     if (!res.ok) setError((await res.json()).error ?? 'Could not change role.')
     await load(); setBusy(null)
+  }
+
+  // Custom access: toggle a granted capability on top of the member's roles.
+  async function toggleGrant(m: Member, cap: string) {
+    const current = m.extra_caps ?? []
+    const next = current.includes(cap) ? current.filter((c) => c !== cap) : [...current, cap]
+    setBusy(m.id); setError(null)
+    const res = await fetch('/api/admin/team', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memberId: m.id, extraCaps: next }),
+    })
+    if (!res.ok) setError((await res.json()).error ?? 'Could not change access.')
+    await load(); setBusy(null)
+  }
+
+  // Custom role name — shown across the studio in place of the standard label.
+  async function saveTitle(m: Member, title: string) {
+    if ((m.title ?? '') === title.trim()) return
+    const res = await fetch('/api/admin/team', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memberId: m.id, title }),
+    })
+    if (!res.ok) setError((await res.json()).error ?? 'Could not save the role name.')
+    await load()
   }
 
   // Toggle an ADDITIONAL role — capabilities are the union of everything held.
@@ -222,6 +251,38 @@ export default function TeamManager() {
                 )}
                 {!canManage && (m.roles?.length ?? 0) > 0 && (
                   <p className="mt-0.5 text-[10px] text-faint">also: {m.roles!.join(', ')}</p>
+                )}
+                {canManage && m.role !== 'owner' && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                    <span className="text-[9.5px] uppercase tracking-wide text-faint">access:</span>
+                    {ORG_GRANTABLE.map(({ cap, label }) => {
+                      const on = (m.extra_caps ?? []).includes(cap)
+                      return (
+                        <button
+                          key={cap} type="button" disabled={busy === m.id}
+                          onClick={() => toggleGrant(m, cap)}
+                          title={`Grant "${label}" beyond their roles`}
+                          className={`rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                            on ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-faint hover:text-muted-foreground'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      )
+                    })}
+                    <input
+                      key={`${m.id}-${m.title ?? ''}`}
+                      defaultValue={m.title ?? ''}
+                      placeholder="Custom role name"
+                      maxLength={40}
+                      onBlur={(e) => saveTitle(m, e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                      className="ml-1 w-36 rounded-lg border border-border bg-background px-2 py-0.5 text-[10.5px] text-foreground placeholder:text-faint focus:border-primary focus:outline-none"
+                    />
+                  </div>
+                )}
+                {!canManage && m.title && (
+                  <p className="mt-0.5 text-[10px] font-semibold text-primary">{m.title}</p>
                 )}
               </div>
               <span className={`hidden flex-shrink-0 rounded-full px-2.5 py-1 text-[10.5px] font-semibold sm:block ${

@@ -4,7 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { createAdminNotification, pushMessageAlert } from '@/lib/notify'
 import { messagePreview } from '@/lib/messagePreview'
 import { recordActivity } from '@/lib/logActivity.server'
-import { clientMembershipOf, canApprove, type ClientRole } from '@/lib/team'
+import { clientMembershipOf, type ClientRole } from '@/lib/team'
 import { clientCan } from '@/lib/permissions'
 
 // Verify the calling user belongs to a client company — the primary login
@@ -25,7 +25,7 @@ async function verifyClient() {
     .single()
 
   return client
-    ? { user, client, memberRole: membership.role as ClientRole, memberName: membership.name }
+    ? { user, client, memberRole: membership.role as ClientRole, memberName: membership.name, memberExtra: membership.extraCaps }
     : null
 }
 
@@ -57,8 +57,8 @@ export async function POST(req: NextRequest) {
 
       // ── Client approves a shared task ───────────────────────
       case 'approve_task': {
-        if (!canApprove(auth.memberRole)) {
-          return NextResponse.json({ error: 'Only the account owner or an approver can approve deliverables.' }, { status: 403 })
+        if (!clientCan(auth.memberRole, 'approve', auth.memberExtra)) {
+          return NextResponse.json({ error: 'Your role does not include approvals.' }, { status: 403 })
         }
         const { task_id, note, attachment_url, attachment_name, attachment_file_id } = body
         const { data: task } = await supabaseAdmin
@@ -124,8 +124,8 @@ export async function POST(req: NextRequest) {
       // Client requests changes on an approval-gate task. A note is required
       // and is auto-posted into the project chat for further discussion.
       case 'request_changes': {
-        if (!canApprove(auth.memberRole)) {
-          return NextResponse.json({ error: 'Only the account owner or an approver can request changes.' }, { status: 403 })
+        if (!clientCan(auth.memberRole, 'approve', auth.memberExtra)) {
+          return NextResponse.json({ error: 'Your role does not include approvals.' }, { status: 403 })
         }
         const { task_id, note, attachment_url, attachment_name, attachment_file_id } = body
         if (!note || !String(note).trim()) {
@@ -191,7 +191,7 @@ export async function POST(req: NextRequest) {
       }
 
       case 'send_message': {
-        if (!clientCan(auth.memberRole, 'message')) {
+        if (!clientCan(auth.memberRole, 'message', auth.memberExtra)) {
           return NextResponse.json({ error: 'Your role is view-only — messaging is not available.' }, { status: 403 })
         }
         const {

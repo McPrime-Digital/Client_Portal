@@ -1,3 +1,4 @@
+import { clientCan } from '@/lib/permissions'
 import { portalClientId, clientMembershipOf } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -13,7 +14,7 @@ export default async function SettingsPage() {
 
   // Company & owner information is the account owner's alone.
   const membership = await clientMembershipOf(user)
-  if (membership && membership.role !== 'owner') redirect('/dashboard')
+  if (membership && !clientCan(membership.role, 'manage_team', membership.extraCaps)) redirect('/dashboard')
 
   const { data: client } = await supabaseAdmin
     .from('clients')

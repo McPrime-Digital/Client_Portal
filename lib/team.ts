@@ -41,6 +41,30 @@ export async function orgRoleOf(user: User): Promise<OrgRole | null> {
   return roles[0] ?? null
 }
 
+export type OrgAccess = {
+  roles: OrgRole[]
+  /** Owner-granted capabilities on top of the roles (custom access). */
+  extraCaps: string[]
+  /** Custom role name for the UI; null = the primary role's standard label. */
+  title: string | null
+}
+
+/** Roles + custom grants + custom title in one read. */
+export async function orgAccessOf(user: User): Promise<OrgAccess> {
+  const roles = await orgRolesOf(user)
+  if (roles.length === 0) return { roles, extraCaps: [], title: null }
+  const { data } = await supabaseAdmin
+    .from('organization_members')
+    .select('extra_caps, title')
+    .eq('user_id', user.id)
+    .single()
+  return {
+    roles,
+    extraCaps: Array.isArray(data?.extra_caps) ? data!.extra_caps : [],
+    title: data?.title ?? null,
+  }
+}
+
 /** True when the admin may manage the org team / settings / billing. */
 export function canManageOrg(role: OrgRole | OrgRole[] | null): boolean {
   const list = Array.isArray(role) ? role : role ? [role] : []
@@ -52,6 +76,10 @@ export type ClientMembership = {
   role: ClientRole
   /** The member's OWN display name — never the company owner's. */
   name: string
+  /** Owner-granted capabilities on top of the role (custom access). */
+  extraCaps: string[]
+  /** Custom role name shown in the UI; null = the role's standard label. */
+  title: string | null
 }
 
 function ownName(user: User, fallback: string | null | undefined): string {
@@ -65,6 +93,25 @@ function ownName(user: User, fallback: string | null | undefined): string {
 
 /** Resolve the client company + this user's role in it. Legacy primary logins
  *  (clients.user_id) are owners; invited teammates come from client_members. */
+type MemberRow = {
+  client_id: string
+  role: string
+  status?: string
+  name: string | null
+  extra_caps?: string[] | null
+  title?: string | null
+}
+
+function fromRow(user: User, m: MemberRow): ClientMembership {
+  return {
+    clientId: m.client_id,
+    role: m.role as ClientRole,
+    name: ownName(user, m.name),
+    extraCaps: Array.isArray(m.extra_caps) ? m.extra_caps : [],
+    title: m.title ?? null,
+  }
+}
+
 export async function clientMembershipOf(user: User): Promise<ClientMembership | null> {
   const claimed = userClientId(user as never)
   if (claimed) {
@@ -73,16 +120,16 @@ export async function clientMembershipOf(user: User): Promise<ClientMembership |
       .select('id, user_id, name')
       .eq('id', claimed)
       .single()
-    if (c?.user_id === user.id) return { clientId: c.id, role: 'owner', name: ownName(user, c.name) }
+    if (c?.user_id === user.id) {
+      return { clientId: c.id, role: 'owner', name: ownName(user, c.name), extraCaps: [], title: null }
+    }
     const { data: m } = await supabaseAdmin
       .from('client_members')
-      .select('client_id, role, status, name')
+      .select('client_id, role, status, name, extra_caps, title')
       .eq('client_id', claimed)
       .eq('user_id', user.id)
       .single()
-    if (m && m.status === 'active') {
-      return { clientId: m.client_id, role: m.role as ClientRole, name: ownName(user, m.name) }
-    }
+    if (m && m.status === 'active') return fromRow(user, m as MemberRow)
     return null
   }
   // legacy sessions without the client_id claim
@@ -91,14 +138,14 @@ export async function clientMembershipOf(user: User): Promise<ClientMembership |
     .select('id, name')
     .eq('user_id', user.id)
     .single()
-  if (c) return { clientId: c.id, role: 'owner', name: ownName(user, c.name) }
+  if (c) return { clientId: c.id, role: 'owner', name: ownName(user, c.name), extraCaps: [], title: null }
   const { data: m } = await supabaseAdmin
     .from('client_members')
-    .select('client_id, role, name')
+    .select('client_id, role, name, extra_caps, title')
     .eq('user_id', user.id)
     .eq('status', 'active')
     .single()
-  return m ? { clientId: m.client_id, role: m.role as ClientRole, name: ownName(user, m.name) } : null
+  return m ? fromRow(user, m as MemberRow) : null
 }
 
 // Matches no row — lookups against it behave exactly like today's failed
@@ -116,6 +163,10 @@ export type PortalAccess = {
   role: ClientRole
   /** The member's OWN display name — never the company owner's. */
   name: string
+  /** Owner-granted capabilities on top of the role (custom access). */
+  extraCaps: string[]
+  /** Custom role name for the UI; null = the role's standard label. */
+  title: string | null
   /** Only messages at/after this instant are visible; null = full history. */
   historyFrom: string | null
   /** Projects this member may see; null = all of the company's projects. */
@@ -129,7 +180,10 @@ export async function portalAccess(user: User): Promise<PortalAccess | null> {
   const membership = await clientMembershipOf(user)
   if (!membership) return null
   if (membership.role === 'owner') {
-    return { clientId: membership.clientId, role: 'owner', name: membership.name, historyFrom: null, projectIds: null }
+    return {
+      clientId: membership.clientId, role: 'owner', name: membership.name,
+      extraCaps: [], title: null, historyFrom: null, projectIds: null,
+    }
   }
   const { data: m } = await supabaseAdmin
     .from('client_members')
@@ -150,6 +204,8 @@ export async function portalAccess(user: User): Promise<PortalAccess | null> {
     clientId: membership.clientId,
     role: membership.role,
     name: membership.name,
+    extraCaps: membership.extraCaps,
+    title: membership.title,
     historyFrom: m?.history_from ?? null,
     projectIds,
   }

@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
   const [{ data: members }, { data: company }] = await Promise.all([
     supabaseAdmin
       .from('client_members')
-      .select('id, user_id, name, email, role, status, invited_at, accepted_at, invited_by')
+      .select('id, user_id, name, email, role, status, invited_at, accepted_at, invited_by, extra_caps, title')
       .eq('client_id', clientId)
       .order('created_at', { ascending: true }),
     supabaseAdmin.from('clients').select('invite_policy').eq('id', clientId).single(),
@@ -110,6 +110,22 @@ export async function POST(req: NextRequest) {
     const { error } = await supabaseAdmin
       .from('client_members')
       .update({ role: body.role })
+      .eq('id', body.memberId)
+      .neq('role', 'owner')
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ success: true })
+  }
+
+  if (action === 'set_access') {
+    // custom grants + custom role name, curated by the org
+    const CAPS = ['view', 'message', 'upload', 'approve', 'invoices', 'manage_team']
+    const patch: Record<string, unknown> = {}
+    if (Array.isArray(body.extraCaps)) patch.extra_caps = body.extraCaps.filter((c: string) => CAPS.includes(c))
+    if (body.title !== undefined) patch.title = String(body.title ?? '').trim().slice(0, 40) || null
+    if (Object.keys(patch).length === 0) return NextResponse.json({ error: 'Pass extraCaps and/or title.' }, { status: 400 })
+    const { error } = await supabaseAdmin
+      .from('client_members')
+      .update(patch)
       .eq('id', body.memberId)
       .neq('role', 'owner')
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })

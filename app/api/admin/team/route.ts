@@ -23,7 +23,7 @@ export async function GET() {
   if (!user || !isAdmin(user)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { data } = await supabaseAdmin
     .from('organization_members')
-    .select('id, user_id, name, email, role, roles, status, invited_at, accepted_at, invited_by')
+    .select('id, user_id, name, email, role, roles, extra_caps, title, status, invited_at, accepted_at, invited_by')
     .neq('status', 'revoked')
     .order('created_at', { ascending: true })
   const me = await orgRolesOf(user)
@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const gate = await requireManager()
   if ('error' in gate) return gate.error
-  const { memberId, role, roles: extraRoles, status } = await req.json().catch(() => ({}))
+  const { memberId, role, roles: extraRoles, status, extraCaps, title } = await req.json().catch(() => ({}))
   const VALID = ['owner', 'admin', 'producer', 'finance', 'editor', 'member']
   if (!memberId || (role !== undefined && !VALID.includes(role))) {
     return NextResponse.json({ error: 'Invalid role.' }, { status: 400 })
@@ -106,12 +106,15 @@ export async function PATCH(req: NextRequest) {
   if (target.role === 'owner' && !gate.role.includes('owner')) {
     return NextResponse.json({ error: 'Only an owner can change an owner.' }, { status: 403 })
   }
+  const CAPS = ['org_settings', 'manage_team', 'manage_clients', 'client_money', 'run_projects', 'workspace', 'cost_control']
   const patch: Record<string, unknown> = {}
   if (role !== undefined) patch.role = role
+  if (extraCaps !== undefined && Array.isArray(extraCaps)) patch.extra_caps = extraCaps.filter((c) => CAPS.includes(c))
+  if (title !== undefined) patch.title = String(title ?? '').trim().slice(0, 40) || null
   if (additional !== undefined) patch.roles = additional.filter((r) => r !== (role ?? target.role))
   if (status !== undefined) patch.status = status
   if (Object.keys(patch).length === 0) {
-    return NextResponse.json({ error: 'Nothing to change — pass role, roles, or status.' }, { status: 400 })
+    return NextResponse.json({ error: 'Nothing to change — pass role, roles, status, extraCaps, or title.' }, { status: 400 })
   }
   const { error } = await supabaseAdmin.from('organization_members').update(patch).eq('id', memberId)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

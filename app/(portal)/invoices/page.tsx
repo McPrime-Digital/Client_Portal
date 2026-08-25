@@ -23,7 +23,7 @@ export default async function InvoicesPage() {
 
   // Invoices are for owners and approvers only.
   const access = await portalAccess(user)
-  if (access && !clientCan(access.role, 'invoices')) redirect('/dashboard')
+  if (access && !clientCan(access.role, 'invoices', access.extraCaps)) redirect('/dashboard')
 
   // Fetch invoices using supabaseAdmin to bypass RLS
   const { data: invoices } = await supabaseAdmin

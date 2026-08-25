@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { isAdmin } from '@/lib/auth/role'
 import RealtimeRefresh from '@/components/shared/RealtimeRefresh'
+import { requireOrgFeature } from '@/lib/studio/guard'
 
 // Review & Approvals — the cross-project approvals queue. Mirrors every task
 // that requires client approval (the same records managed inside each project)
@@ -105,6 +106,7 @@ function Section({
 }
 
 export default async function ReviewApprovalsPage() {
+  await requireOrgFeature('client', 'review')
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || !isAdmin(user)) redirect('/login')

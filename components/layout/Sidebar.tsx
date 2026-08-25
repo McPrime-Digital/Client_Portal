@@ -25,6 +25,7 @@ type Props = {
   clientAvatar?: string | null
   orgName?: string
   memberRole?: ClientRole
+  memberExtra?: string[]
 }
 
 const navItems = [
@@ -58,7 +59,7 @@ const navItems = [
   },
 ]
 
-export default function Sidebar({ clientName, clientCompany, clientId, clientAvatar, orgName = 'McPrime Digital', memberRole = 'owner' }: Props) {
+export default function Sidebar({ clientName, clientCompany, clientId, clientAvatar, orgName = 'McPrime Digital', memberRole = 'owner', memberExtra = [] }: Props) {
   // The portal is the client's own — brand it with their company (their logo if uploaded).
   const brandName = clientCompany || clientName || 'Client'
   const pathname = usePathname()
@@ -170,7 +171,7 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
               {section.section}
             </p>
             <div className="space-y-0.5">
-              {section.items.filter((item) => clientNavAllowed(memberRole, item.href)).map((item) => {
+              {section.items.filter((item) => clientNavAllowed(memberRole, item.href, memberExtra)).map((item) => {
                 const Icon = item.icon
                 const isActive =
                   pathname === item.href ||

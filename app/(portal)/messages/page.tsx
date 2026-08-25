@@ -100,7 +100,7 @@ export default async function MessagesPage() {
       threads={threads}
       clientId={client.id}
       clientName={access?.name ?? client.name}
-      canSend={clientCan(access?.role ?? 'owner', 'message')}
+      canSend={clientCan(access?.role ?? 'owner', 'message', access?.extraCaps)}
     />
   )
 }

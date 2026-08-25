@@ -47,7 +47,7 @@ export async function GET() {
   // Role shelling: billing events exist only for roles that hold the invoices
   // cap; project-scoped members see only their listed projects' events.
   const access = await portalAccess(user)
-  const canBilling = clientCan(access?.role ?? 'owner', 'invoices')
+  const canBilling = clientCan(access?.role ?? 'owner', 'invoices', access?.extraCaps)
   const visible = (notifications ?? []).filter(
     (n) =>
       (canBilling || !String(n.type).includes('invoice')) &&

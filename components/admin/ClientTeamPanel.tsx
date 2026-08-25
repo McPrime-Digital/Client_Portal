@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { UsersRound, ShieldCheck, Check, X, Pause, Play, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { CLIENT_GRANTABLE } from '@/lib/permissions'
 
 // Org oversight of one client company's team: roster with invite states,
 // pending-invite approval, role overrides, revocation, and the invite policy.
@@ -16,6 +17,8 @@ type Member = {
   status: 'pending' | 'invited' | 'active' | 'paused' | 'revoked'
   invited_at: string
   accepted_at: string | null
+  extra_caps?: string[]
+  title?: string | null
 }
 
 const POLICY_HELP: Record<string, string> = {
@@ -150,6 +153,27 @@ export default function ClientTeamPanel({ clientId }: { clientId: string }) {
             </div>
             {canManage && m.role !== 'owner' ? (
               <>
+                <div className="hidden flex-shrink-0 flex-wrap items-center justify-end gap-1 xl:flex" style={{ maxWidth: 260 }}>
+                  {CLIENT_GRANTABLE.map(({ cap, label }) => {
+                    const on = (m.extra_caps ?? []).includes(cap)
+                    return (
+                      <button
+                        key={cap} type="button" disabled={busy === m.id}
+                        onClick={() => {
+                          const current = m.extra_caps ?? []
+                          const next = on ? current.filter((c) => c !== cap) : [...current, cap]
+                          act({ action: 'set_access', memberId: m.id, extraCaps: next }, m.id)
+                        }}
+                        title={`Grant "${label}" beyond their role`}
+                        className={`rounded-full border px-1.5 py-0.5 text-[9px] font-medium transition-colors ${
+                          on ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-faint hover:text-muted-foreground'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    )
+                  })}
+                </div>
                 <select
                   value={m.role} disabled={busy === m.id}
                   onChange={(e) => act({ action: 'set_role', memberId: m.id, role: e.target.value }, m.id)}

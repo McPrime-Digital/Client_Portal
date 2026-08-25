@@ -88,6 +88,8 @@ export default async function PortalLayout({
   // The signed-in person's OWN identity — never the company owner's.
   const memberRole = membership?.role ?? 'viewer'
   const memberName = membership?.name ?? fallbackClient.name
+  const memberExtra = membership?.extraCaps ?? []
+  const memberTitle = membership?.title ?? null
 
   // The studio/agency serving this client — shown in the sidebar co-brand.
   let orgName = 'McPrime Digital'
@@ -116,9 +118,10 @@ export default async function PortalLayout({
         clientAvatar={(activeClient as any).avatar_url ?? null}
         orgName={orgName}
         memberRole={memberRole}
+        memberExtra={memberExtra}
       />
       <div className="flex flex-col flex-1 overflow-hidden">
-        <Topbar clientName={memberName} clientId={(activeClient as any).id} memberRole={memberRole} />
+        <Topbar clientName={memberName} clientId={(activeClient as any).id} memberRole={memberRole} roleTitle={memberTitle} />
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
           {children}
         </main>

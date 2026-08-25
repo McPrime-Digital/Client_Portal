@@ -9,7 +9,19 @@ import { SPACES, getSpace } from '@/lib/studio/spaces'
 import { orgFeatureAllowed, type OrgRole } from '@/lib/permissions'
 import PrimeOSMark from './PrimeOSMark'
 
-export default function StudioSidebar({ userName, orgName, orgRoles = ['owner'] }: { userName: string; orgName: string; orgRoles?: OrgRole[] }) {
+export default function StudioSidebar({
+  userName,
+  orgName,
+  orgRoles = ['owner'],
+  orgExtra = [],
+  roleLabel = 'Owner',
+}: {
+  userName: string
+  orgName: string
+  orgRoles?: OrgRole[]
+  orgExtra?: string[]
+  roleLabel?: string
+}) {
   const parts = usePathname().split('/').filter(Boolean) // ['studio', space?, feature?]
   const activeId = parts[1] ?? 'workspace'
   const activeFeature = parts[2]
@@ -104,7 +116,7 @@ export default function StudioSidebar({ userName, orgName, orgRoles = ['owner'] 
 
       {/* feature nav */}
       <nav className="mt-2 flex-1 space-y-0.5 overflow-y-auto px-3 pb-4 scrollbar-thin">
-        {space.features.filter((f) => orgFeatureAllowed(orgRoles, space.id, f.slug)).map((f) => {
+        {space.features.filter((f) => orgFeatureAllowed(orgRoles, space.id, f.slug, orgExtra)).map((f) => {
           const Icon = f.icon
           const active = f.slug === activeFeature
           return (
@@ -139,7 +151,7 @@ export default function StudioSidebar({ userName, orgName, orgRoles = ['owner'] 
           </div>
           <div className="min-w-0 flex-1 leading-tight">
             <div className="truncate text-[12.5px] font-semibold text-foreground">{userName}</div>
-            <div className="truncate text-[10px] text-faint">Owner · {orgName}</div>
+            <div className="truncate text-[10px] text-faint">{roleLabel} · {orgName}</div>
           </div>
           <button
             type="button"

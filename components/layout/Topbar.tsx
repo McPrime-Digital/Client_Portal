@@ -11,6 +11,8 @@ type Props = {
   clientName: string
   clientId: string
   memberRole?: 'owner' | 'approver' | 'member' | 'viewer'
+  // custom role name (owner-set); overrides the standard label
+  roleTitle?: string | null
 }
 
 const ROLE_LABEL: Record<string, string> = {
@@ -31,7 +33,7 @@ const routeNames: Record<string, string> = {
   '/dashboard/settings': 'Settings',
 }
 
-export default function Topbar({ clientName, clientId, memberRole = 'owner' }: Props) {
+export default function Topbar({ clientName, clientId, memberRole = 'owner', roleTitle = null }: Props) {
   const pathname = usePathname()
   const { toggle } = useSidebarStore()
 
@@ -68,7 +70,7 @@ export default function Topbar({ clientName, clientId, memberRole = 'owner' }: P
             <p className="text-sm font-semibold text-foreground truncate max-w-[140px]">
               {clientName?.split(' ')[0] ?? 'Account'}
             </p>
-            <p className="text-[11px] text-primary">{ROLE_LABEL[memberRole] ?? 'Member'}</p>
+            <p className="text-[11px] text-primary">{roleTitle ?? ROLE_LABEL[memberRole] ?? 'Member'}</p>
           </div>
           <div
             className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold cursor-pointer transition-opacity hover:opacity-80 bg-primary text-primary-foreground"

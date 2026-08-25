@@ -84,7 +84,7 @@ export default async function ClientApprovalsPage() {
     .eq('client_id', client.id)
   // Approvals belong to roles that can act on them — others never see this page.
   const access = await portalAccess(user)
-  if (access && !clientCan(access.role, 'approve')) redirect('/dashboard')
+  if (access && !clientCan(access.role, 'approve', access.extraCaps)) redirect('/dashboard')
 
   const scoped = (projects ?? []).filter(
     (p) => !access?.projectIds || access.projectIds.includes(p.id)

@@ -1,3 +1,4 @@
+import { clientCan } from '@/lib/permissions'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { clientMembershipOf } from '@/lib/team'
@@ -11,7 +12,7 @@ export default async function ClientTeamPage() {
   if (!user) redirect('/login')
 
   const membership = await clientMembershipOf(user)
-  if (!membership || membership.role !== 'owner') redirect('/dashboard')
+  if (!membership || !clientCan(membership.role, 'manage_team', membership.extraCaps)) redirect('/dashboard')
 
   return <ClientTeamManager />
 }

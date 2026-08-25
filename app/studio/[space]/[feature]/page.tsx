@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { getSpace } from '@/lib/studio/spaces'
+import { requireOrgFeature } from '@/lib/studio/guard'
 import ScriptDesign from '@/components/studio/ScriptDesign'
 import Storyboard from '@/components/studio/Storyboard'
 import PrimeOSChat from '@/components/studio/PrimeOSChat'
@@ -15,6 +16,9 @@ export default async function FeaturePage({
   const space = getSpace(spaceId)
   const feature = space?.features.find((f) => f.slug === slug)
   if (!space || !feature) notFound()
+
+  // Roles + custom grants gate every feature, stubs included.
+  await requireOrgFeature(space.id, feature.slug)
 
   // Features whose studio-native version isn't built yet route to the working
   // legacy tool — a space entry must never dead-end in a stub.

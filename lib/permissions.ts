@@ -21,10 +21,26 @@ const CLIENT_CAPS: Record<ClientRole, ClientCap[]> = {
   viewer: ['view'],
 }
 
-export function clientCan(role: ClientRole | null | undefined, cap: ClientCap): boolean {
+/** Role gives the DEFAULT capability set; `extra` holds per-member grants the
+ *  owner added on top (custom access). Effective = union. */
+export function clientCan(
+  role: ClientRole | null | undefined,
+  cap: ClientCap,
+  extra?: readonly string[] | null
+): boolean {
+  if (extra?.includes(cap)) return true
   if (!role) return false
   return CLIENT_CAPS[role]?.includes(cap) ?? false
 }
+
+/** Client-side capabilities an owner may grant individually, with UI labels. */
+export const CLIENT_GRANTABLE: { cap: ClientCap; label: string }[] = [
+  { cap: 'message', label: 'Messaging' },
+  { cap: 'upload', label: 'Files & uploads' },
+  { cap: 'approve', label: 'Approvals' },
+  { cap: 'invoices', label: 'Invoices & billing' },
+  { cap: 'manage_team', label: 'Team management' },
+]
 
 /** Portal nav hrefs this role may see — the SAME matrix gates each page
  *  server-side. Hidden, not just blocked:
@@ -32,21 +48,25 @@ export function clientCan(role: ClientRole | null | undefined, cap: ClientCap): 
  *    member   → + files vault, uploads
  *    approver → + review & approvals, invoices
  *    owner    → + team, settings (company & owner information is owner-only) */
-export function clientNavAllowed(role: ClientRole | null | undefined, href: string): boolean {
+export function clientNavAllowed(
+  role: ClientRole | null | undefined,
+  href: string,
+  extra?: readonly string[] | null
+): boolean {
   switch (href) {
     case '/dashboard':
     case '/projects':
     case '/messages':
       return true
     case '/files':
-      return clientCan(role, 'upload')
+      return clientCan(role, 'upload', extra)
     case '/approvals':
-      return clientCan(role, 'approve')
+      return clientCan(role, 'approve', extra)
     case '/invoices':
-      return clientCan(role, 'invoices')
+      return clientCan(role, 'invoices', extra)
     case '/team':
     case '/dashboard/settings':
-      return clientCan(role, 'manage_team')
+      return clientCan(role, 'manage_team', extra)
     default:
       return true
   }
@@ -91,27 +111,76 @@ export const ORG_ROLE_HELP: Record<OrgRole, string> = {
   member: 'Work inside projects and the workspace',
 }
 
-/** Union-of-roles capability check: pass one role or everything they hold. */
-export function orgCan(role: OrgRole | OrgRole[] | null | undefined, cap: OrgCap): boolean {
+/** Union-of-roles capability check, plus per-member grants on top. */
+export function orgCan(
+  role: OrgRole | OrgRole[] | null | undefined,
+  cap: OrgCap,
+  extra?: readonly string[] | null
+): boolean {
+  if (extra?.includes(cap)) return true
   const list = Array.isArray(role) ? role : role ? [role] : []
   return list.some((r) => ORG_CAPS[r]?.includes(cap))
 }
 
-/** Which studio features a crew role sees, keyed `${spaceId}/${slug}`.
- *  Unlisted features are visible to every crew role. */
-const ORG_FEATURE_CAP: Record<string, OrgCap> = {
-  'crew/settings': 'org_settings',
-  'crew/directory': 'manage_team',
-  'crew/control-tower': 'cost_control',
+/** Org-side capabilities an owner/admin may grant individually, with labels. */
+export const ORG_GRANTABLE: { cap: OrgCap; label: string }[] = [
+  { cap: 'run_projects', label: 'Projects & delivery' },
+  { cap: 'workspace', label: 'Workspace tools' },
+  { cap: 'manage_clients', label: 'Client management' },
+  { cap: 'client_money', label: 'Invoices & billing' },
+  { cap: 'cost_control', label: 'Cost control' },
+  { cap: 'manage_team', label: 'Team management' },
+  { cap: 'org_settings', label: 'Org settings' },
+]
+
+/** The COMPLETE studio feature map, keyed `${spaceId}/${slug}` — default-deny
+ *  discipline: every feature declares the capability that shows it. `null`
+ *  marks the few genuinely universal crew surfaces (chat, calendar, meetings). */
+const ORG_FEATURE_CAP: Record<string, OrgCap | null> = {
+  // Crew
+  'crew/chat': null,
+  'crew/tasks': 'run_projects',
+  'crew/calendar': null,
+  'crew/meetings': null,
   'crew/crm': 'manage_clients',
   'crew/leads': 'manage_clients',
-  'client/invoices': 'client_money',
+  'crew/control-tower': 'cost_control',
+  'crew/directory': 'manage_team',
+  'crew/settings': 'org_settings',
+  // Client space (the org's window into client work)
+  'client/overview': 'run_projects',
   'client/companies': 'manage_clients',
+  'client/projects': 'run_projects',
+  'client/review': 'run_projects',
+  'client/files': 'run_projects',
+  'client/documents': 'run_projects',
+  'client/messages': 'run_projects',
+  'client/invoices': 'client_money',
+  'client/brand-kit': 'manage_clients',
+  'client/guest-links': 'run_projects',
   'client/settings': 'org_settings',
+  // Workspace (the craft floor)
+  'workspace/script': 'workspace',
+  'workspace/storyboard': 'workspace',
+  'workspace/workflow': 'workspace',
+  'workspace/generation': 'workspace',
+  'workspace/remaster': 'workspace',
+  'workspace/finishing': 'workspace',
+  'workspace/ai-chat': 'workspace',
+  'workspace/continuity': 'workspace',
+  'workspace/arena': 'workspace',
+  'workspace/studio-kits': 'workspace',
+  'workspace/library': 'workspace',
+  'workspace/provenance': 'workspace',
 }
 
-export function orgFeatureAllowed(role: OrgRole | OrgRole[] | null | undefined, spaceId: string, slug: string): boolean {
+export function orgFeatureAllowed(
+  role: OrgRole | OrgRole[] | null | undefined,
+  spaceId: string,
+  slug: string,
+  extra?: readonly string[] | null
+): boolean {
   const cap = ORG_FEATURE_CAP[`${spaceId}/${slug}`]
-  if (!cap) return true
-  return orgCan(role, cap)
+  if (cap === null || cap === undefined) return true
+  return orgCan(role, cap, extra)
 }
