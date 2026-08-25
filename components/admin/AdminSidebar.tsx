@@ -13,6 +13,7 @@ import {
   Settings,
   LogOut,
   Shield,
+  ArrowUpRight,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useSidebarStore } from '@/lib/stores/sidebar-store'
@@ -131,6 +132,32 @@ export default function AdminSidebar({ adminName, companyName = 'McPrime Digital
             Admin Panel
           </span>
         </div>
+      </div>
+
+      {/* Throughline Studio launcher — the door into the studio side */}
+      <div className="px-3 pt-4">
+        <Link
+          href="/studio"
+          onClick={close}
+          className="group flex items-center gap-3 rounded-lg border border-border bg-background px-3 py-2.5 transition-colors hover:border-primary/40 hover:bg-primary/5"
+        >
+          <span className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg border border-border bg-card text-primary">
+            <svg viewBox="0 0 48 48" fill="none" className="h-[20px] w-[20px]">
+              <path d="M3 31 C 11 31, 13 13, 24 13 S 37 31, 45 31" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+              <circle cx="3" cy="31" r="2.7" fill="currentColor" />
+              <circle cx="24" cy="13" r="3.1" fill="currentColor" />
+              <circle cx="45" cy="31" r="2.7" fill="currentColor" />
+            </svg>
+          </span>
+          <span className="min-w-0 leading-tight">
+            <span className="block truncate text-sm font-semibold text-foreground">Throughline</span>
+            <span className="block text-[10px] uppercase tracking-[0.18em] text-faint">Studio OS</span>
+          </span>
+          <ArrowUpRight
+            size={15}
+            className="ml-auto flex-shrink-0 text-faint transition-all group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-primary"
+          />
+        </Link>
       </div>
 
       {/* Nav — grouped like the client portal */}

@@ -1,7 +1,8 @@
 'use client'
 
+import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Search, Bell, PictureInPicture2 } from 'lucide-react'
+import { Search, Bell, PictureInPicture2, LayoutDashboard } from 'lucide-react'
 import ThemeToggle from '@/components/ThemeToggle'
 import { getSpace } from '@/lib/studio/spaces'
 import { useSessionStore } from '@/lib/stores/session-store'
@@ -31,6 +32,13 @@ export default function StudioTopbar() {
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        <Link
+          href="/admin"
+          title="Back to the admin portal"
+          className="grid h-9 w-9 place-items-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        >
+          <LayoutDashboard size={16} />
+        </Link>
         <button
           type="button"
           title="Open / restore session (page-in-view)"
