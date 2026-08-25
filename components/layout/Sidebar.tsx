@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useSidebarStore } from '@/lib/stores/sidebar-store'
+import McPrimeLogo from '@/components/McPrimeLogo'
 
 type Props = {
   clientName: string
@@ -54,9 +55,7 @@ const navItems = [
   },
 ]
 
-export default function Sidebar({ clientName, clientCompany, clientId, clientAvatar, orgName = 'McPrime Digital' }: Props) {
-  // The portal is the client's own — brand it with their company (their logo if uploaded).
-  const brandName = clientCompany || clientName || 'Client'
+export default function Sidebar({ clientId, orgName = 'McPrime Digital' }: Props) {
   const pathname = usePathname()
   const router = useRouter()
   const { isOpen, close } = useSidebarStore()
@@ -132,36 +131,16 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-      {/* Logo — client-branded; fixed 60px height so its bottom border aligns with the topbar's */}
+      {/* Brand — the inviting organization; fixed 60px height so its bottom
+          border aligns with the topbar's */}
       <div className="flex items-center gap-3 px-5 h-[60px] flex-shrink-0 border-b border-border">
-        {/* Liquid-glass brand tile — square, object-cover so any uploaded
-            ratio fills cleanly without distortion; soft curved glass edges. */}
-        <div
-          className="w-10 h-10 rounded-xl overflow-hidden flex-shrink-0 relative grid place-items-center"
-          style={{
-            backgroundColor: 'hsl(var(--card) / 0.55)',
-            backdropFilter: 'blur(10px) saturate(140%)',
-            WebkitBackdropFilter: 'blur(10px) saturate(140%)',
-            border: '1px solid hsl(var(--border) / 0.8)',
-            boxShadow: '0 1px 0 hsl(0 0% 100% / 0.08) inset, 0 6px 16px -10px rgba(0,0,0,0.45)',
-          }}
-          aria-label={`${brandName} Portal`}
-        >
-          {clientAvatar ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={clientAvatar} alt="" className="w-full h-full object-cover" />
-          ) : (
-            <span className="font-display font-bold text-base" style={{ color: 'hsl(var(--primary))' }}>
-              {brandName[0]?.toUpperCase() ?? 'C'}
-            </span>
-          )}
-        </div>
+        <McPrimeLogo height={32} />
         <div className="leading-tight min-w-0">
-          <div className="font-display font-bold text-sm text-foreground truncate" title={brandName}>
-            {brandName}
+          <div className="font-display font-bold text-sm text-foreground truncate" title={orgName}>
+            {orgName}
           </div>
           <div className="text-[11px] uppercase tracking-widest text-faint">
-            Client Studio
+            Portal
           </div>
         </div>
       </div>
@@ -218,20 +197,23 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
         ))}
       </nav>
 
-      {/* Co-brand — the studio serving this client, on the Throughline platform */}
-      <div className="px-5 py-3.5 border-t border-border">
-        <p className="text-[10px] uppercase tracking-[0.18em] text-faint">A studio of</p>
-        <p className="mt-0.5 text-[12.5px] font-semibold text-foreground truncate">{orgName}</p>
-        <div className="mt-2 flex items-center gap-1.5 text-faint">
-          <svg viewBox="0 0 48 48" fill="none" className="h-[13px] w-[13px] text-primary">
-            <path d="M3 31 C 11 31, 13 13, 24 13 S 37 31, 45 31" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-            <circle cx="3" cy="31" r="3" fill="currentColor" />
-            <circle cx="24" cy="13" r="3.4" fill="currentColor" />
-            <circle cx="45" cy="31" r="3" fill="currentColor" />
-          </svg>
-          <span className="text-[10.5px] font-semibold tracking-wide">
-            Powered by <span className="font-display text-foreground">Throughline</span>
-          </span>
+      {/* Co-brand — the organization's platform, powered by Throughline */}
+      <div className="px-4 pt-4 pb-1">
+        <div className="rounded-xl border border-border bg-background px-4 py-3">
+          <p className="truncate text-[12px] font-semibold text-foreground">
+            {orgName}
+            <span className="ml-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-faint">Platform</span>
+          </p>
+          <div className="mt-2 flex items-center gap-1.5 border-t border-border pt-2">
+            <span className="text-[9.5px] uppercase tracking-[0.16em] text-faint">Powered by</span>
+            <svg viewBox="0 0 48 48" fill="none" className="h-[12px] w-[12px] flex-shrink-0 text-primary">
+              <path d="M3 31 C 11 31, 13 13, 24 13 S 37 31, 45 31" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+              <circle cx="3" cy="31" r="3" fill="currentColor" />
+              <circle cx="24" cy="13" r="3.4" fill="currentColor" />
+              <circle cx="45" cy="31" r="3" fill="currentColor" />
+            </svg>
+            <span className="font-display text-[12px] font-bold tracking-wide text-foreground">Throughline</span>
+          </div>
         </div>
       </div>
 

@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
+import { LogOut } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { SPACES, getSpace } from '@/lib/studio/spaces'
 import PrimeOSMark from './PrimeOSMark'
@@ -13,6 +14,13 @@ export default function StudioSidebar({ userName, orgName }: { userName: string;
   const activeFeature = parts[2]
   const space = getSpace(activeId) ?? SPACES[2]
   const [unreadClientMessages, setUnreadClientMessages] = useState(0)
+  const router = useRouter()
+
+  async function handleLogout() {
+    const supabase = createClient()
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
 
   // Live unread-from-clients badge — same source + realtime channel the legacy
   // admin sidebar used, so counts stay in lockstep with the messages hub.
@@ -128,10 +136,19 @@ export default function StudioSidebar({ userName, orgName }: { userName: string;
           <div className="grid h-8 w-8 place-items-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
             {userName.slice(0, 1).toUpperCase()}
           </div>
-          <div className="leading-tight">
-            <div className="text-[12.5px] font-semibold text-foreground">{userName}</div>
-            <div className="text-[10px] text-faint">Owner · {orgName}</div>
+          <div className="min-w-0 flex-1 leading-tight">
+            <div className="truncate text-[12.5px] font-semibold text-foreground">{userName}</div>
+            <div className="truncate text-[10px] text-faint">Owner · {orgName}</div>
           </div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            title="Sign out"
+            aria-label="Sign out"
+            className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive"
+          >
+            <LogOut size={15} />
+          </button>
         </div>
       </div>
     </aside>
