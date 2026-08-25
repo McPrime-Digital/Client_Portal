@@ -21,7 +21,7 @@ export const SPACES: Space[] = [
     id: 'crew', label: 'Crew', icon: UsersRound,
     blurb: 'Your team only — collaboration, pipeline, and the AI control tower clients never see.',
     features: [
-      { slug: 'chat', label: 'Team Chat', icon: MessageSquare, phase: 4 },
+      { slug: 'chat', label: 'Chat', icon: MessageSquare, phase: 4 },
       { slug: 'tasks', label: 'Tasks & Assignments', icon: ListChecks, phase: 4 },
       { slug: 'calendar', label: 'Calendar', icon: CalendarDays, phase: 4 },
       { slug: 'meetings', label: 'Meetings', icon: Video, phase: 5 },

@@ -1,4 +1,4 @@
-import { portalClientId } from '@/lib/team'
+import { portalClientId, portalAccess } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
@@ -152,7 +152,12 @@ export default async function DashboardPage() {
     .eq('client_id', client.id)
     .order('created_at', { ascending: false })
 
-  const projectIds = (projects ?? []).map((p) => p.id)
+  // Member scoping — restricted members see only their listed projects.
+  const access = await portalAccess(user)
+  const scopedProjects = (projects ?? []).filter(
+    (p) => !access?.projectIds || access.projectIds.includes(p.id)
+  )
+  const projectIds = scopedProjects.map((p) => p.id)
   const hasProjects = projectIds.length > 0
 
   const [
@@ -232,10 +237,10 @@ export default async function DashboardPage() {
   )
 
   // ── Derived metrics ──
-  const activeProjects = (projects ?? []).filter(
+  const activeProjects = scopedProjects.filter(
     (p) => p.status !== 'Completed' && p.status !== 'On Hold'
   )
-  const inReview = (projects ?? []).filter(
+  const inReview = scopedProjects.filter(
     (p) => p.status === 'In Review' || p.status === 'Revisions'
   )
   // Only tasks the client can actually see count toward their progress
@@ -248,7 +253,7 @@ export default async function DashboardPage() {
   const unreadMessages = (unreadMsgs ?? []).length
 
   // Per-project task rollup for the Task Process overview card.
-  const taskByProject = (projects ?? [])
+  const taskByProject = scopedProjects
     .map((p) => {
       const list = clientTasks.filter((t) => t.project_id === p.id)
       const done = list.filter((t) => isTaskDone(t.status) || !!t.approved_at).length

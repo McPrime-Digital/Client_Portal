@@ -25,19 +25,21 @@ export async function GET() {
   const gate = await requireMembership()
   if ('error' in gate) return gate.error
   const { membership } = gate
-  const [{ data: members }, { data: company }] = await Promise.all([
+  const [{ data: members }, { data: company }, { data: projects }] = await Promise.all([
     supabaseAdmin
       .from('client_members')
-      .select('id, user_id, name, email, role, status, invited_at, accepted_at')
+      .select('id, user_id, name, email, role, status, invited_at, accepted_at, history_from, client_member_projects(project_id)')
       .eq('client_id', membership.clientId)
       .neq('status', 'revoked')
       .order('created_at', { ascending: true }),
     supabaseAdmin.from('clients').select('invite_policy, name, company').eq('id', membership.clientId).single(),
+    supabaseAdmin.from('projects').select('id, title').eq('client_id', membership.clientId).order('created_at', { ascending: false }),
   ])
   return NextResponse.json({
     members: members ?? [],
     myRole: membership.role,
     invitePolicy: company?.invite_policy ?? 'open',
+    projects: projects ?? [],
   })
 }
 
@@ -59,10 +61,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Team invites are managed by your studio. Ask them to add seats.' }, { status: 403 })
   }
 
-  const { name, email, role } = await req.json().catch(() => ({}))
+  const { name, email, role, history, projectIds } = await req.json().catch(() => ({}))
   const cleanEmail = String(email ?? '').trim().toLowerCase()
   const memberRole = INVITABLE_ROLES.includes(role) ? role : 'member'
   if (!cleanEmail || !name?.trim()) return NextResponse.json({ error: 'Name and email are required.' }, { status: 400 })
+  // Owner's call: full message history, or only what's written after they join.
+  const historyFrom = history === 'new' ? new Date().toISOString() : null
+  // Optional project scoping — no rows means the member sees every project.
+  const scopeIds: string[] = Array.isArray(projectIds) ? projectIds.filter((v) => typeof v === 'string') : []
 
   const { data: existing } = await supabaseAdmin
     .from('client_members')
@@ -98,11 +104,19 @@ export async function POST(req: NextRequest) {
     role: memberRole,
     status: needsApproval ? 'pending' : 'invited',
     invited_by: user.id,
+    history_from: historyFrom,
   }
   const { data: member, error } = existing
     ? await supabaseAdmin.from('client_members').update(row).eq('id', existing.id).select().single()
     : await supabaseAdmin.from('client_members').insert(row).select().single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  if (scopeIds.length > 0) {
+    // Only this company's projects can be scoped; ignore anything else.
+    const { data: owned } = await supabaseAdmin.from('projects').select('id').eq('client_id', company.id).in('id', scopeIds)
+    const rows = (owned ?? []).map((p) => ({ member_id: member.id, project_id: p.id }))
+    if (rows.length > 0) await supabaseAdmin.from('client_member_projects').insert(rows)
+  }
 
   void recordUsage(userOrgId(user), 'seat.invited', 1, 0, { side: 'client', client_id: company.id, member_id: member.id }, user.id)
   void createAdminNotification({

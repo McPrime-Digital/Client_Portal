@@ -1,4 +1,4 @@
-import { portalClientId } from '@/lib/team'
+import { portalClientId, portalAccess } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
@@ -30,7 +30,7 @@ export default async function FilesPage() {
     )
   }
 
-  const [{ data: files }, { data: projects }] = await Promise.all([
+  const [{ data: allFiles }, { data: allProjects }] = await Promise.all([
     supabaseAdmin
       .from('files')
       .select('*')
@@ -41,6 +41,16 @@ export default async function FilesPage() {
       .select('id, title')
       .eq('client_id', client.id),
   ])
+
+  // Member scoping — restricted members see only their listed projects' files
+  // (company-level files with no project stay visible).
+  const access = await portalAccess(user)
+  const projects = (allProjects ?? []).filter(
+    (p) => !access?.projectIds || access.projectIds.includes(p.id)
+  )
+  const files = (allFiles ?? []).filter(
+    (f) => !access?.projectIds || !f.project_id || access.projectIds.includes(f.project_id)
+  )
 
   // NOTE: storage usage is intentionally NOT shown to clients — only the admin
   // File Vault surfaces the storage meter.

@@ -1,4 +1,4 @@
-import { portalClientId } from '@/lib/team'
+import { portalClientId, portalAccess } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
@@ -44,7 +44,12 @@ export default async function ProjectsPage() {
     .eq('client_id', client.id)
     .order('created_at', { ascending: false })
 
-  const projectIds = (projects ?? []).map((p) => p.id)
+  // Member scoping — restricted members see only their listed projects.
+  const access = await portalAccess(user)
+  const scopedProjects = (projects ?? []).filter(
+    (p) => !access?.projectIds || access.projectIds.includes(p.id)
+  )
+  const projectIds = scopedProjects.map((p) => p.id)
   const hasProjects = projectIds.length > 0
 
   const [{ data: phases }, { data: tasks }, { data: files }] = await Promise.all([
@@ -58,7 +63,7 @@ export default async function ProjectsPage() {
       ? supabaseAdmin.from('files').select('project_id, direction').in('project_id', projectIds)
       : Promise.resolve({ data: [] as any[] }),
   ])
-  applyCanonicalProgress(projects, phases)
+  applyCanonicalProgress(scopedProjects, phases)
 
   // A little per-project overview: visible task progress + deliverables count.
   const isDone = (s: string | null) => ['complete', 'completed', 'done'].includes((s ?? '').toLowerCase())
@@ -77,15 +82,15 @@ export default async function ProjectsPage() {
     if (s) s.deliverables += 1
   }
 
-  const active = projects?.filter(
+  const active = scopedProjects.filter(
     (p) => p.status !== 'Completed' && p.status !== 'On Hold'
   ) ?? []
 
-  const completed = projects?.filter(
+  const completed = scopedProjects.filter(
     (p) => p.status === 'Completed'
   ) ?? []
 
-  const onHold = projects?.filter(
+  const onHold = scopedProjects.filter(
     (p) => p.status === 'On Hold'
   ) ?? []
 
@@ -223,8 +228,8 @@ export default async function ProjectsPage() {
           Your Projects
         </h1>
         <p className="text-sm mt-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
-          {projects?.length ?? 0} total project
-          {(projects?.length ?? 0) !== 1 ? 's' : ''}
+          {scopedProjects.length} total project
+          {scopedProjects.length !== 1 ? 's' : ''}
         </p>
       </div>
 

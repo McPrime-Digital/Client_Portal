@@ -78,6 +78,47 @@ export async function portalClientId(user: User): Promise<string> {
   return m?.clientId ?? NO_CLIENT
 }
 
+export type PortalAccess = {
+  clientId: string
+  role: ClientRole
+  /** Only messages at/after this instant are visible; null = full history. */
+  historyFrom: string | null
+  /** Projects this member may see; null = all of the company's projects. */
+  projectIds: string[] | null
+}
+
+/** The member's full access context — role, message-history cutoff, project
+ *  scope. Pages apply `projectIds` with .in() and `historyFrom` with .gte();
+ *  null means unscoped. Primary logins (clients.user_id) are never scoped. */
+export async function portalAccess(user: User): Promise<PortalAccess | null> {
+  const membership = await clientMembershipOf(user)
+  if (!membership) return null
+  if (membership.role === 'owner') {
+    return { clientId: membership.clientId, role: 'owner', historyFrom: null, projectIds: null }
+  }
+  const { data: m } = await supabaseAdmin
+    .from('client_members')
+    .select('id, history_from')
+    .eq('client_id', membership.clientId)
+    .eq('user_id', user.id)
+    .eq('status', 'active')
+    .single()
+  let projectIds: string[] | null = null
+  if (m) {
+    const { data: scoped } = await supabaseAdmin
+      .from('client_member_projects')
+      .select('project_id')
+      .eq('member_id', m.id)
+    if (scoped && scoped.length > 0) projectIds = scoped.map((r) => r.project_id)
+  }
+  return {
+    clientId: membership.clientId,
+    role: membership.role,
+    historyFrom: m?.history_from ?? null,
+    projectIds,
+  }
+}
+
 /** Same resolution from a bare user id (for helpers without the User object). */
 export async function portalClientIdByUserId(userId: string): Promise<string> {
   const { data: c } = await supabaseAdmin.from('clients').select('id').eq('user_id', userId).single()

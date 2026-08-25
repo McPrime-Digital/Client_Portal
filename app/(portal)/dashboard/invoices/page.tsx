@@ -1,4 +1,5 @@
-import { portalClientId } from '@/lib/team'
+import { clientCan } from '@/lib/permissions'
+import { portalClientId, portalAccess } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
@@ -22,6 +23,10 @@ export default async function ClientInvoicesPage() {
     .single()
 
   if (!client) redirect('/login')
+
+  // Invoices are for owners and approvers only.
+  const access = await portalAccess(user)
+  if (access && !clientCan(access.role, 'invoices')) redirect('/dashboard')
 
   // Mark overdue on client view too
   await supabaseAdmin.rpc('mark_overdue_invoices')

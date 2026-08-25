@@ -1,4 +1,4 @@
-import { portalClientId } from '@/lib/team'
+import { portalClientId, portalAccess } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
@@ -19,6 +19,9 @@ export default async function MessagesPage() {
 
   if (!client) redirect('/dashboard')
 
+  // Member scoping — project allowlist + message-history cutoff.
+  const access = await portalAccess(user)
+
   // Fetch all projects with their latest message
   const { data: projects } = await supabaseAdmin
     .from('projects')
@@ -32,25 +35,32 @@ export default async function MessagesPage() {
     .order('created_at', { ascending: false })
 
   // For each project, get latest message + unread count
-  const projectIds = (projects ?? []).map((p) => p.id)
+  const visibleProjects = (projects ?? []).filter(
+    (p) => !access?.projectIds || access.projectIds.includes(p.id)
+  )
+  const projectIds = visibleProjects.map((p) => p.id)
 
   let threads: any[] = []
 
   if (projectIds.length > 0) {
-    // Get latest message per project
-    const { data: latestMessages } = await supabaseAdmin
+    // Get latest message per project (respecting the member's history cutoff)
+    let latestQ = supabaseAdmin
       .from('messages')
       .select('*')
       .in('project_id', projectIds)
       .order('created_at', { ascending: false })
+    if (access?.historyFrom) latestQ = latestQ.gte('created_at', access.historyFrom)
+    const { data: latestMessages } = await latestQ
 
     // Get unread counts (admin messages not yet read)
-    const { data: unreadMessages } = await supabaseAdmin
+    let unreadQ = supabaseAdmin
       .from('messages')
       .select('project_id')
       .in('project_id', projectIds)
       .eq('sender_role', 'admin')
       .is('read_at', null)
+    if (access?.historyFrom) unreadQ = unreadQ.gte('created_at', access.historyFrom)
+    const { data: unreadMessages } = await unreadQ
 
     // Build thread map
     const latestByProject: Record<string, any> = {}
@@ -66,7 +76,7 @@ export default async function MessagesPage() {
         (unreadByProject[msg.project_id] ?? 0) + 1
     }
 
-    threads = (projects ?? []).map((p) => ({
+    threads = visibleProjects.map((p) => ({
       ...p,
       latestMessage: latestByProject[p.id] ?? null,
       unreadCount: unreadByProject[p.id] ?? 0,

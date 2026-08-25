@@ -2,6 +2,8 @@ import { userRole } from '@/lib/auth/role'
 import { createClient } from '@/lib/supabase/server'
 import { getSignedUploadUrl } from '@/lib/r2'
 import { resolveUploadScope } from '@/lib/uploadScope'
+import { clientMembershipOf } from '@/lib/team'
+import { clientCan } from '@/lib/permissions'
 import { NextRequest, NextResponse } from 'next/server'
 
 // Step 1 of the direct-to-R2 upload: authorize the caller and hand back
@@ -25,6 +27,12 @@ export async function POST(req: NextRequest) {
     }
 
     const role = userRole(user)
+    if (role === 'client') {
+      const membership = await clientMembershipOf(user)
+      if (!membership || !clientCan(membership.role, 'upload')) {
+        return NextResponse.json({ error: 'Your role is view-only — uploads are not available.' }, { status: 403 })
+      }
+    }
     const scope = await resolveUploadScope(role, user.id, projectId, bodyClientId)
     if ('error' in scope) {
       return NextResponse.json({ error: scope.error }, { status: scope.status })

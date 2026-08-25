@@ -1,7 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { UsersRound, UserPlus, ShieldCheck, Loader2, X, Lock } from 'lucide-react'
+import { UsersRound, UserPlus, ShieldCheck, Loader2, X, Lock, History, FolderLock } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 
 type Member = {
   id: string
@@ -12,6 +13,8 @@ type Member = {
   status: 'pending' | 'invited' | 'active' | 'revoked'
   invited_at: string
   accepted_at: string | null
+  history_from?: string | null
+  client_member_projects?: { project_id: string }[]
 }
 
 const ROLE_HELP: Record<string, string> = {
@@ -38,6 +41,10 @@ export default function ClientTeamManager() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [form, setForm] = useState({ name: '', email: '', role: 'member' })
+  const [history, setHistory] = useState<'all' | 'new'>('all')
+  const [scopeAll, setScopeAll] = useState(true)
+  const [scopeIds, setScopeIds] = useState<string[]>([])
+  const [projects, setProjects] = useState<{ id: string; title: string }[]>([])
   const [sending, setSending] = useState(false)
 
   const load = useCallback(async () => {
@@ -48,12 +55,23 @@ export default function ClientTeamManager() {
         setMembers(json.members ?? [])
         setMyRole(json.myRole ?? 'member')
         setPolicy(json.invitePolicy ?? 'open')
+        setProjects(json.projects ?? [])
       }
     } catch {}
     setLoading(false)
   }, [])
 
   useEffect(() => { void Promise.resolve().then(load) }, [load])
+
+  // Live roster — membership changes land everywhere without a refresh.
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel('portal-team-roster')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'client_members' }, () => load())
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [load])
 
   const isOwner = myRole === 'owner'
 
@@ -64,13 +82,14 @@ export default function ClientTeamManager() {
       const res = await fetch('/api/portal/team', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, history, projectIds: scopeAll ? [] : scopeIds }),
       })
       const json = await res.json()
       if (!res.ok) setError(json.error ?? 'Invite failed.')
       else {
         setNotice(json.message)
         setForm({ name: '', email: '', role: 'member' })
+        setHistory('all'); setScopeAll(true); setScopeIds([])
         load()
       }
     } catch { setError('Invite failed.') }
@@ -156,6 +175,71 @@ export default function ClientTeamManager() {
             </button>
           </div>
           <p className="mt-2 text-xs text-faint">{ROLE_HELP[form.role]}</p>
+
+          {/* what they can see — the owner's call, set before the invite goes out */}
+          <div className="mt-4 grid gap-4 border-t border-border pt-4 sm:grid-cols-2">
+            <div>
+              <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                <History size={13} className="text-primary" /> Message history
+              </p>
+              <div className="flex gap-1.5">
+                {([['all', 'Full history'], ['new', 'New messages only']] as const).map(([v, label]) => (
+                  <button
+                    key={v} type="button" onClick={() => setHistory(v)}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      history === v
+                        ? 'border-primary/40 bg-primary/10 text-primary'
+                        : 'border-border text-muted-foreground hover:bg-secondary'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                <FolderLock size={13} className="text-primary" /> Project access
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button" onClick={() => setScopeAll(true)}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    scopeAll ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-secondary'
+                  }`}
+                >
+                  All projects
+                </button>
+                <button
+                  type="button" onClick={() => setScopeAll(false)}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    !scopeAll ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-secondary'
+                  }`}
+                >
+                  Only selected
+                </button>
+              </div>
+              {!scopeAll && (
+                <div className="mt-2 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
+                  {projects.map((p) => {
+                    const on = scopeIds.includes(p.id)
+                    return (
+                      <button
+                        key={p.id} type="button"
+                        onClick={() => setScopeIds((ids) => (on ? ids.filter((i) => i !== p.id) : [...ids, p.id]))}
+                        className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                          on ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-secondary'
+                        }`}
+                      >
+                        {p.title}
+                      </button>
+                    )
+                  })}
+                  {projects.length === 0 && <span className="text-[11px] text-faint">No projects yet</span>}
+                </div>
+              )}
+            </div>
+          </div>
         </form>
       )}
 
@@ -180,7 +264,15 @@ export default function ClientTeamManager() {
                   {m.name ?? m.email}
                   {m.role === 'owner' && <ShieldCheck size={13} className="flex-shrink-0 text-primary" />}
                 </p>
-                <p className="truncate text-xs text-muted-foreground">{m.email}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {m.email}
+                  {m.history_from && <span className="ml-1.5 text-[10px] font-semibold text-faint">· new messages only</span>}
+                  {(m.client_member_projects?.length ?? 0) > 0 && (
+                    <span className="ml-1.5 text-[10px] font-semibold text-faint">
+                      · {m.client_member_projects!.length} project{m.client_member_projects!.length !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                </p>
               </div>
               <span className={`hidden flex-shrink-0 rounded-full px-2.5 py-1 text-[10.5px] font-semibold sm:block ${
                 m.status === 'active' ? 'bg-primary/10 text-primary' : 'bg-secondary text-muted-foreground'

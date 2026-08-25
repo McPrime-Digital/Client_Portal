@@ -1,4 +1,5 @@
-import { portalClientId } from '@/lib/team'
+import { clientCan } from '@/lib/permissions'
+import { portalClientId, portalAccess } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
@@ -19,6 +20,10 @@ export default async function InvoicesPage() {
     .single()
 
   if (!client) redirect('/dashboard')
+
+  // Invoices are for owners and approvers only.
+  const access = await portalAccess(user)
+  if (access && !clientCan(access.role, 'invoices')) redirect('/dashboard')
 
   // Fetch invoices using supabaseAdmin to bypass RLS
   const { data: invoices } = await supabaseAdmin

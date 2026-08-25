@@ -1,4 +1,4 @@
-import { portalClientId } from '@/lib/team'
+import { portalClientId, clientMembershipOf } from '@/lib/team'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -88,6 +88,7 @@ export default async function PortalLayout({
         clientId={(activeClient as any).id}
         clientAvatar={(activeClient as any).avatar_url ?? null}
         orgName={orgName}
+        memberRole={(await clientMembershipOf(session.user))?.role ?? 'owner'}
       />
       <div className="flex flex-col flex-1 overflow-hidden">
         <Topbar clientName={activeClient.name} clientId={(activeClient as any).id} />

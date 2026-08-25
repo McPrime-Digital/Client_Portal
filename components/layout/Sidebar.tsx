@@ -16,7 +16,7 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useSidebarStore } from '@/lib/stores/sidebar-store'
-import McPrimeLogo from '@/components/McPrimeLogo'
+import { clientNavAllowed, type ClientRole } from '@/lib/permissions'
 
 type Props = {
   clientName: string
@@ -24,6 +24,7 @@ type Props = {
   clientId: string
   clientAvatar?: string | null
   orgName?: string
+  memberRole?: ClientRole
 }
 
 const navItems = [
@@ -57,7 +58,9 @@ const navItems = [
   },
 ]
 
-export default function Sidebar({ clientId, orgName = 'McPrime Digital' }: Props) {
+export default function Sidebar({ clientName, clientCompany, clientId, clientAvatar, orgName = 'McPrime Digital', memberRole = 'owner' }: Props) {
+  // The portal is the client's own — brand it with their company (their logo if uploaded).
+  const brandName = clientCompany || clientName || 'Client'
   const pathname = usePathname()
   const router = useRouter()
   const { isOpen, close } = useSidebarStore()
@@ -133,13 +136,25 @@ export default function Sidebar({ clientId, orgName = 'McPrime Digital' }: Props
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-      {/* Brand — the inviting organization; fixed 60px height so its bottom
-          border aligns with the topbar's */}
+      {/* Brand — the client's own company (their logo if uploaded); fixed 60px
+          height so its bottom border aligns with the topbar's */}
       <div className="flex items-center gap-3 px-5 h-[60px] flex-shrink-0 border-b border-border">
-        <McPrimeLogo height={32} />
+        <div
+          className="grid h-10 w-10 flex-shrink-0 place-items-center overflow-hidden rounded-xl border border-border bg-background"
+          aria-label={`${brandName} Portal`}
+        >
+          {clientAvatar ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={clientAvatar} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <span className="font-display text-base font-bold text-primary">
+              {brandName[0]?.toUpperCase() ?? 'C'}
+            </span>
+          )}
+        </div>
         <div className="leading-tight min-w-0">
-          <div className="font-display font-bold text-sm text-foreground truncate" title={orgName}>
-            {orgName}
+          <div className="font-display font-bold text-sm text-foreground truncate" title={brandName}>
+            {brandName}
           </div>
           <div className="text-[11px] uppercase tracking-widest text-faint">
             Portal
@@ -155,7 +170,7 @@ export default function Sidebar({ clientId, orgName = 'McPrime Digital' }: Props
               {section.section}
             </p>
             <div className="space-y-0.5">
-              {section.items.map((item) => {
+              {section.items.filter((item) => clientNavAllowed(memberRole, item.href)).map((item) => {
                 const Icon = item.icon
                 const isActive =
                   pathname === item.href ||

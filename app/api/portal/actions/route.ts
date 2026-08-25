@@ -5,6 +5,7 @@ import { createAdminNotification, pushMessageAlert } from '@/lib/notify'
 import { messagePreview } from '@/lib/messagePreview'
 import { recordActivity } from '@/lib/logActivity.server'
 import { clientMembershipOf, canApprove, type ClientRole } from '@/lib/team'
+import { clientCan } from '@/lib/permissions'
 
 // Verify the calling user belongs to a client company — the primary login
 // (clients.user_id) or an invited teammate (client_members). Returns the
@@ -188,6 +189,9 @@ export async function POST(req: NextRequest) {
       }
 
       case 'send_message': {
+        if (!clientCan(auth.memberRole, 'message')) {
+          return NextResponse.json({ error: 'Your role is view-only — messaging is not available.' }, { status: 403 })
+        }
         const {
           project_id,
           body: msgBody,

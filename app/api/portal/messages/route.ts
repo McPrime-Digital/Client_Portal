@@ -1,4 +1,4 @@
-import { portalClientId } from '@/lib/team'
+import { portalClientId, portalAccess } from '@/lib/team'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -37,11 +37,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Project not found' }, { status: 404 })
   }
 
-  const { data: messages, error } = await supabaseAdmin
+  // Member scoping — project allowlist + owner-set message-history cutoff.
+  const access = await portalAccess(user)
+  if (access?.projectIds && !access.projectIds.includes(projectId)) {
+    return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+  }
+  let msgQ = supabaseAdmin
     .from('messages')
     .select('*')
     .eq('project_id', projectId)
     .order('created_at', { ascending: true })
+  if (access?.historyFrom) msgQ = msgQ.gte('created_at', access.historyFrom)
+  const { data: messages, error } = await msgQ
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })

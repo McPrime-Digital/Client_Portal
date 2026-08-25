@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { UsersRound, ShieldCheck, Check, X } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 
 // Org oversight of one client company's team: roster with invite states,
 // pending-invite approval, role overrides, revocation, and the invite policy.
@@ -48,6 +49,16 @@ export default function ClientTeamPanel({ clientId }: { clientId: string }) {
   }, [clientId])
 
   useEffect(() => { void Promise.resolve().then(load) }, [load])
+
+  // Live roster — pending invites and joins appear the moment they happen.
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel(`admin-client-roster-${clientId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'client_members' }, () => load())
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [clientId, load])
 
   async function act(payload: Record<string, unknown>, busyKey: string) {
     setBusy(busyKey); setError(null)

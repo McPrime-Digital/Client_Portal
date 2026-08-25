@@ -1,4 +1,4 @@
-import { portalClientId } from '@/lib/team'
+import { portalClientId, portalAccess } from '@/lib/team'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { CheckCircle2, Clock3, MessageSquareWarning, ScanEye, ChevronRight } from 'lucide-react'
@@ -81,8 +81,13 @@ export default async function ClientApprovalsPage() {
     .from('projects')
     .select('id, title')
     .eq('client_id', client.id)
-  const projectTitle = new Map((projects ?? []).map((p) => [p.id, p.title as string]))
-  const projectIds = (projects ?? []).map((p) => p.id)
+  // Member scoping — restricted members see only their listed projects.
+  const access = await portalAccess(user)
+  const scoped = (projects ?? []).filter(
+    (p) => !access?.projectIds || access.projectIds.includes(p.id)
+  )
+  const projectTitle = new Map(scoped.map((p) => [p.id, p.title as string]))
+  const projectIds = scoped.map((p) => p.id)
 
   let tasks: ReviewTask[] = []
   if (projectIds.length > 0) {

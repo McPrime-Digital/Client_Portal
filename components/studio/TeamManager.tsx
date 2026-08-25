@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { UsersRound, UserPlus, ShieldCheck, Loader2, X } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 
 type Member = {
   id: string
@@ -47,6 +48,16 @@ export default function TeamManager() {
   }, [])
 
   useEffect(() => { void Promise.resolve().then(load) }, [load])
+
+  // Live roster — joins, role changes, and revocations land without a refresh.
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel('studio-crew-roster')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'organization_members' }, () => load())
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [load])
 
   async function invite(e: React.FormEvent) {
     e.preventDefault()

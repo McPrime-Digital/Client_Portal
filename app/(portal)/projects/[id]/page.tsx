@@ -1,4 +1,4 @@
-import { portalClientId } from '@/lib/team'
+import { portalClientId, portalAccess } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect, notFound } from 'next/navigation'
@@ -40,6 +40,10 @@ export default async function ProjectDetailPage({
     .single()
 
   if (!project) notFound()
+
+  // Member scoping — a restricted member may only open their listed projects.
+  const access = await portalAccess(user)
+  if (access?.projectIds && !access.projectIds.includes(project.id)) notFound()
 
   // Approvals & Records ledger — ONLY task-approval activity (approvals,
   // change-requests, auto-proceeded gates) with any file shared during the
