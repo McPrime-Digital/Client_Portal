@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard,
   FolderOpen,
+  ScanEye,
   MessageSquare,
   Files,
   LogOut,
@@ -20,6 +21,7 @@ type Props = {
   clientCompany?: string | null
   clientId: string
   clientAvatar?: string | null
+  orgName?: string
 }
 
 const navItems = [
@@ -28,6 +30,7 @@ const navItems = [
     items: [
       { label: 'Overview', href: '/dashboard', icon: LayoutDashboard },
       { label: 'Projects', href: '/projects', icon: FolderOpen },
+      { label: 'Review & Approvals', href: '/approvals', icon: ScanEye },
     ],
   },
   {
@@ -51,7 +54,7 @@ const navItems = [
   },
 ]
 
-export default function Sidebar({ clientName, clientCompany, clientId, clientAvatar }: Props) {
+export default function Sidebar({ clientName, clientCompany, clientId, clientAvatar, orgName = 'McPrime Digital' }: Props) {
   // The portal is the client's own — brand it with their company (their logo if uploaded).
   const brandName = clientCompany || clientName || 'Client'
   const pathname = usePathname()
@@ -69,6 +72,7 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
 
   const [unreadMessages, setUnreadMessages] = useState(0)
   const [unpaidInvoices, setUnpaidInvoices] = useState(0)
+  const [pendingApprovals, setPendingApprovals] = useState(0)
 
   useEffect(() => {
     if (!clientId) return
@@ -82,6 +86,7 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
           const json = await res.json()
           setUnreadMessages(json.unreadMessages ?? 0)
           setUnpaidInvoices(json.unpaidInvoices ?? 0)
+          setPendingApprovals(json.pendingApprovals ?? 0)
         }
       } catch {}
     }
@@ -95,6 +100,8 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' },
         () => loadBadges())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'invoices' },
+        () => loadBadges())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' },
         () => loadBadges())
       .subscribe()
 
@@ -154,7 +161,7 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
             {brandName}
           </div>
           <div className="text-[11px] uppercase tracking-widest text-faint">
-            Portal
+            Client Studio
           </div>
         </div>
       </div>
@@ -192,6 +199,12 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
                       </span>
                     )}
 
+                    {item.href === '/approvals' && pendingApprovals > 0 && (
+                      <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center bg-primary text-primary-foreground">
+                        {pendingApprovals > 9 ? '9+' : pendingApprovals}
+                      </span>
+                    )}
+
                     {item.href === '/invoices' && unpaidInvoices > 0 && (
                       <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center bg-primary text-primary-foreground">
                         {unpaidInvoices}
@@ -204,6 +217,23 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
           </div>
         ))}
       </nav>
+
+      {/* Co-brand — the studio serving this client, on the Throughline platform */}
+      <div className="px-5 py-3.5 border-t border-border">
+        <p className="text-[10px] uppercase tracking-[0.18em] text-faint">A studio of</p>
+        <p className="mt-0.5 text-[12.5px] font-semibold text-foreground truncate">{orgName}</p>
+        <div className="mt-2 flex items-center gap-1.5 text-faint">
+          <svg viewBox="0 0 48 48" fill="none" className="h-[13px] w-[13px] text-primary">
+            <path d="M3 31 C 11 31, 13 13, 24 13 S 37 31, 45 31" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+            <circle cx="3" cy="31" r="3" fill="currentColor" />
+            <circle cx="24" cy="13" r="3.4" fill="currentColor" />
+            <circle cx="45" cy="31" r="3" fill="currentColor" />
+          </svg>
+          <span className="text-[10.5px] font-semibold tracking-wide">
+            Powered by <span className="font-display text-foreground">Throughline</span>
+          </span>
+        </div>
+      </div>
 
       {/* Sign out (extreme bottom-left) */}
       <div className="px-3 py-4 border-t border-border">

@@ -48,6 +48,7 @@ export async function proxy(request: NextRequest) {
   const isPortalRoute =
     pathname.startsWith('/dashboard') ||
     pathname.startsWith('/projects') ||
+    pathname.startsWith('/approvals') ||
     pathname.startsWith('/files') ||
     pathname.startsWith('/messages') ||
     pathname.startsWith('/invoices')

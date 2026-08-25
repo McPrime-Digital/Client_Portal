@@ -52,6 +52,19 @@ export default async function PortalLayout({
 
   const activeClient = clientData || fallbackClient
 
+  // The studio/agency serving this client — shown in the sidebar co-brand.
+  let orgName = 'McPrime Digital'
+  try {
+    const { data: biz } = await supabaseAdmin
+      .from('business_settings')
+      .select('business_name')
+      .limit(1)
+      .single()
+    if (biz?.business_name) orgName = biz.business_name
+  } catch {
+    // best-effort
+  }
+
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <PresencePulse
@@ -64,6 +77,7 @@ export default async function PortalLayout({
         clientCompany={(activeClient as any).company ?? null}
         clientId={(activeClient as any).id}
         clientAvatar={(activeClient as any).avatar_url ?? null}
+        orgName={orgName}
       />
       <div className="flex flex-col flex-1 overflow-hidden">
         <Topbar clientName={activeClient.name} clientId={(activeClient as any).id} />

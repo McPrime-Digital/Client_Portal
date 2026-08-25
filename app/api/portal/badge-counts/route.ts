@@ -17,7 +17,7 @@ export async function GET() {
     .single()
 
   if (!client) {
-    return NextResponse.json({ unreadMessages: 0, unpaidInvoices: 0 })
+    return NextResponse.json({ unreadMessages: 0, unpaidInvoices: 0, pendingApprovals: 0 })
   }
 
   // Get projects for this client
@@ -29,7 +29,7 @@ export async function GET() {
   const projectIds = (projects ?? []).map((p) => p.id)
 
   if (projectIds.length === 0) {
-    return NextResponse.json({ unreadMessages: 0, unpaidInvoices: 0 })
+    return NextResponse.json({ unreadMessages: 0, unpaidInvoices: 0, pendingApprovals: 0 })
   }
 
   // Count unread admin messages across all projects
@@ -47,8 +47,19 @@ export async function GET() {
     .eq('client_id', client.id)
     .in('status', ['unpaid', 'overdue'])
 
+  // Tasks awaiting the client's approval — mirrors TaskBoard's approval gate
+  const { count: pendingApprovals } = await supabaseAdmin
+    .from('tasks')
+    .select('*', { count: 'exact', head: true })
+    .in('project_id', projectIds)
+    .or('requires_approval.eq.true,category.eq.approval')
+    .eq('visible_to_client', true)
+    .eq('status', 'review')
+    .is('approved_at', null)
+
   return NextResponse.json({
     unreadMessages: unreadMessages ?? 0,
     unpaidInvoices: unpaidInvoices ?? 0,
+    pendingApprovals: pendingApprovals ?? 0,
   })
 }
