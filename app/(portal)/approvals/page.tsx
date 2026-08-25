@@ -1,3 +1,4 @@
+import { clientCan } from '@/lib/permissions'
 import { portalClientId, portalAccess } from '@/lib/team'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
@@ -81,8 +82,10 @@ export default async function ClientApprovalsPage() {
     .from('projects')
     .select('id, title')
     .eq('client_id', client.id)
-  // Member scoping — restricted members see only their listed projects.
+  // Approvals belong to roles that can act on them — others never see this page.
   const access = await portalAccess(user)
+  if (access && !clientCan(access.role, 'approve')) redirect('/dashboard')
+
   const scoped = (projects ?? []).filter(
     (p) => !access?.projectIds || access.projectIds.includes(p.id)
   )

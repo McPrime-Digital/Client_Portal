@@ -1,4 +1,4 @@
-import { portalClientId } from '@/lib/team'
+import { portalClientId, clientMembershipOf } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
@@ -10,6 +10,10 @@ export default async function SettingsPage() {
 
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+
+  // Company & owner information is the account owner's alone.
+  const membership = await clientMembershipOf(user)
+  if (membership && membership.role !== 'owner') redirect('/dashboard')
 
   const { data: client } = await supabaseAdmin
     .from('clients')

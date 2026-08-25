@@ -1,6 +1,17 @@
+import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
+import { clientMembershipOf } from '@/lib/team'
 import ClientTeamManager from '@/components/portal/ClientTeamManager'
 
-// The client company's team — invite teammates, assign roles, manage seats.
-export default function ClientTeamPage() {
+// The client company's team — the account owner's surface alone (roster,
+// invites, roles, holds). Teammates neither see nor reach it.
+export default async function ClientTeamPage() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const membership = await clientMembershipOf(user)
+  if (!membership || membership.role !== 'owner') redirect('/dashboard')
+
   return <ClientTeamManager />
 }

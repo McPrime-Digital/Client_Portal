@@ -162,6 +162,8 @@ export default async function DashboardPage() {
   const hasProjects = projectIds.length > 0
   // Role shelling — billing exists ONLY for roles that hold the invoices cap.
   const canBilling = clientCan(access?.role ?? 'owner', 'invoices')
+  const canApproveRole = clientCan(access?.role ?? 'owner', 'approve')
+  const isViewer = (access?.role ?? 'owner') === 'viewer'
 
   const [
     { data: tasks },
@@ -357,14 +359,14 @@ export default async function DashboardPage() {
       href: '/messages',
       color: 'hsl(var(--status-violet))',
     },
-    {
+    ...(isViewer ? [] : [{
       label: 'Deliverables',
       value: deliverablesCount ?? 0,
       sub: (deliverablesCount ?? 0) > 0 ? 'Ready to download' : 'None yet',
       icon: Files,
       href: '/files',
       color: 'hsl(var(--primary))',
-    },
+    }]),
   ]
 
   return (
@@ -422,10 +424,10 @@ export default async function DashboardPage() {
           ? { label: 'Action needed', tint: 'hsl(var(--destructive))', note: `${formatCurrency(overdueAmount)} overdue` }
           : canBilling && dueCount > 0
           ? { label: 'Payment due', tint: 'hsl(var(--primary))', note: `${formatCurrency(outstanding)} across ${dueCount} invoice${dueCount !== 1 ? 's' : ''}` }
-          : pendingApprovals.length > 0
+          : canApproveRole && pendingApprovals.length > 0
           ? { label: 'Review pending', tint: 'hsl(var(--status-amber))', note: `${pendingApprovals.length} item${pendingApprovals.length !== 1 ? 's' : ''} awaiting you` }
           : { label: 'In good standing', tint: 'hsl(var(--status-green))', note: 'Everything is up to date' }
-        const ctaHref = (canBilling && (overdueAmount > 0 || dueCount > 0)) ? '/invoices' : pendingApprovals.length > 0 ? '/projects' : '/projects'
+        const ctaHref = (canBilling && (overdueAmount > 0 || dueCount > 0)) ? '/invoices' : canApproveRole && pendingApprovals.length > 0 ? '/projects' : '/projects'
         const facts: string[] = [`${activeProjects.length} active project${activeProjects.length !== 1 ? 's' : ''}`]
         if (upcoming?.due_date) facts.push(`Next delivery ${shortDate(upcoming.due_date)}`)
         return (
@@ -444,7 +446,7 @@ export default async function DashboardPage() {
                 </div>
               </div>
               <span className="flex items-center gap-1 text-sm font-semibold flex-shrink-0" style={{ color: standing.tint }}>
-                {(canBilling && (overdueAmount > 0 || dueCount > 0)) ? 'View invoices' : pendingApprovals.length > 0 ? 'Review now' : 'View projects'}
+                {(canBilling && (overdueAmount > 0 || dueCount > 0)) ? 'View invoices' : canApproveRole && pendingApprovals.length > 0 ? 'Review now' : 'View projects'}
                 <ArrowRight size={14} />
               </span>
             </div>
@@ -835,7 +837,8 @@ export default async function DashboardPage() {
           </section>
           )}
 
-          {/* Recent activity */}
+          {/* Recent activity — not shown to view-only members */}
+          {!isViewer && (
           <section
             className="rounded-xl p-5"
             style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
@@ -901,6 +904,7 @@ export default async function DashboardPage() {
               </div>
             )}
           </section>
+          )}
 
           {/* Support nudge */}
           <Link href="/messages" className="block">

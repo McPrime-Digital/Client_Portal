@@ -26,11 +26,30 @@ export function clientCan(role: ClientRole | null | undefined, cap: ClientCap): 
   return CLIENT_CAPS[role]?.includes(cap) ?? false
 }
 
-/** Portal nav hrefs this role may see. Everything else is filtered out of the
- *  sidebar AND gated server-side on its page. */
+/** Portal nav hrefs this role may see — the SAME matrix gates each page
+ *  server-side. Hidden, not just blocked:
+ *    viewer   → overview, projects, messages (read-only). Nothing else.
+ *    member   → + files vault, uploads
+ *    approver → + review & approvals, invoices
+ *    owner    → + team, settings (company & owner information is owner-only) */
 export function clientNavAllowed(role: ClientRole | null | undefined, href: string): boolean {
-  if (href === '/invoices') return clientCan(role, 'invoices')
-  return true // overview/projects/approvals/files/messages/team/settings: visible to all roles
+  switch (href) {
+    case '/dashboard':
+    case '/projects':
+    case '/messages':
+      return true
+    case '/files':
+      return clientCan(role, 'upload')
+    case '/approvals':
+      return clientCan(role, 'approve')
+    case '/invoices':
+      return clientCan(role, 'invoices')
+    case '/team':
+    case '/dashboard/settings':
+      return clientCan(role, 'manage_team')
+    default:
+      return true
+  }
 }
 
 // ── organization side (studio) ──────────────────────────────────────────────

@@ -1,3 +1,4 @@
+import { clientCan } from '@/lib/permissions'
 import { portalClientId, portalAccess } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -43,8 +44,10 @@ export default async function FilesPage() {
   ])
 
   // Member scoping — restricted members see only their listed projects' files
-  // (company-level files with no project stay visible).
+  // (company-level files with no project stay visible). Viewers don't get the
+  // vault at all — project pages carry what they may see.
   const access = await portalAccess(user)
+  if (access && !clientCan(access.role, 'upload')) redirect('/dashboard')
   const projects = (allProjects ?? []).filter(
     (p) => !access?.projectIds || access.projectIds.includes(p.id)
   )
