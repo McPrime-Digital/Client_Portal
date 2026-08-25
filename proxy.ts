@@ -57,6 +57,26 @@ export async function proxy(request: NextRequest) {
     return supabaseResponse
   }
 
+  // Legacy /admin chrome is retired — every old admin URL maps to its
+  // Throughline home (deep segments and query strings preserved). The /studio
+  // gate below still enforces auth + role after the redirect.
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+    const rest = pathname.slice('/admin'.length)
+    const legacyMap: [string, string][] = [
+      ['/clients', '/studio/client/companies'],
+      ['/projects', '/studio/client/projects'],
+      ['/files', '/studio/client/files'],
+      ['/messages', '/studio/client/messages'],
+      ['/invoices', '/studio/client/invoices'],
+      ['/settings', '/studio/crew/settings'],
+      ['/dashboard', '/studio/client/overview'],
+    ]
+    const hit = legacyMap.find(([p]) => rest === p || rest.startsWith(p + '/'))
+    const url = request.nextUrl.clone()
+    url.pathname = hit ? hit[1] + rest.slice(hit[0].length) : '/studio/client/overview'
+    return NextResponse.redirect(url)
+  }
+
   // Not logged in trying to access protected route
   if (!user && (isAdminRoute || isPortalRoute)) {
     const url = request.nextUrl.clone()

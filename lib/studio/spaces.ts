@@ -29,23 +29,26 @@ export const SPACES: Space[] = [
       { slug: 'leads', label: 'Lead-Gen Pipelines', icon: Radar, phase: 5 },
       { slug: 'control-tower', label: 'Control Tower', icon: Gauge, phase: 3, badge: 'COST' },
       { slug: 'directory', label: 'Team Directory', icon: Contact, phase: 4 },
-      { slug: 'settings', label: 'Settings', icon: Settings, phase: 1, legacyHref: '/admin/settings' },
+      { slug: 'settings', label: 'Settings', icon: Settings, phase: 1, badge: 'LIVE' },
     ],
   },
   {
     id: 'client', label: 'Client', icon: Handshake,
     blurb: 'Everything client-facing — projects, frame-accurate review, deliverables, and billing.',
     features: [
-      { slug: 'overview', label: 'Overview', icon: LayoutDashboard, phase: 0, legacyHref: '/admin' },
-      { slug: 'projects', label: 'Projects', icon: FolderOpen, phase: 0, legacyHref: '/admin/projects' },
-      { slug: 'review', label: 'Review & Approvals', icon: ScanEye, phase: 1, badge: 'LIVE' },
-      { slug: 'deliverables', label: 'Deliverables · Vault', icon: Files, phase: 1, legacyHref: '/admin/files' },
+      // These first-class features are LIVE — served by real routes under
+      // app/studio/client/* (canonical page modules moved in from the legacy portal).
+      { slug: 'overview', label: 'Overview', icon: LayoutDashboard, phase: 0, badge: 'LIVE' },
+      { slug: 'projects', label: 'Projects', icon: FolderOpen, phase: 0, badge: 'LIVE' },
+      // Approvals live inside each project until the native frame-accurate Review ships.
+      { slug: 'review', label: 'Review & Approvals', icon: ScanEye, phase: 1, legacyHref: '/studio/client/projects' },
+      { slug: 'files', label: 'Files Vault', icon: Files, phase: 1, badge: 'LIVE' },
       { slug: 'documents', label: 'Documents', icon: FileText, phase: 4 },
-      { slug: 'messages', label: 'Messages', icon: MessageCircle, phase: 0, legacyHref: '/admin/messages' },
-      { slug: 'invoices', label: 'Invoices & Payments', icon: Receipt, phase: 1, legacyHref: '/admin/invoices' },
+      { slug: 'messages', label: 'Messages', icon: MessageCircle, phase: 0, badge: 'LIVE' },
+      { slug: 'invoices', label: 'Invoices & Payments', icon: Receipt, phase: 1, badge: 'LIVE' },
       { slug: 'brand-kit', label: 'Brand Kit', icon: Palette, phase: 3 },
       { slug: 'guest-links', label: 'Guest Review Links', icon: Link2, phase: 2 },
-      { slug: 'companies', label: 'Companies & Contacts', icon: Building2, phase: 4, legacyHref: '/admin/clients' },
+      { slug: 'companies', label: 'Companies & Contacts', icon: Building2, phase: 4, badge: 'LIVE' },
     ],
   },
   {

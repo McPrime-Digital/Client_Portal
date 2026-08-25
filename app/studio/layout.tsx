@@ -6,6 +6,7 @@ import StudioSidebar from '@/components/studio/StudioSidebar'
 import StudioTopbar from '@/components/studio/StudioTopbar'
 import SessionDock from '@/components/studio/SessionDock'
 import PrimeOSDock from '@/components/studio/PrimeOSDock'
+import PresencePulse from '@/components/shared/PresencePulse'
 import { GOOGLE_FONTS_HREF } from '@/lib/studio/fonts'
 
 // Throughline internal/studio shell — team-only (admins). The external client
@@ -36,6 +37,8 @@ export default async function StudioLayout({ children }: { children: React.React
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
+      {/* admin presence heartbeat — without it clients get false "away" alerts */}
+      <PresencePulse role="admin" userId={user.id} clientId={null} />
       {/* editor font library (Script Design font picker) */}
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />

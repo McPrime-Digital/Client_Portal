@@ -1,7 +1,9 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 import { SPACES, getSpace } from '@/lib/studio/spaces'
 import PrimeOSMark from './PrimeOSMark'
 
@@ -10,6 +12,35 @@ export default function StudioSidebar({ userName, orgName }: { userName: string;
   const activeId = parts[1] ?? 'workspace'
   const activeFeature = parts[2]
   const space = getSpace(activeId) ?? SPACES[2]
+  const [unreadClientMessages, setUnreadClientMessages] = useState(0)
+
+  // Live unread-from-clients badge — same source + realtime channel the legacy
+  // admin sidebar used, so counts stay in lockstep with the messages hub.
+  useEffect(() => {
+    const supabase = createClient()
+
+    async function loadBadge() {
+      try {
+        const res = await fetch('/api/admin/badge-counts')
+        if (res.ok) {
+          const json = await res.json()
+          setUnreadClientMessages(json.unreadClientMessages ?? 0)
+        }
+      } catch {}
+    }
+
+    loadBadge()
+    const interval = setInterval(loadBadge, 15_000)
+    const channel = supabase
+      .channel('studio-sidebar-badges')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => loadBadge())
+      .subscribe()
+
+    return () => {
+      clearInterval(interval)
+      supabase.removeChannel(channel)
+    }
+  }, [])
 
   return (
     <aside className="flex h-screen w-[264px] flex-shrink-0 flex-col border-r border-border bg-card">
@@ -44,7 +75,12 @@ export default function StudioSidebar({ userName, orgName }: { userName: string;
                   : 'border-transparent text-muted-foreground hover:bg-secondary/60 hover:text-foreground'
               }`}
             >
-              <Icon size={18} />
+              <span className="relative">
+                <Icon size={18} />
+                {s.id === 'client' && unreadClientMessages > 0 && (
+                  <span className="absolute -right-1.5 -top-1 h-2 w-2 rounded-full bg-destructive" />
+                )}
+              </span>
               {s.label}
             </Link>
           )
@@ -74,7 +110,13 @@ export default function StudioSidebar({ userName, orgName }: { userName: string;
                 ? <PrimeOSMark size={17} className="flex-shrink-0" />
                 : <Icon size={16} className="flex-shrink-0" />}
               <span className="flex-1 truncate">{f.label}</span>
-              {f.badge && <span className="text-[9px] font-bold tracking-wide text-primary">★ {f.badge}</span>}
+              {space.id === 'client' && f.slug === 'messages' && unreadClientMessages > 0 ? (
+                <span className="min-w-[18px] rounded-full bg-destructive px-1.5 py-0.5 text-center text-[10px] font-bold text-destructive-foreground">
+                  {unreadClientMessages > 9 ? '9+' : unreadClientMessages}
+                </span>
+              ) : (
+                f.badge && <span className="text-[9px] font-bold tracking-wide text-primary">★ {f.badge}</span>
+              )}
             </Link>
           )
         })}
