@@ -36,4 +36,16 @@ create policy client_member_projects_team_read on public.client_member_projects
     )
   );
 
+-- realtime: membership tables must be in the publication or roster
+-- subscriptions never fire (each add throws if already present — ignore).
+do $$ begin
+  alter publication supabase_realtime add table public.client_members;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.organization_members;
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.client_member_projects;
+exception when duplicate_object then null; end $$;
+
 commit;
