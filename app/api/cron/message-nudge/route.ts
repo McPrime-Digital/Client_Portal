@@ -71,12 +71,22 @@ async function runNudge() {
 }
 
 export async function GET(req: NextRequest) {
+  // FAIL CLOSED. This was `if (secret) { ...check... }`, so an unset
+  // CRON_SECRET meant no check at all and the endpoint was open to anyone who
+  // knew the path — it reads every client's message history and can send mail
+  // and SMS on the studio's behalf. A missing secret is a misconfiguration to
+  // report, never a reason to skip authorization (I-8).
   const secret = process.env.CRON_SECRET
-  if (secret) {
-    const auth = req.headers.get('authorization')
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+  if (!secret) {
+    console.error('[cron/message-nudge] CRON_SECRET is not set; refusing to run.')
+    return NextResponse.json(
+      { error: 'CRON_SECRET is not configured on this deployment. Set it before the cron can run.' },
+      { status: 500 }
+    )
+  }
+  const auth = req.headers.get('authorization')
+  if (auth !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   try {
     const result = await runNudge()
