@@ -119,7 +119,10 @@ export type Invoice = {
   title: string | null
   amount: number
   currency: string
-  status: 'draft' | 'unpaid' | 'paid' | 'overdue'
+  // The full set permitted by invoices_status_check (0019). 'partial' was
+  // missing here while the DB has always allowed it; 'draft' was declared here
+  // while the DB rejected it until 0019.
+  status: 'draft' | 'unpaid' | 'paid' | 'overdue' | 'partial'
   payment_method: string | null
   line_items: InvoiceLineItem[] | null
   notes: string | null

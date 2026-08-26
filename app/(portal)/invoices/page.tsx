@@ -26,7 +26,13 @@ export default async function InvoicesPage() {
   const access = await portalAccess(user)
   if (access && !clientCan(access.role, 'invoices', access.extraCaps)) redirect('/dashboard')
 
-  // Fetch invoices using supabaseAdmin to bypass RLS
+  // Fetch invoices using supabaseAdmin to bypass RLS.
+  // Drafts are excluded at the QUERY, not just in the render: a draft is an
+  // invoice the studio has prepared but not issued, and selecting it here
+  // serialized its amount, title, line items and notes into the client's page
+  // payload. InvoicesClient buckets only unpaid/overdue/paid/partial so it was
+  // never displayed — but it was counted in the "N invoices total" header and
+  // present in the HTML. Matches dashboard/invoices/page.tsx:41.
   const { data: invoices } = await supabaseAdmin
     .from('invoices')
     .select(`
@@ -34,6 +40,7 @@ export default async function InvoicesPage() {
       projects(id, title, type)
     `)
     .eq('client_id', client.id)
+    .neq('status', 'draft')
     .order('created_at', { ascending: false })
 
   // Payment details of the STUDIO that owns this client company — not a global
