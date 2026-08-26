@@ -33,6 +33,13 @@ alter table public.organizations drop constraint if exists organizations_type_ch
 alter table public.organizations add constraint organizations_type_check
   check (type in ('client_serving','internal','solo'));
 
+-- AD-002-R: one US region, but the column exists from day one so a second
+-- region is a deployment rather than a rewrite. Nullable by design — no
+-- region is hardcoded in application logic (lib/r2.ts's region:'auto' is the
+-- required literal for an R2 S3-compatible endpoint, not a residency claim).
+alter table public.organizations add column if not exists region text;
+update public.organizations set region = 'us-east' where region is null;
+
 
 -- ── A2 · T-2 · clients.email scoped per tenant ──────────────────────────────
 -- 0000:252 made this UNIQUE(email) across ALL tenants: two studios could not
@@ -104,46 +111,51 @@ end $$;
 -- organization_members had no project scoping while client_members did. A
 -- freelance editor should see one production, not the whole studio (S1 §5.1).
 create table if not exists public.organization_member_projects (
-  member_id  uuid not null references public.organization_members(id) on delete cascade,
-  project_id uuid not null references public.projects(id) on delete cascade,
-  created_at timestamptz not null default now(),
+  member_id       uuid not null references public.organization_members(id) on delete cascade,
+  project_id      uuid not null references public.projects(id) on delete cascade,
+  organization_id uuid not null default '00000000-0000-0000-0000-000000000001'
+                    references public.organizations(id),
+  created_at      timestamptz not null default now(),
   primary key (member_id, project_id)
 );
 
+-- Defensive: brings the column in if an earlier draft of this file was ever
+-- partially applied (create table if not exists would skip the column above).
+alter table public.organization_member_projects
+  add column if not exists organization_id uuid not null
+  default '00000000-0000-0000-0000-000000000001' references public.organizations(id);
+
 create index if not exists organization_member_projects_project_idx
   on public.organization_member_projects(project_id);
+create index if not exists organization_member_projects_org_idx
+  on public.organization_member_projects(organization_id);
 
 alter table public.organization_member_projects enable row level security;
 
 -- Mirrors client_member_projects (0013:27,35) but WITH the organization_id
 -- predicate those two policies lack — is_admin() alone would let any admin of
 -- any org read every org's scoping rows the moment a second tenant exists
--- (S1 §6 fix 1). The parent organization_members row carries the org.
+-- (S1 §6 fix 1). The column is on the row, so no correlated subquery is needed
+-- and the org_idx above can serve the predicate.
 drop policy if exists organization_member_projects_admin_all on public.organization_member_projects;
 create policy organization_member_projects_admin_all on public.organization_member_projects
   for all to authenticated
-  using (
-    public.is_admin() and exists (
-      select 1 from public.organization_members m
-      where m.id = member_id and m.organization_id = public.current_org()
-    )
-  )
-  with check (
-    public.is_admin() and exists (
-      select 1 from public.organization_members m
-      where m.id = member_id and m.organization_id = public.current_org()
-    )
-  );
+  using (public.is_admin() and organization_id = public.current_org())
+  with check (public.is_admin() and organization_id = public.current_org());
 
+-- SELF read, not org-wide read: the subquery is what makes this "my own
+-- scoping rows" rather than "every crew member's". It mirrors
+-- organization_members_self_read (0012:73). Only the org half of the old
+-- subquery is replaced by the column — dropping the user_id half as well would
+-- let any crew member enumerate every colleague's project assignments.
 drop policy if exists organization_member_projects_self_read on public.organization_member_projects;
 create policy organization_member_projects_self_read on public.organization_member_projects
   for select to authenticated
   using (
-    exists (
+    organization_id = public.current_org()
+    and exists (
       select 1 from public.organization_members m
-      where m.id = member_id
-        and m.user_id = auth.uid()
-        and m.organization_id = public.current_org()
+      where m.id = member_id and m.user_id = auth.uid()
     )
   );
 
