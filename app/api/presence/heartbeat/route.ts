@@ -1,7 +1,8 @@
-import { isAdmin } from '@/lib/auth/role'
+import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { touchAdminLastSeen } from '@/lib/businessSettings'
 
 // Records that the caller is currently in the app, so deferred (email) alerts
 // can distinguish "away" from "in-app". Best-effort: if the last_seen columns
@@ -15,11 +16,10 @@ export async function POST() {
 
     const now = new Date().toISOString()
     if (isAdmin(user)) {
-      // Admins have no clients row — stamp the singleton business_settings.
-      await supabaseAdmin
-        .from('business_settings')
-        .update({ admin_last_seen_at: now })
-        .not('id', 'is', null)
+      // Admins have no clients row — their last-seen lives on business_settings.
+      // Scoped to the caller's org: the previous .not('id','is',null) rewrote
+      // EVERY tenant's row every 30 seconds, per admin.
+      await touchAdminLastSeen(userOrgId(user))
     } else {
       await supabaseAdmin
         .from('clients')
