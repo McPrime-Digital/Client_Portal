@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test:rls": "tsx scripts/test-rls.ts",
+    "seed:harness": "tsx scripts/seed-harness-tenant.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1054.0",
@@ -52,6 +54,7 @@
     "postcss": "^8.5.13",
     "tailwindcss": "^3.4.1",
     "tailwindcss-animate": "^1.0.7",
+    "tsx": "^4.23.12",
     "typescript": "^5"
   },
   "overrides": {

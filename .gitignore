@@ -41,3 +41,6 @@ next-env.d.ts
 # stray local screenshots (untracked, kept on disk)
 /google docs sc1.png
 /image.png
+
+# RLS harness state (ids + auth user ids) — regenerate with npm run seed:harness
+scripts/.harness-manifest.json

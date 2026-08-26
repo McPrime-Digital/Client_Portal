@@ -58,7 +58,7 @@ is_client_member(cid)    -- drops the clients.user_id branch; client_members is 
 
 -- New
 is_org_member()          -- active organization_members row for auth.uid() in current_org()
-is_org_admin()           -- as above, role in ('owner','admin')
+is_org_admin()           -- as above, with role OR roles[] holding 'owner' or 'admin'
 org_project_visible(pid) -- scope_mode='all', or a matching organization_member_projects row
 client_project_visible(pid) -- scope_mode='all', or a matching client_member_projects row
 member_history_from()    -- the caller's history_from cutoff, null = full history
