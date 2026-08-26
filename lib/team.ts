@@ -2,7 +2,7 @@ import 'server-only'
 
 import type { User } from '@supabase/supabase-js'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { isAdmin, userClientId } from '@/lib/auth/role'
+import { isAdmin, userClientId, userOrgId } from '@/lib/auth/role'
 
 // Server-side role resolution for teams & roles. THE TABLE IS TRUTH: every
 // gate that protects an action reads these, never the JWT (app_metadata only
@@ -23,9 +23,14 @@ export async function orgRolesOf(user: User): Promise<OrgRole[]> {
     .eq('user_id', user.id)
     .single()
   if (!data) {
+    // "Fresh environment" must mean THIS org's roster is empty, not the whole
+    // table's (T-4). Unscoped, the first admin of a second organization
+    // resolved to 'member' because tenant zero's roster is non-empty — so a
+    // new tenant could never be onboarded with an owner.
     const { count } = await supabaseAdmin
       .from('organization_members')
       .select('*', { count: 'exact', head: true })
+      .eq('organization_id', userOrgId(user))
     return (count ?? 0) === 0 ? ['owner'] : ['member']
   }
   if (data.status !== 'active') return []
