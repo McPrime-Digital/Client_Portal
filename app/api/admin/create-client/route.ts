@@ -3,6 +3,22 @@ import { createClient as createServerClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
 
+// ONE message for every "this address is taken" outcome, whether the address
+// belongs to this tenant's client, to another tenant's, or to an auth user we
+// cannot see. Auth users are global while clients are per-tenant, so the auth
+// layer's own error text is a disclosure channel of its own — it is collapsed
+// into this same message and status below.
+const EMAIL_TAKEN = 'A client with this email already exists.'
+
+// Supabase reports an existing auth user differently across its invite and
+// create paths, so match on code first and fall back to the message text.
+function isEmailTakenError(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false
+  if (error.code === 'email_exists' || error.code === 'user_already_exists') return true
+  const m = (error.message ?? '').toLowerCase()
+  return m.includes('already registered') || m.includes('already been registered') || m.includes('already exists')
+}
+
 export async function POST(req: NextRequest) {
   try {
     // Gate: only authenticated admins may create clients / auth users.
@@ -36,18 +52,20 @@ export async function POST(req: NextRequest) {
       }
     )
 
-    // Check if a client with this email already exists
+    // Duplicate check, scoped to the CALLER'S tenant (T-2). Since 0018 the
+    // constraint is unique (organization_id, email), so another studio's
+    // client at the same address is not a collision for us — and must not be
+    // reported as one, or an admin could enumerate another tenant's client
+    // roster one probe at a time.
     const { data: existingClient } = await supabaseAdmin
       .from('clients')
       .select('id')
+      .eq('organization_id', userOrgId(user))
       .eq('email', email.trim().toLowerCase())
-      .single()
+      .maybeSingle()
 
     if (existingClient) {
-      return NextResponse.json(
-        { error: 'A client with this email already exists.' },
-        { status: 409 }
-      )
+      return NextResponse.json({ error: EMAIL_TAKEN }, { status: 409 })
     }
 
     let userId: string
@@ -72,6 +90,12 @@ export async function POST(req: NextRequest) {
 
       if (error) {
         console.error('[create-client] Invite error:', error)
+        // The address may already have an auth user in ANOTHER tenant. Return
+        // exactly what an in-tenant duplicate returns, so the two are
+        // indistinguishable from outside.
+        if (isEmailTakenError(error)) {
+          return NextResponse.json({ error: EMAIL_TAKEN }, { status: 409 })
+        }
         return NextResponse.json(
           { error: error.message },
           { status: 400 }
@@ -102,6 +126,9 @@ export async function POST(req: NextRequest) {
 
       if (error) {
         console.error('[create-client] Create user error:', error)
+        if (isEmailTakenError(error)) {
+          return NextResponse.json({ error: EMAIL_TAKEN }, { status: 409 })
+        }
         return NextResponse.json(
           { error: error.message },
           { status: 400 }
