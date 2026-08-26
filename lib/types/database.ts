@@ -131,8 +131,11 @@ export type Invoice = {
   created_at: string
 }
 
+// Per-tenant since migration 0018 (T-3): keyed by organization_id, and the
+// legacy `id text default 'singleton'` column is gone. Read and written only
+// through lib/businessSettings.ts.
 export type BusinessSettings = {
-  id: string
+  organization_id: string
   business_name: string | null
   business_email: string | null
   business_address: string | null
@@ -143,6 +146,8 @@ export type BusinessSettings = {
   routing_number: string | null
   swift: string | null
   payment_instructions: string | null
+  admin_last_seen_at: string | null
+  notification_prefs: Record<string, unknown> | null
   updated_at: string | null
 }
 

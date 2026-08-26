@@ -2,6 +2,8 @@ import { clientMembershipOf } from '@/lib/team'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { getBusinessSettings } from '@/lib/businessSettings'
+import { DEFAULT_ORG_ID } from '@/lib/auth/role'
 import Sidebar from '@/components/layout/Sidebar'
 import Topbar from '@/components/layout/Topbar'
 import PresencePulse from '@/components/shared/PresencePulse'
@@ -92,13 +94,12 @@ export default async function PortalLayout({
   const memberTitle = membership?.title ?? null
 
   // The studio/agency serving this client — shown in the sidebar co-brand.
+  // Scoped to the org that owns this client company (T-3), not a global row.
   let orgName = 'McPrime Digital'
   try {
-    const { data: biz } = await supabaseAdmin
-      .from('business_settings')
-      .select('business_name')
-      .limit(1)
-      .single()
+    const biz = await getBusinessSettings(
+      (clientData as { organization_id?: string } | null)?.organization_id ?? DEFAULT_ORG_ID
+    )
     if (biz?.business_name) orgName = biz.business_name
   } catch {
     // best-effort

@@ -1,6 +1,8 @@
 import 'server-only'
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { getBusinessSettings } from '@/lib/businessSettings'
+import { DEFAULT_ORG_ID } from '@/lib/auth/role'
 import { sendPushToUser, sendPushToAdmins } from '@/lib/push'
 import { sendSms } from '@/lib/sms'
 
@@ -151,6 +153,25 @@ type RecipientState = {
   prefs: PrefMap
 }
 
+// Which tenant's studio inbox an admin-side alert belongs to. business_settings
+// is per-tenant since 0018 (T-3), so the row can no longer be picked with
+// .limit(1) — it is resolved from the client company that owns the work.
+async function orgForRecipient(
+  projectId?: string | null,
+  clientId?: string | null
+): Promise<string> {
+  const cid = clientId ?? (await clientIdForProject(projectId))
+  if (cid) {
+    const { data } = await supabaseAdmin
+      .from('clients')
+      .select('organization_id')
+      .eq('id', cid)
+      .single()
+    if (data?.organization_id) return data.organization_id as string
+  }
+  return DEFAULT_ORG_ID
+}
+
 // Resolve a recipient's contact details, last-seen heartbeat and per-category
 // channel preferences. Shared by every "away" escalation path.
 async function resolveRecipientState(
@@ -174,17 +195,13 @@ async function resolveRecipientState(
       prefs: ((data as any)?.notification_prefs ?? {}) as PrefMap,
     }
   }
-  const { data } = await supabaseAdmin
-    .from('business_settings')
-    .select('business_email, admin_last_seen_at, notification_prefs')
-    .limit(1)
-    .single()
+  const data = await getBusinessSettings(await orgForRecipient(projectId, clientId))
   return {
-    email: (data as any)?.business_email ?? null,
+    email: data?.business_email ?? null,
     phone: null,
     userId: null,
-    lastSeen: (data as any)?.admin_last_seen_at,
-    prefs: ((data as any)?.notification_prefs ?? {}) as PrefMap,
+    lastSeen: data?.admin_last_seen_at,
+    prefs: (data?.notification_prefs ?? {}) as PrefMap,
   }
 }
 

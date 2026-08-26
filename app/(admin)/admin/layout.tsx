@@ -3,8 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import AdminSidebar from '@/components/admin/AdminSidebar'
 import AdminTopbar from '@/components/admin/AdminTopbar'
 import PresencePulse from '@/components/shared/PresencePulse'
-import { supabaseAdmin } from '@/lib/supabase/admin'
-import { userRole } from '@/lib/auth/role'
+import { getBusinessSettings } from '@/lib/businessSettings'
+import { userRole, userOrgId } from '@/lib/auth/role'
 
 export default async function AdminLayout({
   children,
@@ -24,11 +24,7 @@ export default async function AdminLayout({
   // McPrime brand if business settings haven't been filled in.
   let companyName = 'McPrime Digital'
   try {
-    const { data: biz } = await supabaseAdmin
-      .from('business_settings')
-      .select('business_name')
-      .limit(1)
-      .single()
+    const biz = await getBusinessSettings(userOrgId(user))
     if (biz?.business_name) companyName = biz.business_name
   } catch {
     // best-effort

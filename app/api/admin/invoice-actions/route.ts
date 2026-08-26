@@ -1,7 +1,8 @@
-import { isAdmin } from '@/lib/auth/role'
+import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { getBusinessSettings, upsertBusinessSettings } from '@/lib/businessSettings'
 import { createNotification } from '@/lib/notify'
 
 // All invoice writes go through here (service role, admin-gated) — never
@@ -190,19 +191,16 @@ export async function POST(req: NextRequest) {
       }
 
       // ── Business / payment settings ────────────────────────
+      // Per-tenant since 0018 (T-3): the org comes from the caller's session,
+      // never the request body.
       case 'get_settings': {
-        const { data } = await supabaseAdmin
-          .from('business_settings').select('*').eq('id', 'singleton').single()
+        const data = await getBusinessSettings(userOrgId(user))
         return NextResponse.json({ settings: data ?? null })
       }
 
       case 'save_settings': {
         const { settings } = body
-        const { data, error } = await supabaseAdmin
-          .from('business_settings')
-          .upsert({ id: 'singleton', ...settings, updated_at: new Date().toISOString() })
-          .select()
-          .single()
+        const { data, error } = await upsertBusinessSettings(userOrgId(user), settings ?? {})
         if (error) throw error
         return NextResponse.json({ settings: data })
       }
@@ -215,9 +213,7 @@ export async function POST(req: NextRequest) {
         if (!prefs || typeof prefs !== 'object') {
           return NextResponse.json({ error: 'Invalid preferences.' }, { status: 400 })
         }
-        const { error } = await supabaseAdmin
-          .from('business_settings')
-          .upsert({ id: 'singleton', notification_prefs: prefs, updated_at: new Date().toISOString() })
+        const { error } = await upsertBusinessSettings(userOrgId(user), { notification_prefs: prefs })
         if (error) {
           return NextResponse.json(
             { error: 'Could not save preferences. Apply the phase10 migration (notification_prefs column) first.' },
