@@ -1,4 +1,5 @@
 import { userRole } from '@/lib/auth/role'
+import { clientMembershipOf } from '@/lib/team'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -17,8 +18,11 @@ export async function POST(req: NextRequest) {
   const role = userRole(user)
   let clientId: string | null = null
   if (role === 'client') {
-    const { data: c } = await supabaseAdmin.from('clients').select('id').eq('user_id', user.id).single()
-    clientId = c?.id ?? null
+    // Resolves the primary login AND invited teammates (client_members); the
+    // previous clients.user_id lookup left every teammate with client_id null,
+    // so client-scoped pushes never reached them.
+    const membership = await clientMembershipOf(user)
+    clientId = membership?.clientId ?? null
   }
 
   try {
