@@ -33,7 +33,9 @@ export async function upsertBusinessSettings(
   organizationId: string,
   patch: Record<string, unknown>
 ) {
-  const { id: _id, organization_id: _org, ...safe } = patch
+  const safe: Record<string, unknown> = { ...patch }
+  delete safe.id
+  delete safe.organization_id
   return supabaseAdmin
     .from('business_settings')
     .upsert(

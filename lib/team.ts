@@ -52,21 +52,33 @@ export type OrgAccess = {
   extraCaps: string[]
   /** Custom role name for the UI; null = the primary role's standard label. */
   title: string | null
+  /** Projects this crew member may see; null = all of the org's projects.
+   *  An empty array means none — see the scope_mode note on portalAccess. */
+  projectIds: string[] | null
 }
 
-/** Roles + custom grants + custom title in one read. */
+/** Roles + custom grants + custom title + project scope in one read. */
 export async function orgAccessOf(user: User): Promise<OrgAccess> {
   const roles = await orgRolesOf(user)
-  if (roles.length === 0) return { roles, extraCaps: [], title: null }
+  if (roles.length === 0) return { roles, extraCaps: [], title: null, projectIds: null }
   const { data } = await supabaseAdmin
     .from('organization_members')
-    .select('extra_caps, title')
+    .select('id, extra_caps, title, scope_mode')
     .eq('user_id', user.id)
     .single()
+  let projectIds: string[] | null = null
+  if (data?.scope_mode === 'selected') {
+    const { data: scoped } = await supabaseAdmin
+      .from('organization_member_projects')
+      .select('project_id')
+      .eq('member_id', data.id)
+    projectIds = (scoped ?? []).map((r) => r.project_id)
+  }
   return {
     roles,
     extraCaps: Array.isArray(data?.extra_caps) ? data!.extra_caps : [],
     title: data?.title ?? null,
+    projectIds,
   }
 }
 
@@ -180,7 +192,13 @@ export type PortalAccess = {
 
 /** The member's full access context — role, message-history cutoff, project
  *  scope. Pages apply `projectIds` with .in() and `historyFrom` with .gte();
- *  null means unscoped. Primary logins (clients.user_id) are never scoped. */
+ *  null means unscoped. Primary logins (clients.user_id) are never scoped.
+ *
+ *  Scope is STATED, not inferred (migration 0018 A5). scope_mode 'all' means
+ *  every project; 'selected' means exactly the client_member_projects rows —
+ *  including none of them. Previously an empty scoping set was read as "all",
+ *  so deleting a member's scoping rows silently granted them the whole
+ *  company instead of revoking their access. */
 export async function portalAccess(user: User): Promise<PortalAccess | null> {
   const membership = await clientMembershipOf(user)
   if (!membership) return null
@@ -192,18 +210,18 @@ export async function portalAccess(user: User): Promise<PortalAccess | null> {
   }
   const { data: m } = await supabaseAdmin
     .from('client_members')
-    .select('id, history_from')
+    .select('id, history_from, scope_mode')
     .eq('client_id', membership.clientId)
     .eq('user_id', user.id)
     .eq('status', 'active')
     .single()
   let projectIds: string[] | null = null
-  if (m) {
+  if (m?.scope_mode === 'selected') {
     const { data: scoped } = await supabaseAdmin
       .from('client_member_projects')
       .select('project_id')
       .eq('member_id', m.id)
-    if (scoped && scoped.length > 0) projectIds = scoped.map((r) => r.project_id)
+    projectIds = (scoped ?? []).map((r) => r.project_id)
   }
   return {
     clientId: membership.clientId,
