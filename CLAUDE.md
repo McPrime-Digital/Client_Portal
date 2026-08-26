@@ -2,11 +2,27 @@
 
 Guidance for Claude Code (claude.ai/code) working in this repository.
 
-## Governing document
+## Governing documents
 
-**`docs/specs/S0-decisions-and-constraints.md` is the authoritative spec for this project.**
-It supersedes `docs/throughline-master-plan.md` and `docs/throughline-architecture-wiring.md`
-as roadmap; both are retained as historical intent only. `THROUGHLINE_STATE_OF_PLAY.md` is the
+**`docs/specs/` is the authoritative spec stack for this project.** Six documents, in
+reading order:
+
+| # | Document | Purpose |
+|---|---|---|
+| 1 | `S0-decisions-and-constraints.md` | Settled decisions and invariants |
+| 2 | `S0-A-amendments.md` | **Supersedes named S0 entries** (AD-004, AD-002, AD-001 rationale) |
+| 3 | `S0-conformance.md` | Where the code violates S0; input to sequencing |
+| 4 | `S1-P-personas-and-segments.md` | Who signs up, and what each needs |
+| 5 | `S-V-film-os.md` | Full platform architecture + the v1 cap |
+| 6 | `S1-tenancy-and-entitlement.md` | Tenancy model; resolves T-1 … T-5 |
+
+**Where S0 and S0-A disagree, S0-A wins.** S0 entries were not edited in place — the original
+text stands as the record of what was believed at the time, and reading S0 alone will give you
+the superseded version of AD-004, AD-002 and AD-001's rationale.
+
+**`S-V-film-os.md` supersedes `docs/throughline-master-plan.md` and
+`docs/throughline-architecture-wiring.md` in full.** Those two files are historical intent
+only and **must not be used as roadmap**. `THROUGHLINE_STATE_OF_PLAY.md` (repo root) is the
 audit baseline S0 was written against.
 
 **The S0 invariants I-1 … I-12 (S0 §3) apply to all new code.** New code must not add a
