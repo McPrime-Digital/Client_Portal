@@ -1,4 +1,4 @@
-import { isAdmin } from '@/lib/auth/role'
+import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
@@ -22,11 +22,17 @@ export default async function AdminFilesPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || !isAdmin(user)) redirect('/login')
 
+  // Tenant scope, resolved once from the verified session (never a param).
+  // Also bounds the StorageMeter below, which otherwise bills this tenant's
+  // quota display against every tenant's bytes.
+  const orgId = userOrgId(user)
+
   const { data } = await supabaseAdmin
     .from('files')
     .select(
       '*, projects(title), clients(name, company)'
     )
+    .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
 
   const rows: AdminFileRow[] = (data ?? [])

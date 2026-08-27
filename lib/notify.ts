@@ -49,6 +49,10 @@ export async function createNotification(opts: {
       type: opts.type,
       title: opts.title,
       body: opts.body ?? null,
+      // Stamped, not defaulted (T-5). The column DEFAULT is McPrime's org, so
+      // an unstamped insert files a second tenant's alert into tenant zero —
+      // where it then renders in McPrime's now-org-filtered bell.
+      organization_id: await orgForRecipient(opts.projectId, opts.clientId),
     })
   } catch {
     // in-app insert is best-effort
@@ -81,6 +85,8 @@ export async function createAdminNotification(opts: {
       title: opts.title,
       body: opts.body ?? null,
       for_admin: true,
+      // Stamped, not defaulted (T-5) — see createNotification above.
+      organization_id: await orgForRecipient(opts.projectId, opts.clientId),
     })
   } catch {
     // best-effort
@@ -151,6 +157,9 @@ type RecipientState = {
   userId: string | null
   lastSeen: string | null | undefined
   prefs: PrefMap
+  // Which tenant this alert belongs to. Carried on the state so the org is
+  // resolved once per escalation and sendPushToAdmins can be bounded by it.
+  orgId: string | null
 }
 
 // Which tenant's studio inbox an admin-side alert belongs to. business_settings
@@ -184,24 +193,37 @@ async function resolveRecipientState(
     if (!cid) return null
     const { data } = await supabaseAdmin
       .from('clients')
-      .select('user_id, email, phone, last_seen_at, notification_prefs')
+      .select('user_id, email, phone, last_seen_at, notification_prefs, organization_id')
       .eq('id', cid)
       .single()
+    // One narrow row type instead of six `as any` casts — the casts existed
+    // because these columns post-date the generated types.
+    const row = data as {
+      user_id?: string | null
+      email?: string | null
+      phone?: string | null
+      last_seen_at?: string | null
+      notification_prefs?: PrefMap | null
+      organization_id?: string | null
+    } | null
     return {
-      email: data?.email ?? null,
-      phone: (data as any)?.phone ?? null,
-      userId: (data as any)?.user_id ?? null,
-      lastSeen: (data as any)?.last_seen_at,
-      prefs: ((data as any)?.notification_prefs ?? {}) as PrefMap,
+      email: row?.email ?? null,
+      phone: row?.phone ?? null,
+      userId: row?.user_id ?? null,
+      lastSeen: row?.last_seen_at,
+      prefs: row?.notification_prefs ?? {},
+      orgId: row?.organization_id ?? null,
     }
   }
-  const data = await getBusinessSettings(await orgForRecipient(projectId, clientId))
+  const orgId = await orgForRecipient(projectId, clientId)
+  const data = await getBusinessSettings(orgId)
   return {
     email: data?.business_email ?? null,
     phone: null,
     userId: null,
     lastSeen: data?.admin_last_seen_at,
     prefs: (data?.notification_prefs ?? {}) as PrefMap,
+    orgId,
   }
 }
 
@@ -231,7 +253,7 @@ export async function pushMessageAlert(opts: {
       url,
       tag: 'messages',
     }
-    if (opts.recipient === 'admin') await sendPushToAdmins(payload)
+    if (opts.recipient === 'admin') await sendPushToAdmins(state.orgId, payload)
     else await sendPushToUser(state.userId, payload)
   } catch {
     // never block the triggering send
@@ -253,7 +275,7 @@ export async function notifyAwayRecipient(opts: {
   try {
     const state = await resolveRecipientState(opts.recipient, opts.projectId, opts.clientId)
     if (!state) return false
-    const { email, phone, userId, lastSeen, prefs } = state
+    const { email, phone, userId, lastSeen, prefs, orgId } = state
 
     // Only escalate when the recipient is actually away.
     if (!awayFrom(lastSeen)) return false
@@ -271,7 +293,7 @@ export async function notifyAwayRecipient(opts: {
     await Promise.all([
       wantPush
         ? opts.recipient === 'admin'
-          ? sendPushToAdmins({ title: opts.title, body: opts.body ?? undefined, url, tag: opts.category })
+          ? sendPushToAdmins(orgId, { title: opts.title, body: opts.body ?? undefined, url, tag: opts.category })
           : sendPushToUser(userId, { title: opts.title, body: opts.body ?? undefined, url, tag: opts.category })
         : Promise.resolve(),
       wantSms && phone ? sendSms(phone, text) : Promise.resolve(),

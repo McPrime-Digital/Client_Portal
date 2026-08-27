@@ -1,4 +1,4 @@
-import { isAdmin } from '@/lib/auth/role'
+import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { createClient } from
   '@/lib/supabase/server'
 import { supabaseAdmin } from
@@ -21,6 +21,11 @@ export default async function ClientsPage() {
     redirect('/login')
   }
 
+  // Tenant scope, resolved once from the verified session (never a param).
+  // Without it this page renders EVERY tenant's client roster — the reads run
+  // through the service role, so RLS is not the backstop here (S2 §7, I-9).
+  const orgId = userOrgId(user)
+
   const { data: clients } = await supabaseAdmin
     .from('clients')
     // Select * (not an explicit column list) so a not-yet-migrated
@@ -33,6 +38,7 @@ export default async function ClientsPage() {
         status
       )
     `)
+    .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
 
   return (

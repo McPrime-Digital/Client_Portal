@@ -24,6 +24,7 @@ export async function GET() {
   const { data } = await supabaseAdmin
     .from('organization_members')
     .select('id, user_id, name, email, role, roles, extra_caps, title, status, invited_at, accepted_at, invited_by')
+    .eq('organization_id', userOrgId(user))
     .neq('status', 'revoked')
     .order('created_at', { ascending: true })
   const me = await orgRolesOf(user)
@@ -42,9 +43,13 @@ export async function POST(req: NextRequest) {
   const additional = Array.isArray(extraRoles) ? extraRoles.filter((r) => VALID.includes(r) && r !== memberRole) : []
   if (!cleanEmail || !name?.trim()) return NextResponse.json({ error: 'Name and email are required.' }, { status: 400 })
 
+  // Per-tenant, not global. Unscoped this is the T-2 disclosure in a second
+  // place: "already on the team" for an address that is actually on ANOTHER
+  // studio's crew tells the caller who that studio employs, one probe at a time.
   const { data: existing } = await supabaseAdmin
     .from('organization_members')
     .select('id, status')
+    .eq('organization_id', userOrgId(user))
     .eq('email', cleanEmail)
     .neq('status', 'revoked')
     .maybeSingle()
@@ -97,11 +102,14 @@ export async function PATCH(req: NextRequest) {
     extraRoles !== undefined && Array.isArray(extraRoles)
       ? extraRoles.filter((r) => VALID.includes(r) && r !== 'owner')
       : undefined
+  // memberId comes from the body — the org predicate is what stops an admin of
+  // one tenant patching another tenant's crew row.
   const { data: target } = await supabaseAdmin
     .from('organization_members')
     .select('id, user_id, role')
     .eq('id', memberId)
-    .single()
+    .eq('organization_id', userOrgId(gate.user))
+    .maybeSingle()
   if (!target) return NextResponse.json({ error: 'Member not found.' }, { status: 404 })
   if (target.role === 'owner' && !gate.role.includes('owner')) {
     return NextResponse.json({ error: 'Only an owner can change an owner.' }, { status: 403 })
@@ -116,7 +124,11 @@ export async function PATCH(req: NextRequest) {
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: 'Nothing to change — pass role, roles, status, extraCaps, or title.' }, { status: 400 })
   }
-  const { error } = await supabaseAdmin.from('organization_members').update(patch).eq('id', memberId)
+  const { error } = await supabaseAdmin
+    .from('organization_members')
+    .update(patch)
+    .eq('id', memberId)
+    .eq('organization_id', userOrgId(gate.user))
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (target.user_id) {
     if (status === 'paused') {
@@ -139,11 +151,14 @@ export async function DELETE(req: NextRequest) {
   if ('error' in gate) return gate.error
   const { user } = gate
   const { memberId } = await req.json().catch(() => ({}))
+  // Org predicate before anything else: this handler DELETES an auth account.
+  // Unscoped, an admin of one tenant could destroy another tenant's crew login.
   const { data: target } = await supabaseAdmin
     .from('organization_members')
     .select('id, user_id, role, email')
     .eq('id', memberId)
-    .single()
+    .eq('organization_id', userOrgId(user))
+    .maybeSingle()
   if (!target) return NextResponse.json({ error: 'Member not found.' }, { status: 404 })
   if (target.user_id === user.id) return NextResponse.json({ error: 'You cannot revoke yourself.' }, { status: 400 })
   if (target.role === 'owner' && !gate.role.includes('owner')) {
@@ -154,7 +169,11 @@ export async function DELETE(req: NextRequest) {
   if (target.user_id) {
     await supabaseAdmin.auth.admin.deleteUser(target.user_id)
   }
-  const { error } = await supabaseAdmin.from('organization_members').delete().eq('id', memberId)
+  const { error } = await supabaseAdmin
+    .from('organization_members')
+    .delete()
+    .eq('id', memberId)
+    .eq('organization_id', userOrgId(user))
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ success: true })
 }

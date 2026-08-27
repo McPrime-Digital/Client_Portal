@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { userOrgId } from '@/lib/auth/role'
 import { notifyAwayRecipient } from '@/lib/notify'
 
 // "5 hours of no reply" message nudge. Active conversations never push; only
@@ -14,17 +15,26 @@ import { notifyAwayRecipient } from '@/lib/notify'
 //            away party, giving near-real-time coverage between cron runs.
 const NO_REPLY_MS = 5 * 60 * 60 * 1000
 
-async function runNudge() {
+// `orgId` bounds the scan to one tenant. The cron (GET) passes nothing and
+// sweeps every tenant, which is correct for a scheduled job — each group's
+// recipients are then resolved per-tenant downstream by notifyAwayRecipient →
+// orgForRecipient, and admin device push is bounded by sendPushToAdmins(orgId).
+// The app-load trigger (POST) passes the CALLER's org: without it, any signed-in
+// user of any tenant fired a product-wide scan that could send another studio's
+// mail and SMS.
+async function runNudge(orgId?: string) {
   const cutoff = new Date(Date.now() - NO_REPLY_MS).toISOString()
 
   // Oldest-first so the snippet we show is the first unanswered message.
-  const { data: pending } = await supabaseAdmin
+  let q = supabaseAdmin
     .from('messages')
     .select('id, project_id, sender_role, sender_name, body, attachment_name')
     .is('read_at', null)
     .is('nudged_at', null)
     .eq('is_deleted', false)
     .lt('created_at', cutoff)
+  if (orgId) q = q.eq('organization_id', orgId)
+  const { data: pending } = await q
     .order('created_at', { ascending: true })
     .limit(500)
 
@@ -63,7 +73,11 @@ async function runNudge() {
     })
 
     if (wasAway) {
-      await supabaseAdmin.from('messages').update({ nudged_at: new Date().toISOString() }).in('id', g.ids)
+      // g.ids came from the scan above, so they are already tenant-bounded when
+      // orgId was supplied; the predicate is repeated so the write cannot widen.
+      let upd = supabaseAdmin.from('messages').update({ nudged_at: new Date().toISOString() }).in('id', g.ids)
+      if (orgId) upd = upd.eq('organization_id', orgId)
+      await upd
       nudged++
     }
   }
@@ -102,7 +116,8 @@ export async function POST() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
-    const result = await runNudge()
+    // Scoped to the caller's own tenant, resolved from the verified session.
+    const result = await runNudge(userOrgId(user))
     return NextResponse.json({ ok: true, ...result })
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? 'error' }, { status: 500 })

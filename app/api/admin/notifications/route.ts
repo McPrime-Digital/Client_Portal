@@ -1,4 +1,4 @@
-import { isAdmin } from '@/lib/auth/role'
+import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -11,9 +11,12 @@ async function verifyAdmin() {
 
 // Admin-facing notification stream (for_admin = true).
 export async function GET() {
-  if (!(await verifyAdmin())) {
+  const user = await verifyAdmin()
+  if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  // Tenant scope, resolved once from the verified session (never a param).
+  const orgId = userOrgId(user)
   // Exclude dismissed rows (the bell X). Falls back gracefully if the
   // dismissed_at column hasn't been migrated yet, so the bell never breaks.
   // (The select omits dismissed_at — the filter alone is enough, and identical
@@ -22,6 +25,7 @@ export async function GET() {
   let { data, error } = await supabaseAdmin
     .from('notifications')
     .select(cols)
+    .eq('organization_id', orgId)
     .eq('for_admin', true)
     .is('dismissed_at', null)
     .order('created_at', { ascending: false })
@@ -30,6 +34,7 @@ export async function GET() {
     ;({ data } = await supabaseAdmin
       .from('notifications')
       .select(cols)
+      .eq('organization_id', orgId)
       .eq('for_admin', true)
       .order('created_at', { ascending: false })
       .limit(30))
@@ -38,21 +43,28 @@ export async function GET() {
 }
 
 export async function PATCH(req: NextRequest) {
-  if (!(await verifyAdmin())) {
+  const user = await verifyAdmin()
+  if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const { ids, all, project_id, type, dismiss } = await req.json().catch(() => ({}))
   const now = new Date().toISOString()
+  // Every branch below is a WRITE keyed by ids/project_id from the body. The
+  // org predicate is what stops "mark all read" from clearing another tenant's
+  // admin bell.
+  const orgId = userOrgId(user)
   // "dismiss" closes a row from the admin bell (sets dismissed_at); otherwise
   // mark read (sets read_at).
   let query = dismiss
     ? supabaseAdmin
         .from('notifications')
         .update({ dismissed_at: now })
+        .eq('organization_id', orgId)
         .eq('for_admin', true)
     : supabaseAdmin
         .from('notifications')
         .update({ read_at: now })
+        .eq('organization_id', orgId)
         .eq('for_admin', true)
         .is('read_at', null)
   if (project_id || type) {

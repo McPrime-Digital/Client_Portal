@@ -1,4 +1,4 @@
-import { isAdmin } from '@/lib/auth/role'
+import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { createClient } from
   '@/lib/supabase/server'
 import { supabaseAdmin } from
@@ -37,6 +37,13 @@ export default async function ClientDetailPage({
     redirect('/login')
   }
 
+  // Tenant scope, resolved once from the verified session (never a param).
+  // On a detail page the org predicate on the ROOT entity is the access
+  // control: `id` arrives from the URL, so without it any admin who guesses or
+  // is handed another tenant's client uuid renders that company's page.
+  // Pairing it with .single() turns a foreign id into notFound(), not a leak.
+  const orgId = userOrgId(user)
+
   // Fetch client + projects + recent activity
   const { data: client } = await supabaseAdmin
     .from('clients')
@@ -60,6 +67,7 @@ export default async function ClientDetailPage({
       )
     `)
     .eq('id', id)
+    .eq('organization_id', orgId)
     .single()
 
   if (!client) notFound()
@@ -70,6 +78,7 @@ export default async function ClientDetailPage({
       .from('activity_log')
       .select('id, event_type, title, created_at')
       .eq('client_id', id)
+      .eq('organization_id', orgId)
       .order('created_at', { ascending: false })
       .limit(10)
     recentActivity = data ?? []
@@ -88,6 +97,7 @@ export default async function ClientDetailPage({
       .from('invoices')
       .select('id, invoice_number, title, amount, status, due_date, created_at, receipt_file_id')
       .eq('client_id', id)
+      .eq('organization_id', orgId)
       .order('created_at', { ascending: false })
     invoices = data ?? []
   } catch {

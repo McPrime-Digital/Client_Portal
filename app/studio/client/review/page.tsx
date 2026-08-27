@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import { CheckCircle2, Clock3, MessageSquareWarning, ScanEye, ChevronRight } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { isAdmin } from '@/lib/auth/role'
+import { isAdmin, userOrgId } from '@/lib/auth/role'
 import RealtimeRefresh from '@/components/shared/RealtimeRefresh'
 import { requireOrgFeature } from '@/lib/studio/guard'
 
@@ -117,6 +117,9 @@ export default async function ReviewApprovalsPage() {
       id, title, approval_status, approval_note, approved_at, review_requested_at, updated_at,
       projects(id, title, clients(id, name, company, avatar_url))
     `)
+    // Tenant scope, resolved once from the verified session (never a param).
+    // tasks carries organization_id directly (0001), so this needs no join.
+    .eq('organization_id', userOrgId(user))
     .eq('requires_approval', true)
     .order('updated_at', { ascending: false })
     .limit(200)

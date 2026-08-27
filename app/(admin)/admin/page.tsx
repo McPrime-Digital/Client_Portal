@@ -1,4 +1,4 @@
-import { isAdmin } from '@/lib/auth/role'
+import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
@@ -13,6 +13,11 @@ export default async function AdminPage() {
     redirect('/login')
   }
 
+  // Tenant scope, resolved once from the verified session (never a param).
+  // Every read below is service-role, so this filter is the only thing keeping
+  // another tenant's projects, clients, revenue and activity off this overview.
+  const orgId = userOrgId(user)
+
   // Projects with full relation data
   const { data: projects } = await supabaseAdmin
     .from('projects')
@@ -25,6 +30,7 @@ export default async function AdminPage() {
       messages(id),
       invoices(id, amount, status)
     `)
+    .eq('organization_id', orgId)
     .order('updated_at', { ascending: false })
     .limit(50)
 
@@ -33,6 +39,7 @@ export default async function AdminPage() {
   const { data: clients } = await supabaseAdmin
     .from('clients')
     .select('id, name, company, email, avatar_url, created_at, projects(id, status, updated_at)')
+    .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
 
   // Recent Activity — sourced from the admin notification stream so it reflects
@@ -43,6 +50,7 @@ export default async function AdminPage() {
     const { data } = await supabaseAdmin
       .from('notifications')
       .select('id, type, title, body, created_at, project_id, client_id')
+      .eq('organization_id', orgId)
       .eq('for_admin', true)
       .order('created_at', { ascending: false })
       .limit(40)
@@ -53,6 +61,7 @@ export default async function AdminPage() {
   const { data: invoiceTotals } = await supabaseAdmin
     .from('invoices')
     .select('amount, status')
+    .eq('organization_id', orgId)
 
   const revenue = {
     collected: (invoiceTotals ?? []).filter((i) => i.status === 'paid').reduce((a, i) => a + Number(i.amount), 0),
@@ -64,6 +73,7 @@ export default async function AdminPage() {
   const { count: unreadMessages } = await supabaseAdmin
     .from('messages')
     .select('*', { count: 'exact', head: true })
+    .eq('organization_id', orgId)
     .is('read_at', null)
     .eq('sender_role', 'client')
 

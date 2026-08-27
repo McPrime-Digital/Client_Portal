@@ -1,4 +1,4 @@
-import { isAdmin } from '@/lib/auth/role'
+import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
@@ -13,6 +13,11 @@ export default async function AdminMessagesPage() {
     redirect('/login')
   }
 
+  // Tenant scope, resolved once from the verified session (never a param).
+  // The message queries below are bounded by projectIds, which this filter
+  // makes tenant-local — so the threads list cannot reach another studio's chat.
+  const orgId = userOrgId(user)
+
   // All projects with latest message + unread from clients
   const { data: projects } = await supabaseAdmin
     .from('projects')
@@ -23,6 +28,7 @@ export default async function AdminMessagesPage() {
       type,
       clients(id, name, company)
     `)
+    .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
 
   const projectIds = (projects ?? []).map((p) => p.id)
@@ -32,12 +38,14 @@ export default async function AdminMessagesPage() {
     const { data: latestMessages } = await supabaseAdmin
       .from('messages')
       .select('*')
+      .eq('organization_id', orgId)
       .in('project_id', projectIds)
       .order('created_at', { ascending: false })
 
     const { data: unreadMessages } = await supabaseAdmin
       .from('messages')
       .select('project_id')
+      .eq('organization_id', orgId)
       .in('project_id', projectIds)
       .eq('sender_role', 'client')
       .is('read_at', null)

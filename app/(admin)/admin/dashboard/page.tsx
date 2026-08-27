@@ -1,4 +1,4 @@
-import { isAdmin } from '@/lib/auth/role'
+import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
@@ -16,6 +16,9 @@ export default async function AdminDashboardPage() {
   ) {
     redirect('/login')
   }
+
+  // Tenant scope, resolved once from the verified session (never a param).
+  const orgId = userOrgId(user)
 
   // Projects with client info + task counts
   const { data: projects } = await supabaseAdmin
@@ -40,6 +43,7 @@ export default async function AdminDashboardPage() {
         status
       )
     `)
+    .eq('organization_id', orgId)
     .order('updated_at', { ascending: false })
     .limit(50)
 
@@ -55,6 +59,7 @@ export default async function AdminDashboardPage() {
       created_at,
       projects(id, status)
     `)
+    .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
 
   // Recent activity — last 40 events
@@ -68,6 +73,7 @@ export default async function AdminDashboardPage() {
         projects(id, title),
         clients(id, name)
       `)
+      .eq('organization_id', orgId)
       .order('created_at', { ascending: false })
       .limit(40)
     activity = data ?? []
@@ -79,6 +85,7 @@ export default async function AdminDashboardPage() {
   const { data: invoiceTotals } = await supabaseAdmin
     .from('invoices')
     .select('amount, status')
+    .eq('organization_id', orgId)
 
   const revenue = {
     collected: (invoiceTotals ?? [])
@@ -98,6 +105,7 @@ export default async function AdminDashboardPage() {
   const { count: unreadMessages } = await supabaseAdmin
     .from('messages')
     .select('*', { count: 'exact', head: true })
+    .eq('organization_id', orgId)
     .is('read_at', null)
     .eq('sender_role', 'client')
 

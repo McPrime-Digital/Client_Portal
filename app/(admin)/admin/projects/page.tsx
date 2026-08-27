@@ -1,4 +1,4 @@
-import { isAdmin } from '@/lib/auth/role'
+import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
@@ -15,6 +15,9 @@ export default async function AdminProjectsPage() {
     redirect('/login')
   }
 
+  // Tenant scope, resolved once from the verified session (never a param).
+  const orgId = userOrgId(user)
+
   const { data: projects } = await supabaseAdmin
     .from('projects')
     .select(`
@@ -25,6 +28,7 @@ export default async function AdminProjectsPage() {
       messages(id, sender_role, read_at),
       project_phases(progress)
     `)
+    .eq('organization_id', orgId)
     .order('updated_at', { ascending: false })
 
   // Sync the progress ring with the canonical phase-average.

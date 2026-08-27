@@ -1,4 +1,4 @@
-import { isAdmin } from '@/lib/auth/role'
+import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -23,6 +23,12 @@ export async function POST() {
   const now = new Date()
   const horizon = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000)
 
+  // This handler WRITES: it completes stale approval gates, posts into project
+  // chats and stamps deadline_notified_at. It is fired on every admin page load,
+  // so unscoped one studio's admin auto-approved every other studio's pending
+  // client approvals. Scope resolved once from the verified session.
+  const orgId = userOrgId(user)
+
   // ── Auto-proceed stale client approvals ───────────────────────────────
   let autoProceeded = 0
   try {
@@ -30,6 +36,7 @@ export async function POST() {
     const { data: stale } = await supabaseAdmin
       .from('tasks')
       .select('id, title, project_id, client_id:projects(client_id)')
+      .eq('organization_id', orgId)
       .eq('status', 'review')
       .eq('visible_to_client', true)
       .or('requires_approval.eq.true,category.eq.approval')
@@ -53,6 +60,7 @@ export async function POST() {
       // Record it in the project chat as proof, and notify both sides.
       await supabaseAdmin.from('messages').insert({
         project_id: t.project_id,
+        organization_id: orgId,   // stamped, not defaulted (T-5)
         sender_id: user.id,
         sender_role: 'admin',
         sender_name: 'McPrime Digital',
@@ -86,6 +94,7 @@ export async function POST() {
   const { data: projects } = await supabaseAdmin
     .from('projects')
     .select('id, title, client_id, due_date, status, deadline_notified_at')
+    .eq('organization_id', orgId)
     .not('due_date', 'is', null)
     .is('deadline_notified_at', null)
 

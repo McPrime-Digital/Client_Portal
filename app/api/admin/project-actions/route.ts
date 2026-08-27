@@ -1,4 +1,4 @@
-import { isAdmin } from '@/lib/auth/role'
+import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -69,6 +69,38 @@ async function syncProjectFromPhases(projectId: string): Promise<{ progress: num
   return { progress, status: statusChanged ? nextStatus : null }
 }
 
+/**
+ * Tenant gate for the whole router.
+ *
+ * All 15 actions operate on an EXISTING project, task, phase or file whose id
+ * arrives in the request body — and every one of the ~35 statements below runs
+ * through the service role, so nothing else stops an admin of tenant A from
+ * passing tenant B's uuid. Scoping each statement individually would be 35
+ * chances to miss one; this resolves the caller's org ONCE from the verified
+ * session and rejects the request before dispatch instead.
+ *
+ * Unknown ids are rejected too — a row that cannot be found cannot be proven
+ * to belong to the caller, so it is refused rather than passed through.
+ */
+async function belongsToOrg(orgId: string, body: Record<string, unknown>): Promise<boolean> {
+  const targets: Array<[table: string, id: unknown]> = [
+    ['projects', body.project_id],
+    ['tasks', body.task_id],
+    ['project_phases', body.phase_id],
+    ['files', body.file_id],
+  ]
+  for (const [table, id] of targets) {
+    if (typeof id !== 'string' || !id) continue
+    const { data } = await supabaseAdmin
+      .from(table)
+      .select('organization_id')
+      .eq('id', id)
+      .maybeSingle()
+    if (!data || data.organization_id !== orgId) return false
+  }
+  return true
+}
+
 export async function POST(req: NextRequest) {
   const user = await verifyAdmin()
   if (!user) {
@@ -77,6 +109,11 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json()
   const { action } = body
+
+  // 404 rather than 403: a foreign uuid must not be confirmed as existing.
+  if (!(await belongsToOrg(userOrgId(user), body))) {
+    return NextResponse.json({ error: 'Not found.' }, { status: 404 })
+  }
 
   try {
     switch (action) {

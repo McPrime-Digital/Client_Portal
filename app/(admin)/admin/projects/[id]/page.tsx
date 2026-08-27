@@ -1,4 +1,4 @@
-import { isAdmin } from '@/lib/auth/role'
+import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect, notFound } from 'next/navigation'
@@ -18,6 +18,13 @@ export default async function AdminProjectDetailPage({
     redirect('/login')
   }
 
+  // Tenant scope, resolved once from the verified session (never a param).
+  // The org predicate on the ROOT project is the access control: `id` comes
+  // from the URL, so a foreign uuid must 404 rather than render. The child
+  // reads below are then transitively in-tenant, and carry the predicate too
+  // because both tables hold organization_id and it costs nothing.
+  const orgId = userOrgId(user)
+
   const { data: project } = await supabaseAdmin
     .from('projects')
     .select(`
@@ -25,6 +32,7 @@ export default async function AdminProjectDetailPage({
       clients(id, name, email, company)
     `)
     .eq('id', id)
+    .eq('organization_id', orgId)
     .single()
 
   if (!project) notFound()
@@ -39,21 +47,25 @@ export default async function AdminProjectDetailPage({
       .from('project_phases')
       .select('*')
       .eq('project_id', project.id)
+      .eq('organization_id', orgId)
       .order('sort_order'),
     supabaseAdmin
       .from('tasks')
       .select('*')
       .eq('project_id', project.id)
+      .eq('organization_id', orgId)
       .order('sort_order'),
     supabaseAdmin
       .from('files')
       .select('*')
       .eq('project_id', project.id)
+      .eq('organization_id', orgId)
       .order('created_at', { ascending: false }),
     supabaseAdmin
       .from('messages')
       .select('*')
       .eq('project_id', project.id)
+      .eq('organization_id', orgId)
       .order('created_at', { ascending: true }),
   ])
 
@@ -66,6 +78,7 @@ export default async function AdminProjectDetailPage({
       .from('activity_log')
       .select('id, actor_name, actor_role, event_type, title, body, meta, created_at')
       .eq('project_id', project.id)
+      .eq('organization_id', orgId)
       .in('event_type', ['approval_requested', 'task_approved', 'changes_requested', 'task_auto_approved'])
       .order('created_at', { ascending: false })
       .limit(500)
