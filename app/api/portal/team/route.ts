@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { userOrgId } from '@/lib/auth/role'
+import { cutMemberAccess, restoreClientAccess, statusCutsAccess } from '@/lib/memberAccess'
 import { clientMembershipOf } from '@/lib/team'
 import { clientCan } from '@/lib/permissions'
 import { recordUsage } from '@/lib/usage'
@@ -157,6 +158,17 @@ export async function PATCH(req: NextRequest) {
   if (extraCaps !== undefined && Array.isArray(extraCaps)) patch.extra_caps = extraCaps.filter((c) => CAPS.includes(c))
   if (title !== undefined) patch.title = String(title ?? '').trim().slice(0, 40) || null
   if (Object.keys(patch).length === 0) return NextResponse.json({ error: 'Nothing to change.' }, { status: 400 })
+  // Read the target back so the claim change below applies to a row that is
+  // provably inside this company (and not the owner).
+  const { data: target } = await supabaseAdmin
+    .from('client_members')
+    .select('id, user_id, organization_id')
+    .eq('id', memberId)
+    .eq('client_id', membership.clientId)
+    .neq('role', 'owner')
+    .maybeSingle()
+  if (!target) return NextResponse.json({ error: 'Member not found.' }, { status: 404 })
+
   const { error } = await supabaseAdmin
     .from('client_members')
     .update(patch)
@@ -164,6 +176,21 @@ export async function PATCH(req: NextRequest) {
     .eq('client_id', membership.clientId)
     .neq('role', 'owner')
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Previously this updated the roster row ONLY. A paused teammate kept
+  // role='client' and client_id in app_metadata, so the portal let them
+  // straight back in and RLS never stopped reading their rows.
+  if (status !== undefined && target.user_id) {
+    const claimError = statusCutsAccess(status)
+      ? await cutMemberAccess(target.user_id)
+      : await restoreClientAccess(target.user_id, membership.clientId, target.organization_id)
+    if (claimError) {
+      return NextResponse.json(
+        { error: `Roster updated, but the teammate's access claims could not be changed: ${claimError}` },
+        { status: 500 },
+      )
+    }
+  }
   return NextResponse.json({ success: true })
 }
 

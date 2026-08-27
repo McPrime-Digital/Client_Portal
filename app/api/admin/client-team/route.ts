@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { isAdmin } from '@/lib/auth/role'
 import { orgRolesOf, canManageOrg } from '@/lib/team'
 import { createNotification } from '@/lib/notify'
+import { cutMemberAccess, restoreClientAccess, statusCutsAccess } from '@/lib/memberAccess'
 
 // Org oversight of a client company's team: full roster, approve pending
 // invites, invite directly, change roles, revoke, set the invite policy.
@@ -82,12 +83,32 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === 'reject') {
+    const { data: target } = await supabaseAdmin
+      .from('client_members')
+      .select('id, user_id')
+      .eq('id', body.memberId)
+      .eq('status', 'pending')
+      .maybeSingle()
+
     const { error } = await supabaseAdmin
       .from('client_members')
       .update({ status: 'revoked' })
       .eq('id', body.memberId)
       .eq('status', 'pending')
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // A rejected invite usually has no auth account yet (pending means the
+    // invite was never sent), but strip the claims when one exists so a
+    // rejection is never weaker than a pause.
+    if (target?.user_id) {
+      const claimError = await cutMemberAccess(target.user_id)
+      if (claimError) {
+        return NextResponse.json(
+          { error: `Invite rejected, but the account's access claims could not be changed: ${claimError}` },
+          { status: 500 },
+        )
+      }
+    }
     return NextResponse.json({ success: true })
   }
 
@@ -133,12 +154,35 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === 'pause' || action === 'resume') {
+    const { data: target } = await supabaseAdmin
+      .from('client_members')
+      .select('id, user_id, client_id, organization_id')
+      .eq('id', body.memberId)
+      .neq('role', 'owner')
+      .maybeSingle()
+    if (!target) return NextResponse.json({ error: 'Member not found.' }, { status: 404 })
+
+    const nextStatus = action === 'pause' ? 'paused' : 'active'
     const { error } = await supabaseAdmin
       .from('client_members')
-      .update({ status: action === 'pause' ? 'paused' : 'active' })
+      .update({ status: nextStatus })
       .eq('id', body.memberId)
       .neq('role', 'owner')
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // Roster status alone did not cut access: app_metadata kept role='client'
+    // and client_id, so a paused teammate walked straight back into the portal.
+    if (target.user_id) {
+      const claimError = statusCutsAccess(nextStatus)
+        ? await cutMemberAccess(target.user_id)
+        : await restoreClientAccess(target.user_id, target.client_id, target.organization_id)
+      if (claimError) {
+        return NextResponse.json(
+          { error: `Roster updated, but the teammate's access claims could not be changed: ${claimError}` },
+          { status: 500 },
+        )
+      }
+    }
     return NextResponse.json({ success: true })
   }
 

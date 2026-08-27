@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { orgRolesOf, canManageOrg } from '@/lib/team'
+import { cutMemberAccess, restoreOrgAccess, statusCutsAccess } from '@/lib/memberAccess'
 import { recordUsage } from '@/lib/usage'
 
 // Org crew management. GET roster · POST invite · PATCH role · DELETE revoke.
@@ -131,16 +132,27 @@ export async function PATCH(req: NextRequest) {
     .eq('organization_id', userOrgId(gate.user))
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (target.user_id) {
-    if (status === 'paused') {
-      // Hold: studio access is cut instantly (proxy reads fresh app_metadata).
-      await supabaseAdmin.auth.admin.updateUserById(target.user_id, { app_metadata: { role: null } })
+    // A claim strip that fails must surface: reporting success while the member
+    // keeps role='admin' is the whole defect this guards against.
+    let claimError: string | null = null
+    if (statusCutsAccess(status)) {
+      // Hold: studio access is cut on the next request (proxy re-reads
+      // app_metadata via getUser). RLS follows at the next token refresh — see
+      // lib/memberAccess.ts for why that window cannot be closed here.
+      claimError = await cutMemberAccess(target.user_id)
     } else if (status === 'active') {
-      // Reinstate: restore studio access with their stored role.
-      await supabaseAdmin.auth.admin.updateUserById(target.user_id, {
-        app_metadata: { role: 'admin', org_role: role ?? target.role },
-      })
+      claimError = await restoreOrgAccess(target.user_id, role ?? target.role)
     } else if (role !== undefined) {
-      await supabaseAdmin.auth.admin.updateUserById(target.user_id, { app_metadata: { org_role: role } })
+      const { error: e } = await supabaseAdmin.auth.admin.updateUserById(target.user_id, {
+        app_metadata: { org_role: role },
+      })
+      claimError = e ? e.message : null
+    }
+    if (claimError) {
+      return NextResponse.json(
+        { error: `Roster updated, but the member's access claims could not be changed: ${claimError}` },
+        { status: 500 },
+      )
     }
   }
   return NextResponse.json({ success: true })
