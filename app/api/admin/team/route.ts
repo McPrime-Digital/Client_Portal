@@ -62,12 +62,14 @@ export async function POST(req: NextRequest) {
   })
   if (inviteError) return NextResponse.json({ error: inviteError.message }, { status: 500 })
 
-  // crew members are studio users: role 'admin' opens the studio; the
-  // membership row's role governs what they may actually do.
-  await supabaseAdmin.auth.admin.updateUserById(invite.user.id, {
-    app_metadata: { role: 'admin', organization_id: userOrgId(user), org_role: memberRole },
-  })
-
+  // ROSTER ROW FIRST, CLAIMS SECOND. This order is load-bearing, and it used to
+  // be the other way round: app_metadata was stamped before the insert, so any
+  // failure in between left an account holding a full crew claim with no roster
+  // row. That state used to resolve to member-level studio access via the
+  // orgRolesOf() bootstrap fallback; it now resolves to no roles at all, but
+  // the ordering matters for a second reason that does not depend on the
+  // fallback — a claim is a grant, and a grant must never be written before the
+  // record that justifies it. Same order as scripts/provision-tenant.ts.
   const { data: row, error } = await supabaseAdmin
     .from('organization_members')
     .insert({
@@ -83,6 +85,24 @@ export async function POST(req: NextRequest) {
     .select()
     .single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // crew members are studio users: role 'admin' opens the studio; the
+  // membership row's role governs what they may actually do.
+  //
+  // A failed claim stamp must surface (I-10) — reporting success while the
+  // invitee cannot enter the studio sends an admin looking for a bug in the
+  // email. The roster row stays: it is the record of the invitation, the invite
+  // email has already gone out, and re-inviting or resending re-stamps the
+  // claim. Reporting it is what makes that recoverable.
+  const { error: claimError } = await supabaseAdmin.auth.admin.updateUserById(invite.user.id, {
+    app_metadata: { role: 'admin', organization_id: userOrgId(user), org_role: memberRole },
+  })
+  if (claimError) {
+    return NextResponse.json(
+      { error: `${cleanEmail} was added to the roster, but their studio access claim could not be set: ${claimError.message}. Resend the invite to retry.` },
+      { status: 500 },
+    )
+  }
 
   // Awaited (Batch 6.5's fix, applied here too): `void` races the lambda
   // freeze and the seat row is lost. Usage cannot be backfilled — S-V §11.
