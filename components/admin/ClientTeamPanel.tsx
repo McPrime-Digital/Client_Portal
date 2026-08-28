@@ -193,9 +193,9 @@ export default function ClientTeamPanel({ clientId }: { clientId: string }) {
                 </button>
                 <button
                   type="button" disabled={busy === m.id}
-                  onClick={() => { if (confirm(`Delete ${m.name ?? m.email} permanently? Their account is removed entirely and cannot be restored.`)) act({ action: 'delete', memberId: m.id }, m.id) }}
+                  onClick={() => { if (confirm(`Remove ${m.name ?? m.email} from this company's team? They lose access immediately. Their login itself survives — it may belong to another company — but they will no longer be on this team.`)) act({ action: 'delete', memberId: m.id }, m.id) }}
                   className="grid h-7 w-7 flex-shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive"
-                  title="Delete permanently — account removed forever"
+                  title="Remove from the team — access ends, the login survives"
                 >
                   <Trash2 size={13} />
                 </button>

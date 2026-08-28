@@ -151,14 +151,14 @@ export default function ClientTeamManager() {
   }
 
   async function remove(memberId: string, name: string) {
-    if (!confirm(`Delete ${name} permanently? Their account is removed entirely and cannot be restored. (Use pause to hold their access instead.)`)) return
+    if (!confirm(`Remove ${name} from the team? They lose access to this company immediately. Their login itself survives — it may belong to another company — but they will no longer be on this team. (Use pause to hold their access temporarily instead.)`)) return
     setBusy(memberId); setError(null)
     const res = await fetch('/api/portal/team', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ memberId }),
     })
-    if (!res.ok) setError((await res.json()).error ?? 'Could not delete member.')
+    if (!res.ok) setError((await res.json()).error ?? 'Could not remove member.')
     await load(); setBusy(null)
   }
 
@@ -376,7 +376,7 @@ export default function ClientTeamManager() {
                   <button
                     type="button" disabled={busy === m.id}
                     onClick={() => remove(m.id, m.name ?? m.email)}
-                    title="Delete permanently — account removed forever"
+                    title="Remove from the team — access ends, the login survives"
                     className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive"
                   >
                     <Trash2 size={14} />
