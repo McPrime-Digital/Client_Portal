@@ -21,7 +21,11 @@ export async function sendSms(to: string | null | undefined, body: string): Prom
       },
       body: params.toString(),
     })
-    void recordUsage(DEFAULT_ORG_ID, 'sms.sent', 1, 0, { to_suffix: to.slice(-4) })
+    // Awaited, not fired-and-forgotten: on a serverless platform the lambda
+    // freezes the moment the response resolves, so a pending insert is simply
+    // lost. Usage data cannot be backfilled (S-V §11), so the row is gone for
+    // good. Same fix Batch 6.5 made on the file-commit path.
+    await recordUsage(DEFAULT_ORG_ID, 'sms.sent', 1, 0, { to_suffix: to.slice(-4) })
   } catch {
     // best-effort
   }

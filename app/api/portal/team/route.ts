@@ -121,7 +121,9 @@ export async function POST(req: NextRequest) {
     if (rows.length > 0) await supabaseAdmin.from('client_member_projects').insert(rows)
   }
 
-  void recordUsage(userOrgId(user), 'seat.invited', 1, 0, { side: 'client', client_id: company.id, member_id: member.id }, user.id)
+  // Awaited (Batch 6.5's fix, applied here too): `void` races the lambda
+  // freeze and the seat row is lost. Usage cannot be backfilled — S-V §11.
+  await recordUsage(userOrgId(user), 'seat.invited', 1, 0, { side: 'client', client_id: company.id, member_id: member.id }, user.id)
   void createAdminNotification({
     type: needsApproval ? 'member_invite_pending' : 'member_invited',
     title: needsApproval

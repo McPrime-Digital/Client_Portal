@@ -84,7 +84,9 @@ export async function POST(req: NextRequest) {
     .single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  void recordUsage(userOrgId(user), 'seat.invited', 1, 0, { side: 'org', member_id: row.id }, user.id)
+  // Awaited (Batch 6.5's fix, applied here too): `void` races the lambda
+  // freeze and the seat row is lost. Usage cannot be backfilled — S-V §11.
+  await recordUsage(userOrgId(user), 'seat.invited', 1, 0, { side: 'org', member_id: row.id }, user.id)
   return NextResponse.json({ success: true, member: row, message: `Invite sent to ${cleanEmail}.` })
 }
 
