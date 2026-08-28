@@ -27,6 +27,9 @@ export async function recordActivity(params: ActivityParams): Promise<void> {
     const { error } = await supabaseAdmin.from('activity_log').insert({
       project_id: params.projectId ?? null,
       client_id: params.clientId ?? null,
+      // Stamped only when the caller resolved it (T-5). Omitted, the column
+      // DEFAULT applies — the tenant-zero backstop, not the mechanism.
+      ...(params.organizationId ? { organization_id: params.organizationId } : {}),
       actor_id: params.actorId,
       actor_name: params.actorName,
       actor_role: params.actorRole,

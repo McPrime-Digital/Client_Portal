@@ -12,27 +12,37 @@
  *   await logActivity({ eventType: 'file_uploaded', title: '...', actorId, actorName, actorRole })
  */
 
-export type EventType =
-  | 'project_created'
-  | 'project_status_changed'
-  | 'file_uploaded'
-  | 'file_deleted'
-  | 'message_sent'
-  | 'task_completed'
-  | 'task_created'
-  | 'invoice_created'
-  | 'invoice_paid'
-  | 'client_created'
-  | 'note_added'
+// The closed set of ledger event types. A const array rather than a bare
+// union so /api/activity's zod schema validates against the SAME list —
+// one source, no drift between the type and the boundary check (I-7).
+export const EVENT_TYPES = [
+  'project_created',
+  'project_status_changed',
+  'file_uploaded',
+  'file_deleted',
+  'message_sent',
+  'task_completed',
+  'task_created',
+  'invoice_created',
+  'invoice_paid',
+  'client_created',
+  'note_added',
   // Approvals & Records ledger events.
-  | 'approval_requested'
-  | 'task_approved'
-  | 'changes_requested'
-  | 'task_auto_approved'
+  'approval_requested',
+  'task_approved',
+  'changes_requested',
+  'task_auto_approved',
+] as const
+
+export type EventType = (typeof EVENT_TYPES)[number]
 
 export type ActivityParams = {
   projectId?: string | null
   clientId?: string | null
+  /** Tenant stamp (T-5). Server-resolved from the verified target row —
+   *  never from a request body. Only the server writers consume it; the
+   *  browser POST path resolves it in /api/activity. */
+  organizationId?: string | null
   actorId: string
   actorName: string
   actorRole: 'admin' | 'client'
