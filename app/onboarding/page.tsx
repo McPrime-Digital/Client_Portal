@@ -1,6 +1,7 @@
 import { isAdmin } from '@/lib/auth/role'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { portalClientId } from '@/lib/team'
 import { redirect } from 'next/navigation'
 import OnboardingWizard from '@/components/portal/OnboardingWizard'
 
@@ -14,11 +15,21 @@ export default async function OnboardingPage() {
   // Admins don't onboard.
   if (isAdmin(user)) redirect('/admin')
 
+  // Resolve the company through client_members — the sole authority since
+  // Batch 6.8 (S1 §5.2) — not the deprecated clients.user_id pointer this used
+  // to read. portalClientId() returns a sentinel that matches no row when there
+  // is no membership, so the `!client` redirect below still covers that case.
+  //
+  // Behaviour note: an invited TEAMMATE now resolves here where they used to
+  // fall through to /dashboard. That is safe — the portal layout only routes
+  // anyone to /onboarding when `membership?.role === 'owner'`, explicitly so a
+  // teammate never overwrites the company profile as themselves — so a teammate
+  // still cannot arrive on this page by any route the app offers.
   const { data: client } = await supabaseAdmin
     .from('clients')
     .select('id, name, company, phone, avatar_url, onboarding_completed_at')
-    .eq('user_id', user.id)
-    .single()
+    .eq('id', await portalClientId(user))
+    .maybeSingle()
 
   // No client record, or already onboarded → straight to the portal.
   if (!client) redirect('/dashboard')

@@ -1,4 +1,5 @@
-import { userRole } from '@/lib/auth/role'
+import type { User } from '@supabase/supabase-js'
+import { userRole, userClientId } from '@/lib/auth/role'
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
@@ -46,7 +47,7 @@ export async function GET(request: Request) {
       // For invite links, redirect to set-password page first
       if (type === 'invite' || type === 'magiclink') {
         // Mark as onboarded before redirecting to set-password
-        await markOnboarded(supabase, data.user.id)
+        await markOnboarded(supabase, data.user)
         return NextResponse.redirect(`${origin}/set-password`)
       }
       return handleSuccessfulAuth(supabase, data.user, origin, next)
@@ -77,7 +78,7 @@ async function handleSuccessfulAuth(
 
   // Mark client as onboarded if first login
   if (role === 'client') {
-    await markOnboarded(supabase, user.id)
+    await markOnboarded(supabase, user)
   }
 
   // Admin → admin dashboard, Client → requested destination
@@ -92,17 +93,44 @@ async function handleSuccessfulAuth(
 /**
  * Mark client's onboarded_at timestamp if not already set.
  * Silently fails — should never block the auth flow.
+ *
+ * Resolves the company from `app_metadata.client_id`, not `clients.user_id`.
+ * The old lookup (`clients.eq('user_id', userId)`) was the deprecated
+ * primary-login pointer: it matched only the billing contact, so an invited
+ * teammate stamped nothing, and it is one of the references that must clear
+ * before the column can be dropped (S1 §10 q2 / S2 §11 q4).
+ *
+ * The claim rather than a `client_members` read, deliberately: it is on the
+ * user object already (no round trip), it is service-role-written and
+ * tamper-proof (lib/auth/role.ts), and — the deciding reason — it does not
+ * depend on roster status. There is no self-read policy on `client_members`
+ * (0012:72 gives `organization_members` one; the client side only has
+ * `client_members_team_read`, which routes through `is_client_member()` and so
+ * requires `status='active'`), and a user arriving on an invite link is still
+ * `'invited'`.
+ *
+ * FOUND WHILE MOVING THIS, and not caused by it: the invite-flow call at :49
+ * has been inert since 0021 for that same reason. Both the SELECT and the
+ * UPDATE on `clients` key on `is_client_member(id)`, which an `'invited'`
+ * member does not satisfy, and the failure is swallowed by the catch that is
+ * explicitly written never to block auth. Nothing is lost — the portal layout
+ * flips `'invited'` → `'active'` on first load and then applies the onboarding
+ * redirect itself — so this is a dead call, not a broken feature. Left in
+ * place: deleting it is an onboarding-flow decision, not a column retirement.
  */
 async function markOnboarded(
   supabase: any,
-  userId: string,
+  user: User,
 ) {
   try {
+    const clientId = userClientId(user)
+    if (!clientId) return
+
     const { data: client } = await supabase
       .from('clients')
       .select('id, onboarded_at')
-      .eq('user_id', userId)
-      .single()
+      .eq('id', clientId)
+      .maybeSingle()
 
     if (client && !client.onboarded_at) {
       await supabase
