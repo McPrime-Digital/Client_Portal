@@ -3,6 +3,10 @@
 // permits) read from the SAME maps, so screens always match enforcement.
 // Client-safe: no server imports — usable in 'use client' components.
 
+// Type-only, so it is erased at compile time: permissions.ts takes no runtime
+// dependency on spaces.ts (and drags no icon bundle into anything importing it).
+import type { FeatureKey } from '@/lib/studio/spaces'
+
 // ── client-side (portal) ────────────────────────────────────────────────────
 export type ClientRole = 'owner' | 'approver' | 'member' | 'viewer'
 
@@ -133,10 +137,18 @@ export const ORG_GRANTABLE: { cap: OrgCap; label: string }[] = [
   { cap: 'org_settings', label: 'Org settings' },
 ]
 
-/** The COMPLETE studio feature map, keyed `${spaceId}/${slug}` — default-deny
- *  discipline: every feature declares the capability that shows it. `null`
- *  marks the few genuinely universal crew surfaces (chat, calendar, meetings). */
-const ORG_FEATURE_CAP: Record<string, OrgCap | null> = {
+/**
+ * The COMPLETE studio feature map, keyed `${spaceId}/${slug}` — default-deny
+ * discipline: every feature declares the capability that shows it. `null`
+ * marks the few genuinely universal crew surfaces (chat, calendar, meetings).
+ *
+ * Typed `Record<FeatureKey, ...>` against the union derived from spaces.ts, so
+ * "COMPLETE" is checked rather than asserted: a feature added to SPACES without
+ * an entry here is a tsc error, and an entry here for a feature that no longer
+ * exists is too. Before this, an unmapped slug fell through to `return true`
+ * and shipped visible to every crew member.
+ */
+const ORG_FEATURE_CAP: Record<FeatureKey, OrgCap | null> = {
   // Crew
   'crew/chat': null,
   'crew/tasks': 'run_projects',
@@ -174,13 +186,30 @@ const ORG_FEATURE_CAP: Record<string, OrgCap | null> = {
   'workspace/provenance': 'workspace',
 }
 
+/**
+ * spaceId/slug arrive from the URL (app/studio/[space]/[feature]), so they are
+ * `string` and the lookup can genuinely miss at runtime — the FeatureKey type
+ * constrains the MAP, not the caller. Hence three distinct outcomes, where
+ * there used to be two:
+ *
+ *   undefined → not a feature we map. DENIED. An unrecognised slug, or one
+ *               added to SPACES without a capability, must not be visible.
+ *   null      → mapped, and deliberately ungated. ALLOWED. This is how a
+ *               feature declares itself universal (crew chat, calendar,
+ *               meetings); it is a decision recorded in the map, not an
+ *               accident of omission, and collapsing it into the case above
+ *               would make the map unable to express "everyone".
+ *   a cap     → allowed iff the role or an extra_caps grant carries it.
+ */
 export function orgFeatureAllowed(
   role: OrgRole | OrgRole[] | null | undefined,
   spaceId: string,
   slug: string,
   extra?: readonly string[] | null
 ): boolean {
-  const cap = ORG_FEATURE_CAP[`${spaceId}/${slug}`]
-  if (cap === null || cap === undefined) return true
+  const cap: OrgCap | null | undefined =
+    ORG_FEATURE_CAP[`${spaceId}/${slug}` as FeatureKey]
+  if (cap === undefined) return false // unmapped → denied
+  if (cap === null) return true // explicitly public, deliberate
   return orgCan(role, cap, extra)
 }

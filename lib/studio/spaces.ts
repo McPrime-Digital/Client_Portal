@@ -13,10 +13,24 @@ import {
 export type SpaceId = 'crew' | 'client' | 'workspace'
 // `legacyHref`: the working admin-portal tool this feature routes to until its
 // studio-native version ships — keeps every space entry functional, never a stub.
-export type Feature = { slug: string; label: string; icon: LucideIcon; phase: number; badge?: string; legacyHref?: string }
-export type Space = { id: SpaceId; label: string; icon: LucideIcon; blurb: string; features: Feature[] }
+export type Feature = {
+  readonly slug: string; readonly label: string; readonly icon: LucideIcon
+  readonly phase: number; readonly badge?: string; readonly legacyHref?: string
+}
+export type Space = {
+  readonly id: SpaceId; readonly label: string; readonly icon: LucideIcon
+  readonly blurb: string; readonly features: readonly Feature[]
+}
 
-export const SPACES: Space[] = [
+/**
+ * Shape-checks SPACES against Space[] while KEEPING the literal slug types —
+ * a plain `: Space[]` annotation widens every slug to `string`, and the whole
+ * point below is that the slugs survive into the type system. `const T` is
+ * what preserves them; the members are readonly for the same reason.
+ */
+const defineSpaces = <const T extends readonly Space[]>(spaces: T): T => spaces
+
+const SPACES_LITERAL = defineSpaces([
   {
     id: 'crew', label: 'Crew', icon: UsersRound,
     blurb: 'Your team only — collaboration, pipeline, and the AI control tower clients never see.',
@@ -75,7 +89,27 @@ export const SPACES: Space[] = [
       { slug: 'provenance', label: 'Provenance & Rights', icon: ShieldCheck, phase: 4 },
     ],
   },
-]
+])
+
+/**
+ * Every `${spaceId}/${slug}` the studio shell can route to, derived from the
+ * feature list above rather than restated beside it. This is what makes
+ * lib/permissions.ts's ORG_FEATURE_CAP exhaustive: adding a feature here
+ * without giving it a capability there fails `tsc`, so a new surface cannot
+ * ship visible to every crew member by omission (S2 §5).
+ */
+type AnySpace = (typeof SPACES_LITERAL)[number]
+export type FeatureKey = {
+  [S in AnySpace as S['id']]: `${S['id']}/${S['features'][number]['slug']}`
+}[AnySpace['id']]
+
+/**
+ * Consumers get the widened view. `const` inference drops absent optional
+ * properties altogether, so the literal type has no `badge` on the features
+ * that omit one — correct for deriving FeatureKey, useless for rendering.
+ * Same array, one object, two views of it.
+ */
+export const SPACES: readonly Space[] = SPACES_LITERAL
 
 export function getSpace(id: string): Space | undefined {
   return SPACES.find((s) => s.id === id)
