@@ -21,11 +21,21 @@ const RATE_CENTS_PER_1K: Record<string, number> = {
   'google/gemini-flash': 0.12,
 }
 
-// ~4 chars per token; min 1 cent so every metered call is recorded.
-export function estimateCostCents(modelId: string, inChars: number, outChars: number): number {
+// Cost from a REAL token count. This is the path every AI call should take:
+// all three providers report usage and S-V §11 requires provider-reported
+// figures, never estimates. Min 1 cent so every metered call is recorded.
+export function costCentsForTokens(modelId: string, tokensIn: number, tokensOut: number): number {
   const rate = RATE_CENTS_PER_1K[modelId] ?? 1.0
-  const tokens = (inChars + outChars) / 4
-  return Math.max(1, Math.ceil((tokens / 1000) * rate))
+  return Math.max(1, Math.ceil(((tokensIn + tokensOut) / 1000) * rate))
+}
+
+// FALLBACK ONLY — ~4 chars per token. Reached when a stream is cancelled or a
+// provider frame carrying usage never arrives, so a call is still charged
+// rather than free. Rows produced this way carry ref.measured = false; do not
+// mix them with measured rows in a pricing analysis (S-V §11 defect 1 is
+// exactly what happens when two units share one label).
+export function estimateCostCents(modelId: string, inChars: number, outChars: number): number {
+  return costCentsForTokens(modelId, Math.ceil(inChars / 4), Math.ceil(outChars / 4))
 }
 
 export async function getCreditState(orgId: string): Promise<{ balanceCents: number; hardStop: boolean }> {
@@ -64,10 +74,18 @@ export async function chargeCredits(
    *  poisons pricing analysis). Falls back to cents when the caller has no
    *  native measure, which keeps old call shapes working. */
   units?: number,
+  /** The metering kind for usage_events (S-V §11's taxonomy: 'ai.text.tokens',
+   *  'ai.image.count', …). Deliberately SEPARATE from `reason`, which is the
+   *  credit_ledger's money-category label ('primeos' | 'topup' | … — 0011:16).
+   *  They are two vocabularies over one event: the ledger answers "what was
+   *  this charge for", the taxonomy answers "what was consumed". Collapsing
+   *  them would force 'topup' — which consumes nothing — into the metering
+   *  taxonomy. Defaults to `reason` so existing call shapes are unchanged. */
+  kind?: string,
 ): Promise<number | null> {
   // Journal the raw usage event through THE write path (lib/usage.ts —
   // "never a second"), not a local insert. Control Tower reads usage_events.
-  await recordUsage(orgId, reason, units ?? cents, cents, ref)
+  await recordUsage(orgId, kind ?? reason, units ?? cents, cents, ref)
   const { data, error } = await supabaseAdmin.rpc('charge_credits', {
     p_org: orgId,
     p_cents: cents,

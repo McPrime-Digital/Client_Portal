@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getModel } from '@/lib/ai/models'
 import { userOrgId } from '@/lib/auth/role'
-import { getCreditState, chargeCredits, estimateCostCents } from '@/lib/credits'
+import { getCreditState, chargeCredits, estimateCostCents, costCentsForTokens } from '@/lib/credits'
 
 // Muse inline assistant. Takes the selected text + an instruction (+ short history)
 // and returns revised text. Provider keys come from env for now (per-org key
@@ -80,27 +80,76 @@ export async function POST(req: NextRequest) {
   const userMessage =
     `Selected text:\n"""\n${(selection ?? '').slice(0, 8000)}\n"""\n\nInstruction: ${instruction}`
   const inChars = system.length + userMessage.length + turns.reduce((a, t) => a + t.text.length, 0)
-  const charge = (outChars: number) => {
-    // units = estimated tokens (native measure), cents stay the charge. Same
-    // ~4-chars/token estimate as estimateCostCents — provider-reported usage
-    // replacing the estimate is S-V §11 defect 2, not this change.
-    const tokens = Math.ceil((inChars + outChars) / 4)
-    void chargeCredits(orgId, estimateCostCents(model.id, inChars, outChars), 'primeos', { model: model.id, user: user.id }, tokens)
+
+  /** What a provider told us it actually consumed. Both halves optional — a
+   *  cancelled stream may carry one, or neither. */
+  type Usage = { tokensIn?: number; tokensOut?: number }
+
+  /**
+   * Meter and charge one completed call. PROVIDER-REPORTED FIRST (S-V §11
+   * defect 2): all three providers return real token counts and the old code
+   * threw them away, dividing character counts by four instead. The estimate
+   * survives only as the fallback for a stream that ended before its usage
+   * frame arrived, and rows written that way are marked `measured: false` so
+   * the two populations stay distinguishable.
+   *
+   * `units` is total tokens; the in/out split lives in `ref` because
+   * usage_events.units is a single scalar and S-V §11's unit for this kind is
+   * "tokens in / out". Awaited, not `void`ed — the lambda freezes when the
+   * response finishes, and this is called while the stream is still open,
+   * which is the only window where the write is guaranteed to run.
+   */
+  const charge = async (outChars: number, usage: Usage) => {
+    const measured = typeof usage.tokensIn === 'number' && typeof usage.tokensOut === 'number'
+    const tokensIn = usage.tokensIn ?? Math.ceil(inChars / 4)
+    const tokensOut = usage.tokensOut ?? Math.ceil(outChars / 4)
+    await chargeCredits(
+      orgId,
+      measured
+        ? costCentsForTokens(model.id, tokensIn, tokensOut)
+        : estimateCostCents(model.id, inChars, outChars),
+      'primeos',                       // credit_ledger reason — the money label
+      { model: model.id, user: user.id, tokens_in: tokensIn, tokens_out: tokensOut, measured },
+      tokensIn + tokensOut,            // usage_events.units — native measure
+      'ai.text.tokens',                // usage_events.kind — S-V §11 taxonomy
+    )
   }
 
   const ENC = new TextEncoder()
-  // Convert a provider SSE body into a plain-text token stream the client appends.
-  const sseToText = (body: ReadableStream<Uint8Array>, extract: (j: any) => string | undefined, onDone?: (outChars: number) => void) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+  /**
+   * Convert a provider SSE body into a plain-text token stream the client
+   * appends, collecting the provider's own usage figures on the way past.
+   * `readUsage` returns whatever a given frame reveals; frames that reveal
+   * nothing return nothing, and later values win (Google restates the running
+   * total on every chunk; Anthropic splits input and output across two frames).
+   */
+  const sseToText = (
+    body: ReadableStream<Uint8Array>,
+    extract: (j: any) => string | undefined, // eslint-disable-line @typescript-eslint/no-explicit-any
+    readUsage: (j: any) => Usage | undefined, // eslint-disable-line @typescript-eslint/no-explicit-any
+    onDone?: (outChars: number, usage: Usage) => Promise<void>,
+  ) => {
     const reader = body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
     let outChars = 0
+    const usage: Usage = {}
+    let settled = false
+    // Metering runs exactly once per stream, whether it ends or is cancelled.
+    const settle = async () => {
+      if (settled) return
+      settled = true
+      await onDone?.(outChars, usage)
+    }
     return new ReadableStream<Uint8Array>({
       async pull(controller) {
         const { done, value } = await reader.read()
         if (done) {
+          // Meter BEFORE closing: once the response completes the platform is
+          // free to freeze the function, and a pending insert is lost usage
+          // that cannot be backfilled (S-V §11).
+          await settle()
           controller.close()
-          onDone?.(outChars)
           return
         }
         buffer += decoder.decode(value, { stream: true })
@@ -112,16 +161,20 @@ export async function POST(req: NextRequest) {
           const data = line.slice(5).trim()
           if (!data || data === '[DONE]') continue
           try {
-            const t = extract(JSON.parse(data))
+            const j = JSON.parse(data)
+            const u = readUsage(j)
+            if (u?.tokensIn !== undefined) usage.tokensIn = u.tokensIn
+            if (u?.tokensOut !== undefined) usage.tokensOut = u.tokensOut
+            const t = extract(j)
             if (t) { outChars += t.length; controller.enqueue(ENC.encode(t)) }
           } catch {
             /* partial / keep-alive line */
           }
         }
       },
-      cancel() {
+      async cancel() {
         void reader.cancel()
-        onDone?.(outChars)
+        await settle()
       },
     })
   }
@@ -145,7 +198,23 @@ export async function POST(req: NextRequest) {
         }),
       })
       if (!r.ok || !r.body) return providerError(r)
-      return new Response(sseToText(r.body, (j) => (j?.type === "content_block_delta" ? j?.delta?.text : ""), charge), { headers: streamHeaders })
+      return new Response(
+        sseToText(
+          r.body,
+          (j) => (j?.type === 'content_block_delta' ? j?.delta?.text : ''),
+          // Anthropic splits usage across two frames: message_start carries the
+          // input count, message_delta the running output count.
+          (j) => {
+            if (j?.type === 'message_start' && j?.message?.usage) {
+              return { tokensIn: j.message.usage.input_tokens, tokensOut: j.message.usage.output_tokens }
+            }
+            if (j?.type === 'message_delta' && j?.usage) return { tokensOut: j.usage.output_tokens }
+            return undefined
+          },
+          charge,
+        ),
+        { headers: streamHeaders },
+      )
     }
 
     if (model.provider === 'Google') {
@@ -159,7 +228,20 @@ export async function POST(req: NextRequest) {
         { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents }) },
       )
       if (!r.ok || !r.body) return providerError(r)
-      return new Response(sseToText(r.body, (j) => j?.candidates?.[0]?.content?.parts?.[0]?.text ?? '', charge), { headers: streamHeaders })
+      return new Response(
+        sseToText(
+          r.body,
+          (j) => j?.candidates?.[0]?.content?.parts?.[0]?.text ?? '',
+          // Gemini restates usageMetadata on every chunk as a running total, so
+          // the last frame seen is the authoritative one.
+          (j) =>
+            j?.usageMetadata
+              ? { tokensIn: j.usageMetadata.promptTokenCount, tokensOut: j.usageMetadata.candidatesTokenCount }
+              : undefined,
+          charge,
+        ),
+        { headers: streamHeaders },
+      )
     }
 
     // OpenAI
@@ -169,11 +251,26 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         model: OPENAI_MODEL[model.id] ?? 'gpt-4o',
         stream: true,
+        // Without this the usage object is omitted from a streamed response
+        // entirely — the reason character-counting looked unavoidable.
+        stream_options: { include_usage: true },
         messages: [{ role: 'system', content: system }, ...turns.map((t) => ({ role: t.role, content: t.text })), { role: 'user', content: userMessage }],
       }),
     })
     if (!r.ok || !r.body) return providerError(r)
-    return new Response(sseToText(r.body, (j) => j?.choices?.[0]?.delta?.content ?? '', charge), { headers: streamHeaders })
+    return new Response(
+      sseToText(
+        r.body,
+        (j) => j?.choices?.[0]?.delta?.content ?? '',
+        // One final chunk carries usage and an empty choices array.
+        (j) =>
+          j?.usage
+            ? { tokensIn: j.usage.prompt_tokens, tokensOut: j.usage.completion_tokens }
+            : undefined,
+        charge,
+      ),
+      { headers: streamHeaders },
+    )
   } catch (e) {
     return NextResponse.json({ error: (e as Error)?.message ?? 'Request failed' }, { status: 500 })
   }

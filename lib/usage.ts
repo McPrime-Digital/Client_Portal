@@ -10,7 +10,10 @@ import { captureError } from '@/lib/errors'
 // on); gating/charging is a separate concern (lib/billing, lib/credits).
 //
 // kinds in use:
-//   'primeos'        units = tokens (charged via charge_credits at the AI boundary)
+//   'ai.text.tokens' units = tokens in + out (split in ref); charged via
+//                    charge_credits at the AI boundary. Rows written before
+//                    Batch 7.4 carry kind 'primeos' and are ESTIMATES from
+//                    character counts — not comparable with these.
 //   'storage.bytes'  units = bytes committed to R2
 //   'sms.sent'       units = messages sent (pass-through cost)
 //   'seat.invited'   units = 1 per member invite (org or client side)
