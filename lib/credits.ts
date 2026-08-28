@@ -3,7 +3,6 @@ import 'server-only'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { captureError } from '@/lib/errors'
 import { recordUsage } from '@/lib/usage'
-import { DEFAULT_ORG_ID } from '@/lib/auth/role'
 
 // SaaS credit metering. Credits are held in cents on org_credits.balance_cents.
 // The company's keys are server-side; each AI action estimates a cost, gates on
@@ -56,10 +55,20 @@ export async function getCreditState(orgId: string): Promise<{ balanceCents: num
   // only thing that decides for it. `?? false` meant every new tenant billed
   // past zero until someone remembered to create the row.
   //
-  // The house org is exempt by standing rule — it is metered, never charged or
-  // blocked (lib/billing/plans.ts:24-25,32). Its explicit `false` row carries
-  // that today; this keeps the exemption true even if the row is lost.
-  const hardStop = orgId === DEFAULT_ORG_ID ? false : (budgetRes.data?.hard_stop ?? true)
+  // THE OPT-OUT IS A STATED VALUE, NOT AN IDENTITY TEST. This read
+  // `orgId === DEFAULT_ORG_ID ? false : …`, which is a hardcoded McPrime
+  // identity — S0 P-1 calls that a defect, not a shortcut, and it is the shape
+  // where "convenient for McPrime" and "correct for a tenant" diverge: no other
+  // org could ever be granted the same exemption without editing this line.
+  // 0024 already writes the house org an explicit `hard_stop = false` row, so
+  // the exemption is recorded where every other per-org decision is recorded.
+  // Same precedent as scope_mode (0018 A5): a stated decision, never an
+  // inferred default.
+  //
+  // The consequence is deliberate. Delete the house org's row and the house org
+  // gets gated like anyone else, because the statement IS the row — which is
+  // exactly what makes it a statement. 0024's insert-if-absent restores it.
+  const hardStop = budgetRes.data?.hard_stop ?? true
   return { balanceCents: creditRes.data?.balance_cents ?? 0, hardStop }
 }
 
