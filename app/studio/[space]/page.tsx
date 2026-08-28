@@ -13,8 +13,12 @@ export default async function SpacePage({ params }: { params: Promise<{ space: s
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   const orgAccess = user ? await orgAccessOf(user) : { roles: [], extraCaps: [], title: null }
+  // No roles → no features. The `roles.length ? roles : ['member']` this
+  // replaced was the third copy of the roster fallback (see lib/studio/guard.ts
+  // and the studio layout); all four had to go together or removing any one of
+  // them closed nothing.
   const features = space.features.filter((f) =>
-    orgFeatureAllowed(orgAccess.roles.length ? orgAccess.roles : ['member'], space.id, f.slug, orgAccess.extraCaps)
+    orgFeatureAllowed(orgAccess.roles, space.id, f.slug, orgAccess.extraCaps)
   )
 
   const Icon = space.icon

@@ -64,7 +64,27 @@ export default async function StudioLayout({ children }: { children: React.React
   }
 
   const orgAccess = await orgAccessOf(user)
-  const roles = orgAccess.roles.length ? orgAccess.roles : (['member'] as const)
+
+  // NO ROSTER ROW, NO STUDIO. This used to read
+  // `orgAccess.roles.length ? orgAccess.roles : ['member']` — the same fallback
+  // orgRolesOf() carried, re-invented here, so a crew claim with no active row
+  // still rendered a member's studio. Someone in that state is not a member of
+  // anything; say so rather than showing them an empty shell they cannot
+  // explain. A provisioned tenant owner never sees this (their roster row is
+  // written before their claim — scripts/provision-tenant.ts).
+  const roles = orgAccess.roles
+  if (roles.length === 0) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background px-6">
+        <div className="max-w-sm rounded-2xl border border-border bg-card p-8 text-center">
+          <p className="font-display text-lg font-semibold text-foreground">No studio access</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            This account isn&apos;t on a crew roster. Ask an owner or admin to add you to the team.
+          </p>
+        </div>
+      </div>
+    )
+  }
   const roleLabel = orgAccess.title ?? roles[0][0].toUpperCase() + roles[0].slice(1)
 
   return (

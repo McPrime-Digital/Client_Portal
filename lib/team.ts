@@ -12,28 +12,38 @@ export type OrgRole = 'owner' | 'admin' | 'producer' | 'member'
 export type ClientRole = 'owner' | 'approver' | 'member' | 'viewer'
 
 /** Every org-side role this admin user holds (primary + additional).
- *  LEAST PRIVILEGE by default: an admin with no membership row is 'member' —
- *  unless the roster is completely empty (fresh environment), where the sole
- *  admin bootstraps as owner. Empty array for non-admins / inactive members. */
+ *
+ *  THE ROSTER IS THE ONLY SOURCE. No active `organization_members` row means no
+ *  roles — empty array — for a non-admin, an inactive member, and an admin
+ *  claim with no row alike.
+ *
+ *  There used to be a fallback here: no row inferred `['owner']` when the org's
+ *  roster was empty and `['member']` otherwise. It existed because nothing in
+ *  the codebase could create an organization, so the first admin of a new
+ *  tenant had no other way to become its owner. `scripts/provision-tenant.ts`
+ *  now writes that roster row, which is what made deleting the inference
+ *  possible (Batch 7 item 5 — step 1 before step 3, deliberately).
+ *
+ *  Deleting it closes two holes. A removed crew member whose claim survived the
+ *  cut kept member-level studio access; so did anyone whose row was deleted by
+ *  hand. And the `['owner']` half was itself a trap: the count it read had no
+ *  status filter, so a bootstrap owner's first invite made the roster non-empty
+ *  and demoted them to 'member' — out of their own org's team management.
+ *
+ *  Scoped to the caller's claim org and `maybeSingle()`, not `.single()`: zero
+ *  rows is an ordinary answer here, not an error to be inferred from. The org
+ *  predicate is explicit per I-9 and is the seam S1 §2 needs for multi-org (v2)
+ *  — verified 2026-08-28 that every admin's claim org matches their roster row,
+ *  so it narrows nothing today. */
 export async function orgRolesOf(user: User): Promise<OrgRole[]> {
   if (!isAdmin(user)) return []
   const { data } = await supabaseAdmin
     .from('organization_members')
     .select('role, roles, status')
     .eq('user_id', user.id)
-    .single()
-  if (!data) {
-    // "Fresh environment" must mean THIS org's roster is empty, not the whole
-    // table's (T-4). Unscoped, the first admin of a second organization
-    // resolved to 'member' because tenant zero's roster is non-empty — so a
-    // new tenant could never be onboarded with an owner.
-    const { count } = await supabaseAdmin
-      .from('organization_members')
-      .select('*', { count: 'exact', head: true })
-      .eq('organization_id', userOrgId(user))
-    return (count ?? 0) === 0 ? ['owner'] : ['member']
-  }
-  if (data.status !== 'active') return []
+    .eq('organization_id', userOrgId(user))
+    .maybeSingle()
+  if (!data || data.status !== 'active') return []
   const extras = Array.isArray((data as { roles?: string[] }).roles)
     ? ((data as { roles?: string[] }).roles as OrgRole[])
     : []

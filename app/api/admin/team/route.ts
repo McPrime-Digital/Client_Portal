@@ -200,10 +200,16 @@ export async function DELETE(req: NextRequest) {
   }
   // Removal takes the MEMBERSHIP, not the account. The login survives — the
   // identity may span tenants (S1 §2), and after 0021 an account with no
-  // roster row reads nothing anyway. The claims cut matters doubly here:
-  // orgRolesOf() resolves a claim-admin with NO roster row to ['member'] (the
-  // T-4 bootstrap fallback), so a removed crew member with an intact role
-  // claim would keep member-level studio access. Stripping role closes that.
+  // roster row reads nothing anyway.
+  //
+  // The claims cut used to be the ONLY thing standing between a removed member
+  // and continued member-level studio access, because orgRolesOf() resolved a
+  // claim-admin with no roster row to ['member'] (the T-4 bootstrap fallback).
+  // Batch 7 item 5 deleted that fallback and its three downstream copies, so
+  // deleting the row is now sufficient on its own. The cut stays: defence in
+  // depth is the point, an account carrying role='admin' that grants nothing is
+  // a lie about itself, and the claim is what proxy.ts routes on — without the
+  // cut the person still lands on /studio, just to be told they have no access.
   // (Pause is the reversible option.)
   if (target.user_id) {
     const claimError = await cutMemberAccess(target.user_id)
