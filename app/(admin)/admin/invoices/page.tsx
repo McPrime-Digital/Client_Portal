@@ -21,17 +21,11 @@ export default async function AdminInvoicesPage() {
   // pages already read this way; this one was the lone holdout.
   const orgId = userOrgId(user)
 
-  // Was `rpc('mark_overdue_invoices')`, whose body is
-  //   update invoices set status='overdue' where status='unpaid' and due_date < CURRENT_DATE
-  // with no tenant predicate (0000:337). One admin opening this page rewrote
-  // EVERY tenant's invoice statuses. Inlined and org-scoped here because fixing
-  // the function itself needs a migration, which this batch does not carry.
-  await supabaseAdmin
-    .from('invoices')
-    .update({ status: 'overdue' })
-    .eq('organization_id', orgId)
-    .eq('status', 'unpaid')
-    .lt('due_date', new Date().toISOString().slice(0, 10))
+  // Org-scoped overdue sweep. 0023 gave mark_overdue_invoices() the tenant
+  // parameter (the 0000:337 zero-arg version swept every tenant; Batch 3A
+  // inlined this update as a stopgap until the migration existed). One
+  // definition of "overdue" again — the function's.
+  await supabaseAdmin.rpc('mark_overdue_invoices', { p_org: orgId })
 
   const { data: invoices } = await supabaseAdmin
     .from('invoices')

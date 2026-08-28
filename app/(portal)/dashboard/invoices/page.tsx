@@ -18,7 +18,7 @@ export default async function ClientInvoicesPage() {
   // RLS-scoped client returns nothing.
   const { data: client } = await supabaseAdmin
     .from('clients')
-    .select('id')
+    .select('id, organization_id')
     .eq('id', await portalClientId(user))
     .single()
 
@@ -28,8 +28,10 @@ export default async function ClientInvoicesPage() {
   const access = await portalAccess(user)
   if (access && !clientCan(access.role, 'invoices', access.extraCaps)) redirect('/dashboard')
 
-  // Mark overdue on client view too
-  await supabaseAdmin.rpc('mark_overdue_invoices')
+  // Mark overdue on client view too — org-scoped (0023). The bare zero-arg
+  // RPC this replaces swept EVERY tenant's invoices on each client page view.
+  // The org comes from the client company's row, not a claim.
+  await supabaseAdmin.rpc('mark_overdue_invoices', { p_org: client.organization_id })
 
   const { data: invoices } = await supabaseAdmin
     .from('invoices')
