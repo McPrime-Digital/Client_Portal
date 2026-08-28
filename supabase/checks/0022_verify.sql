@@ -4,12 +4,18 @@
 -- the hook against every real auth user, which is a read-only call.
 select
   -- 1. The function exists with the exact signature GoTrue calls.
-  (select count(*) from pg_proc p
-     join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public'
-      and p.proname = 'custom_access_token_hook'
-      and pg_get_function_identity_arguments(p.oid) = 'jsonb'
-  ) = 1                                                          as chk1_function_exists,
+  --    Resolved with to_regprocedure rather than by string-matching a rendered
+  --    argument list. The first version of this check compared
+  --    pg_get_function_identity_arguments(oid) = 'jsonb' and returned false
+  --    against a perfectly good function, because that renders the DECLARED
+  --    parameter (`event jsonb`), not the bare type. to_regprocedure resolves
+  --    the signature the same way a GRANT or the hook config does, so it
+  --    cannot disagree with checks 3 and 4 about what exists.
+  coalesce((
+    select p.prorettype = 'jsonb'::regtype and p.pronargs = 1
+      from pg_proc p
+     where p.oid = to_regprocedure('public.custom_access_token_hook(jsonb)')
+  ), false)                                                      as chk1_function_exists,
 
   -- 2. security definer with a pinned search_path. Without definer it runs as
   --    supabase_auth_admin, which has no read on the roster tables and would
@@ -86,3 +92,11 @@ select
 -- Confirm end to end by signing in and decoding the access token:
 --   JSON.parse(atob(session.access_token.split('.')[1])).app_metadata
 -- organization_id must be present, and roles must be an array for active crew.
+
+-- ── diagnostic, if chk1 ever disagrees with chk3/chk4 again ─────────────────
+-- select p.oid::regprocedure                        as signature,
+--        pg_get_function_arguments(p.oid)           as arguments,
+--        pg_get_function_identity_arguments(p.oid)  as identity_arguments,
+--        p.pronargs, p.prorettype::regtype
+--   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+--  where n.nspname = 'public' and p.proname = 'custom_access_token_hook';
