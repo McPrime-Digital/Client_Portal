@@ -5,6 +5,7 @@ import { getBusinessSettings } from '@/lib/businessSettings'
 import { DEFAULT_ORG_ID } from '@/lib/auth/role'
 import { sendPushToUser, sendPushToAdmins } from '@/lib/push'
 import { sendSms } from '@/lib/sms'
+import { captureError } from '@/lib/errors'
 
 // Server-only notification helpers. createNotification/createAdminNotification
 // write the in-app bell row AND escalate to external channels (device push, SMS,
@@ -181,50 +182,113 @@ async function orgForRecipient(
   return DEFAULT_ORG_ID
 }
 
-// Resolve a recipient's contact details, last-seen heartbeat and per-category
-// channel preferences. Shared by every "away" escalation path.
-async function resolveRecipientState(
+// Every active member of a client company who may see this notification.
+//
+// THIS IS A FAN-OUT, NOT A COLUMN SWAP. The previous shape read one row —
+// `clients.select('user_id, email, phone, last_seen_at, …')` — so the recipient
+// was always the company's primary login. Since Batch 6.8 a client company is a
+// roster (S1 §5.2), and an invited teammate got no push and no email at all
+// while the escalation ladder fired at the billing contact instead. Both are
+// defects being fixed here, not behaviour being preserved.
+//
+// PROJECT SCOPE IS RESPECTED. A member with scope_mode 'selected' is included
+// only when client_member_projects links them to this project — scope is
+// STATED, not inferred (0018 A5), so 'selected' with no rows means no projects,
+// not all of them. A company-level alert (projectId null, e.g. an invoice) goes
+// to everyone active.
+//
+// WHAT STAYS COMPANY-LEVEL, and why that is not a shortcut: `phone` and
+// `notification_prefs` live on `clients` and have no per-member equivalent on
+// the roster. The phone is the COMPANY's one number, so SMS is deduped by
+// number below rather than sent once per member. Per-member phone and
+// preferences are roster-schema work and belong to S3.
+async function resolveClientRecipients(
+  cid: string,
+  projectId?: string | null
+): Promise<RecipientState[]> {
+  const { data: company } = await supabaseAdmin
+    .from('clients')
+    .select('phone, notification_prefs, organization_id')
+    .eq('id', cid)
+    .maybeSingle()
+  const co = company as {
+    phone?: string | null
+    notification_prefs?: PrefMap | null
+    organization_id?: string | null
+  } | null
+
+  const { data: members, error } = await supabaseAdmin
+    .from('client_members')
+    .select('id, user_id, email, last_seen_at, scope_mode, organization_id')
+    .eq('client_id', cid)
+    .eq('status', 'active')
+  if (error) {
+    // Resolving to an empty set silently cancels every client notification, so
+    // this must reach the sink (I-10). The expected cause is 42703 —
+    // last_seen_at missing because 0025 has not been applied yet. See the
+    // deploy-order note in that file.
+    captureError(new Error(`client recipients read failed: ${error.message}`), {
+      where: 'resolveClientRecipients', clientId: cid, projectId: projectId ?? null,
+    })
+    return []
+  }
+
+  type Row = {
+    id: string
+    user_id: string | null
+    email: string | null
+    last_seen_at: string | null
+    scope_mode: string | null
+    organization_id: string | null
+  }
+  let rows = (members ?? []) as Row[]
+
+  if (projectId) {
+    const scoped = rows.filter((m) => m.scope_mode === 'selected')
+    if (scoped.length > 0) {
+      const { data: links } = await supabaseAdmin
+        .from('client_member_projects')
+        .select('member_id')
+        .eq('project_id', projectId)
+        .in('member_id', scoped.map((m) => m.id))
+      const allowed = new Set((links ?? []).map((l) => l.member_id as string))
+      rows = rows.filter((m) => m.scope_mode !== 'selected' || allowed.has(m.id))
+    }
+  }
+
+  return rows.map((m) => ({
+    email: m.email ?? null,
+    phone: co?.phone ?? null,
+    userId: m.user_id ?? null,
+    lastSeen: m.last_seen_at,
+    prefs: co?.notification_prefs ?? {},
+    orgId: co?.organization_id ?? m.organization_id ?? null,
+  }))
+}
+
+// Resolve the recipients' contact details, last-seen heartbeat and per-category
+// channel preferences. Shared by every "away" escalation path. The admin side
+// is one studio inbox and stays a single entry; the client side fans out.
+async function resolveRecipients(
   recipient: 'admin' | 'client',
   projectId?: string | null,
   clientId?: string | null
-): Promise<RecipientState | null> {
+): Promise<RecipientState[]> {
   if (recipient === 'client') {
     const cid = clientId ?? (await clientIdForProject(projectId))
-    if (!cid) return null
-    const { data } = await supabaseAdmin
-      .from('clients')
-      .select('user_id, email, phone, last_seen_at, notification_prefs, organization_id')
-      .eq('id', cid)
-      .single()
-    // One narrow row type instead of six `as any` casts — the casts existed
-    // because these columns post-date the generated types.
-    const row = data as {
-      user_id?: string | null
-      email?: string | null
-      phone?: string | null
-      last_seen_at?: string | null
-      notification_prefs?: PrefMap | null
-      organization_id?: string | null
-    } | null
-    return {
-      email: row?.email ?? null,
-      phone: row?.phone ?? null,
-      userId: row?.user_id ?? null,
-      lastSeen: row?.last_seen_at,
-      prefs: row?.notification_prefs ?? {},
-      orgId: row?.organization_id ?? null,
-    }
+    if (!cid) return []
+    return resolveClientRecipients(cid, projectId)
   }
   const orgId = await orgForRecipient(projectId, clientId)
   const data = await getBusinessSettings(orgId)
-  return {
+  return [{
     email: data?.business_email ?? null,
     phone: null,
     userId: null,
     lastSeen: data?.admin_last_seen_at,
     prefs: (data?.notification_prefs ?? {}) as PrefMap,
     orgId,
-  }
+  }]
 }
 
 // Immediate, per-message device push for a new chat message — fired on send.
@@ -239,12 +303,8 @@ export async function pushMessageAlert(opts: {
   preview: string
 }): Promise<void> {
   try {
-    const state = await resolveRecipientState(opts.recipient, opts.projectId)
-    if (!state) return
-    // In the app right now → they'll see it live; don't push.
-    if (!awayFrom(state.lastSeen)) return
-    const ch = state.prefs['messages'] ?? {}
-    if (ch.push === false) return // push opted out for messages
+    const states = await resolveRecipients(opts.recipient, opts.projectId)
+    if (states.length === 0) return
 
     const url = deepLink(opts.recipient, 'messages', opts.projectId)
     const payload = {
@@ -253,8 +313,15 @@ export async function pushMessageAlert(opts: {
       url,
       tag: 'messages',
     }
-    if (opts.recipient === 'admin') await sendPushToAdmins(state.orgId, payload)
-    else await sendPushToUser(state.userId, payload)
+    // Per recipient, because presence is per recipient: a teammate reading the
+    // thread is not pushed, and one sitting in the app no longer decides for
+    // the rest of the company.
+    await Promise.all(states.map(async (state) => {
+      if (!awayFrom(state.lastSeen)) return
+      if ((state.prefs['messages'] ?? {}).push === false) return
+      if (opts.recipient === 'admin') await sendPushToAdmins(state.orgId, payload)
+      else await sendPushToUser(state.userId, payload)
+    }))
   } catch {
     // never block the triggering send
   }
@@ -273,32 +340,54 @@ export async function notifyAwayRecipient(opts: {
   body?: string | null
 }): Promise<boolean> {
   try {
-    const state = await resolveRecipientState(opts.recipient, opts.projectId, opts.clientId)
-    if (!state) return false
-    const { email, phone, userId, lastSeen, prefs, orgId } = state
+    const states = await resolveRecipients(opts.recipient, opts.projectId, opts.clientId)
+    if (states.length === 0) return false
 
-    // Only escalate when the recipient is actually away.
-    if (!awayFrom(lastSeen)) return false
+    // Only escalate to recipients who are actually away. An empty set here is
+    // the good case: everyone entitled to this alert is looking at it.
+    const away = states.filter((s) => awayFrom(s.lastSeen))
+    if (away.length === 0) return false
 
-    const ch = prefs[opts.category] ?? {}
     const subject = opts.title
     const text = opts.body ? `${opts.title}\n\n${opts.body}` : opts.title
     const url = deepLink(opts.recipient, opts.category, opts.projectId)
+    const push = { title: opts.title, body: opts.body ?? undefined, url, tag: opts.category }
 
-    // Default ON for push + email when unset; SMS off by default (needs a number).
-    const wantPush = ch.push !== false
-    const wantSms = ch.sms === true
-    const wantEmail = ch.email !== false
+    // The X-6 ladder is unchanged — in-app → push → email → SMS, same payload,
+    // same per-category preferences. What changed is that it now runs once per
+    // away recipient instead of once per company.
+    //
+    // Email and SMS are deduped by destination. SMS especially: `phone` is the
+    // COMPANY's number on every member's state, so fanning it out unguarded
+    // would text one handset once per teammate.
+    const sentEmail = new Set<string>()
+    const sentSms = new Set<string>()
+    const sends: Promise<unknown>[] = []
 
-    await Promise.all([
-      wantPush
-        ? opts.recipient === 'admin'
-          ? sendPushToAdmins(orgId, { title: opts.title, body: opts.body ?? undefined, url, tag: opts.category })
-          : sendPushToUser(userId, { title: opts.title, body: opts.body ?? undefined, url, tag: opts.category })
-        : Promise.resolve(),
-      wantSms && phone ? sendSms(phone, text) : Promise.resolve(),
-      wantEmail && email ? sendEmailAlert(email, subject, text) : Promise.resolve(),
-    ])
+    for (const { email, phone, userId, prefs, orgId } of away) {
+      const ch = prefs[opts.category] ?? {}
+      // Default ON for push + email when unset; SMS off by default (needs a number).
+      if (ch.push !== false) {
+        sends.push(
+          opts.recipient === 'admin'
+            ? sendPushToAdmins(orgId, push)
+            : sendPushToUser(userId, push)
+        )
+      }
+      if (ch.email !== false && email && !sentEmail.has(email)) {
+        sentEmail.add(email)
+        sends.push(sendEmailAlert(email, subject, text))
+      }
+      if (ch.sms === true && phone && !sentSms.has(phone)) {
+        sentSms.add(phone)
+        sends.push(sendSms(phone, text))
+      }
+    }
+
+    await Promise.all(sends)
+    // True means "at least one entitled recipient was away", which is exactly
+    // what the message-nudge cron uses it for: mark the thread nudged, and
+    // leave it alone when everyone is present.
     return true
   } catch {
     // Deferred alerts must never block the triggering action.
