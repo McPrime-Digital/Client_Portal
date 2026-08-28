@@ -71,7 +71,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 2. Create client record in DB
+    // 2. Create client record in DB. organization_id is STAMPED, not defaulted
+    // (T-5, S1 §3): the column DEFAULT is McPrime's org, so an unstamped insert
+    // files a second studio's client company inside tenant zero.
     const { data: clientRecord, error: clientError } =
       await supabaseAdmin
         .from('clients')
@@ -82,6 +84,7 @@ export async function POST(request: NextRequest) {
           phone: phone?.trim() || null,
           notes: notes?.trim() || null,
           user_id: inviteData.user.id,
+          organization_id: userOrgId(user),
           invited_at: new Date().toISOString(),
           invite_count: 1,
         })
@@ -96,10 +99,42 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // 2a. The membership row — see the long note in create-client/route.ts.
+    // client_members is the sole authority since Batch 6.8 (S1 §5.2); without
+    // this row the invited company owner lands in an empty portal. Written
+    // BEFORE the claim (Batch 7.5's ordering rule), and the org is taken off
+    // the clients row we just wrote so the two cannot disagree.
+    const { error: memberError } = await supabaseAdmin
+      .from('client_members')
+      .insert({
+        client_id: clientRecord.id,
+        organization_id: clientRecord.organization_id,
+        user_id: inviteData.user.id,
+        name: name.trim(),
+        email: cleanEmail,
+        role: 'owner',
+        status: 'active',
+        scope_mode: 'all',
+        invited_by: user.id,
+        accepted_at: new Date().toISOString(),
+      })
+
+    if (memberError) {
+      // No partial creation: the company row does not outlive the membership
+      // insert that failed. The auth user is left alone (AD-003) and carries
+      // no client_id claim, because 2b has not run yet.
+      console.error('[invite-client] Membership insert failed:', memberError)
+      await supabaseAdmin.from('clients').delete().eq('id', clientRecord.id)
+      return NextResponse.json(
+        { error: 'Failed to create client membership.' },
+        { status: 500 }
+      )
+    }
+
     // 2b. Bind the invited auth user to its client + role in app_metadata
     // (service-role only, never user-editable) so authorization is secure.
     await supabaseAdmin.auth.admin.updateUserById(inviteData.user.id, {
-      app_metadata: { role: 'client', client_id: clientRecord.id, organization_id: userOrgId(user) },
+      app_metadata: { role: 'client', client_id: clientRecord.id, organization_id: clientRecord.organization_id },
     })
 
     // 3. Link to project if provided

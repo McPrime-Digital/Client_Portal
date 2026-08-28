@@ -138,11 +138,16 @@ export async function POST(req: NextRequest) {
       userId = data.user.id
     }
 
-    // Insert into clients table using service_role (bypasses RLS)
+    // Insert into clients table using service_role (bypasses RLS).
+    // organization_id is STAMPED, not defaulted (T-5, S1 §3). The column
+    // DEFAULT is McPrime's org, so an unstamped insert files a second studio's
+    // client company inside tenant zero — and the client_members row below
+    // would then disagree with it about which tenant the company belongs to.
     const { data: client, error: insertError } = await supabaseAdmin
       .from('clients')
       .insert({
         user_id: userId,
+        organization_id: userOrgId(user),
         name: name.trim(),
         email: email.trim().toLowerCase(),
         company: reqBody.company?.trim() || null,
@@ -162,6 +167,53 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // ── the membership row, and it is not optional ──────────────────────────
+    // Batch 6.8 made client_members the SOLE authority (S1 §5.2):
+    // clientMembershipOf() and portalAccess() read nothing else. This route
+    // never wrote one, so every company created after 6.8 shipped produced a
+    // login with no membership and an empty portal shell. Live only because
+    // the last real company predates the 0012 backfill — S1 §5.2 specified
+    // that backfill and never specified this path, so a one-time fix read as
+    // a permanent one.
+    //
+    // ORDER: clients → client_members → claim. Never claim first. Batch 7.5
+    // established this on the crew side for the reason it applies here: a
+    // failure between the claim and the row leaves an account holding a
+    // client_id it has no membership behind, which is the exact state 7.5
+    // eliminated. The org comes off the row we just wrote, so the two can
+    // never disagree.
+    const { error: memberError } = await supabaseAdmin
+      .from('client_members')
+      .insert({
+        client_id: client.id,
+        organization_id: client.organization_id,
+        user_id: userId,
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        role: 'owner',
+        status: 'active',
+        scope_mode: 'all',
+        invited_by: user.id,
+        accepted_at: new Date().toISOString(),
+      })
+
+    if (memberError) {
+      // No partial creation. A clients row with no membership IS the defect
+      // this block exists to prevent, so it does not survive the failure that
+      // produced it. Bounded: the row was written milliseconds ago by this
+      // request and nothing references it yet.
+      //
+      // The auth user is deliberately NOT deleted (AD-003 / Batch 6.2 removed
+      // deleteUser everywhere). It carries no client_id claim — that is
+      // stamped below, after this — so it is inert rather than dangling.
+      console.error('[create-client] Membership insert failed:', memberError)
+      await supabaseAdmin.from('clients').delete().eq('id', client.id)
+      return NextResponse.json(
+        { error: 'Failed to create client membership: ' + memberError.message },
+        { status: 500 }
+      )
+    }
+
     // Bind the auth user to its client + role. SECURITY: role and client_id
     // live in app_metadata (service-role only, not user-editable); only the
     // display name stays in user_metadata.
@@ -170,7 +222,7 @@ export async function POST(req: NextRequest) {
       app_metadata: {
         role: 'client',
         client_id: client.id,
-        organization_id: userOrgId(user),
+        organization_id: client.organization_id,
       },
     })
 
