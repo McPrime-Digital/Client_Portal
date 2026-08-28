@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     // by id. Foreign uuids 404 like any other miss.
     const { data: client, error: fetchError } = await supabaseAdmin
       .from('clients')
-      .select('id, user_id, name, email')
+      .select('id, name, email')
       .eq('id', clientId)
       .eq('organization_id', userOrgId(user))
       .single()
@@ -42,6 +42,24 @@ export async function POST(req: NextRequest) {
         { status: 404 }
       )
     }
+
+    // Everyone whose access this company grants, read BEFORE the delete —
+    // client_members rows cascade away with the company row, so after the
+    // delete there is nothing left to resolve them from.
+    //
+    // This replaces a clients.user_id read, and it is a fan-out, not a lookup:
+    // the column named ONE person, so every invited teammate kept a client_id
+    // claim pointing at a company that no longer exists. client_members is the
+    // authority (S1 §5.2), so the company's people are its members — the same
+    // answer Batch 8 item 2 gives for notifications.
+    const { data: memberRows } = await supabaseAdmin
+      .from('client_members')
+      .select('user_id')
+      .eq('client_id', clientId)
+      .eq('organization_id', userOrgId(user))
+    const memberUserIds = [...new Set(
+      (memberRows ?? []).map((m) => m.user_id).filter((v): v is string => !!v)
+    )]
 
     // Unlink projects (set client_id to null, preserve projects)
     await supabaseAdmin
@@ -64,12 +82,16 @@ export async function POST(req: NextRequest) {
       throw new Error(deleteError.message)
     }
 
-    // Cut the primary login's claims — but keep the account. The identity may
-    // belong to another tenant (S1 §2); with the company row and its cascade-
-    // deleted client_members rows gone, the login reads nothing regardless.
-    if (client.user_id) {
+    // Cut every member's claims — but keep the accounts (AD-003). An identity
+    // may belong elsewhere (S1 §2); dropping client_id only demotes them to the
+    // roster-resolved path in clientMembershipOf(), which is the correct
+    // answer for whatever other membership they hold. With the company row and
+    // its cascade-deleted client_members rows gone, they read nothing here
+    // regardless.
+    for (const memberUserId of memberUserIds) {
       try {
-        await cutMemberAccess(client.user_id)
+        const claimError = await cutMemberAccess(memberUserId)
+        if (claimError) console.error('Failed to cut auth claims:', claimError)
       } catch (authErr: any) {
         // Non-fatal — client record is already deleted
         console.error('Failed to cut auth claims:', authErr.message)

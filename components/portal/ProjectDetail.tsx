@@ -396,7 +396,11 @@ export default function ProjectDetail({
     const optimistic: Message = {
       id: `temp-${Date.now()}`,
       project_id: project.id,
-      sender_id: client.user_id ?? client.id,
+      // The company id, matching MessagesHub.tsx:364. This read the deprecated
+      // clients.user_id pointer; the value is optimistic-only and replaced by the
+      // reconciled server row (which writes the auth user id), and nothing in this
+      // component reads sender_id — alignment is by sender_role.
+      sender_id: client.id,
       sender_role: 'client',
       sender_name: memberName ?? client.name,
       body,
