@@ -360,12 +360,14 @@ export default function DocEditor({
       if (isPrimary) {
         clearTimeout(previewTimer.current)
         previewTimer.current = setTimeout(async () => {
-          // store a real first-page HTML snapshot for the home thumbnail — enough
-          // blocks to fill a full page (the card clips to one page height).
-          let html = ''
-          try { html = await editor.blocksToHTMLLossy((editor.document as any[]).slice(0, 40)) } catch { /* noop */ }
+          // PLAIN TEXT ONLY — never HTML. This column is browser-writable by
+          // any org member (documents_org_all) and is rendered on every
+          // collaborator's home page, so storing markup here was a stored-XSS
+          // channel (Batch 6 item 3). The sink was removed, not sanitised:
+          // ScriptHome renders preview as text and nothing may reintroduce
+          // an HTML path through this column.
           // must await (or .then) — a bare `void` builder never sends the request.
-          await supabase.from('documents').update({ preview: html || text.slice(0, 1200) }).eq('id', docId)
+          await supabase.from('documents').update({ preview: text.slice(0, 1200) }).eq('id', docId)
         }, 600)
       }
     }
@@ -632,17 +634,30 @@ export default function DocEditor({
   }
   const printDoc = async () => {
     const html = await editor.blocksToHTMLLossy(editor.document)
-    const w = window.open('', '_blank')
-    if (!w) return
-    w.document.write(
+    // Sandboxed srcdoc iframe, scripts disallowed. The old shape —
+    // window.open('') + document.write — rendered the document into an
+    // about:blank window that INHERITS THE APP ORIGIN, so a collaborator's
+    // injected markup executed as the printing user. Without allow-scripts,
+    // nothing in the document can run; allow-same-origin only lets the parent
+    // reach in to call print(), and allow-modals admits the print dialog.
+    const frame = document.createElement('iframe')
+    frame.setAttribute('sandbox', 'allow-same-origin allow-modals')
+    frame.style.position = 'fixed'
+    frame.style.right = '100%'
+    frame.style.bottom = '100%'
+    frame.srcdoc =
       `<!doctype html><html><head><meta charset="utf-8"><title>Document</title>` +
-        `<style>body{font-family:Inter,system-ui,-apple-system,sans-serif;max-width:46rem;margin:2.5rem auto;padding:0 1.5rem;line-height:1.7;color:#111}` +
-        `h1,h2,h3{line-height:1.25;margin:1.4em 0 .5em}img{max-width:100%}blockquote{border-left:3px solid #ddd;margin:1em 0;padding-left:1em;color:#555}` +
-        `pre,code{font-family:ui-monospace,Menlo,monospace}</style></head><body>${html}</body></html>`,
-    )
-    w.document.close()
-    w.focus()
-    w.print()
+      `<style>body{font-family:Inter,system-ui,-apple-system,sans-serif;max-width:46rem;margin:2.5rem auto;padding:0 1.5rem;line-height:1.7;color:#111}` +
+      `h1,h2,h3{line-height:1.25;margin:1.4em 0 .5em}img{max-width:100%}blockquote{border-left:3px solid #ddd;margin:1em 0;padding-left:1em;color:#555}` +
+      `pre,code{font-family:ui-monospace,Menlo,monospace}</style></head><body>${html}</body></html>`
+    frame.onload = () => {
+      frame.contentWindow?.focus()
+      frame.contentWindow?.print()
+      // The dialog is synchronous in most browsers; linger long enough for
+      // the slow ones before tearing the frame down.
+      setTimeout(() => frame.remove(), 60_000)
+    }
+    document.body.appendChild(frame)
   }
   const exportWord = async () => {
     const html = await editor.blocksToHTMLLossy(editor.document)
