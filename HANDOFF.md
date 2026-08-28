@@ -5,7 +5,8 @@ did not: the open list was kept outside the repo, drifted from the code with
 nothing able to contradict it, and four live defects fell off it entirely
 (recovered by Batch 6 item 0). Everything below was verified against the code
 and the live database on 2026-08-28 — nothing is quoted from memory of what a
-batch was supposed to do. Last compiled after **Batch 7**.
+batch was supposed to do. Last compiled after **Batch 8**, the final foundation
+batch.
 
 After this, read `docs/specs/` in order: S0 → S0-A → S0-conformance → S1-P →
 S-V → S1 → S2. **Where S0 and S0-A disagree, S0-A wins.** `CLAUDE.md` holds
@@ -110,14 +111,14 @@ paying"** (S-V §13).
 | I-2 | Realtime scoped, ≤2 subs/session | **VIOLATES** — the *disclosure* half is closed: presence is `presence:org:${orgId}`, per tenant (7.2). The *budget* half is untouched — ~13 subs on a loaded session, and eight other globally-named channels (sidebars, bells, rosters). S0-A §6 routes it to S2.5 |
 | I-3 | No polling where push exists | **VIOLATES** — 16 `setInterval` sites remain; de-poll is gated on per-surface RLS verification (S0-A §4.2), now unblocked by the harness |
 | I-4 | >5s work runs on a queue | **NOT BUILT** — no queue exists; blocks AI generation jobs (S5) |
-| I-5 | AI calls ceilinged + budget-checked | **PARTIAL, and accurate for the first time.** Fixed (7.1): `hard_stop` defaults **true** (0024) and `getCreditState` treats a *missing* `org_budgets` row as gated — the column default alone changed nothing, because nothing in the app inserts that table. The house org is explicitly exempt. Not fixed: the **$2 per-call ceiling is unbuilt** — no surface enforces one, so a single call is bounded only by `max_tokens` |
+| I-5 | AI calls ceilinged + budget-checked | **PARTIAL, and accurate for the first time.** Fixed (7.1): `hard_stop` defaults **true** (0024, applied) and `getCreditState` treats a *missing* `org_budgets` row as gated — the column default alone changed nothing, because nothing in the app inserts that table. The house org's exemption is now a **stated row**, not a test for McPrime's id (8.5). Not fixed: the **$2 per-call ceiling is unbuilt** — no surface enforces one, so a single call is bounded only by `max_tokens` |
 | I-6 | Ownership server-resolved, never from the body | **PARTIAL** — activity ledger (6.1), team routes (3A + 6.2), edit pages (6.6) fixed; display names now resolve from the roster, not user-editable `user_metadata` (7.8); `portal/actions:225` / `admin/project-actions:123` still write body attachment refs |
 | I-7 | Schema validation at API boundaries | **PARTIAL** — first zod boundary is `app/api/activity/route.ts` (the pattern to copy); 40 route handlers unvalidated |
 | I-8 | No service role on user-session paths | **VIOLATES — but ratcheted (7.9).** 71 modules touch the service role (69 importers + 2 inline constructors), all allowlisted in `lib/supabase/admin-allowlist.mjs` and split PERMANENT / TRANSITIONAL. Two ESLint rules hold the line: the import, and naming `SUPABASE_SERVICE_ROLE_KEY` inline. **No file has migrated yet** — that is S2 §7 steps 4-6 |
-| I-9 | Explicit tenant filter on every query | **PARTIAL** — studio reads (3A), edit pages (6.6), heartbeat (B2), `orgRolesOf` (7.5) scoped; inserts still lean on column DEFAULTs — the `tenantScope()` helper (S1 §8.1) is not built. `lib/sms.ts:24` still meters every tenant's SMS against `DEFAULT_ORG_ID` |
-| I-10 | No silent failure; errors reach a sink | **PARTIAL** — Sentry + `captureError()` live (6.4); metering writes are awaited rather than `void`ed (7.3, 7.4) and the invite's claim-stamp error surfaces (7.5); ~75 empty catches remain, converted opportunistically inside feature work |
+| I-9 | Explicit tenant filter on every query | **PARTIAL** — studio reads (3A), edit pages (6.6), heartbeat (B2), `orgRolesOf` (7.5) scoped; `lib/sms.ts` now takes the org from its caller (8.4) and both client-creation paths stamp it (8.1). Other inserts still lean on column DEFAULTs — the `tenantScope()` helper (S1 §8.1) is not built |
+| I-10 | No silent failure; errors reach a sink | **PARTIAL** — Sentry + `captureError()` live (6.4); metering writes are awaited rather than `void`ed (7.3, 7.4) and the invite's claim-stamp error surfaces (7.5); the heartbeat write, the notification recipient read and an unattributable SMS now surface too (8.2, 8.4). **77** empty catches remain, converted opportunistically inside feature work |
 | I-11 | No module-scope env-dependent clients | **VIOLATES** — `lib/supabase/admin.ts:5`, `lib/r2.ts:16`; fix pairs with the I-8 pass (same 71 files) |
-| I-12 | Idempotent, forward-only, single ordering | **CONFORMS for new work** — 0018–0025 are guarded; the `2026*` series is archived (6.9); 0000–0004 remain non-idempotent as captured history |
+| I-12 | Idempotent, forward-only, single ordering | **CONFORMS for new work** — 0018–0026 are guarded; the `2026*` series is archived (6.9); 0000–0004 remain non-idempotent as captured history. The unapplied `clients.user_id` drop was renumbered 0025→0026 (8.2) so filename order stays apply order |
 
 ## 5. Capacity decisions
 
@@ -126,7 +127,8 @@ messages unbounded but keyset-paginated at 50/page (once I-1 lands); 5 GB
 attachments / 5 TiB masters (R2), 100 MB multipart threshold; 500K-char
 documents; 50 concurrent editors, unlimited viewers (viewers don't broadcast
 awareness); $2 AI per-call ceiling **(still unbuilt — nothing enforces one)**;
-hard-stop at zero balance **on by default — implemented 7.1, house org exempt**;
+hard-stop at zero balance **on by default — implemented 7.1 (0024 applied); the
+house org's exemption is a stated `org_budgets` row, not a code branch (8.5)**;
 p95 2.5s; no uptime SLA and no copy implying one. Retention: 90-day soft-delete grace, 7-year activity
 log, 30-day erasure — **no expression surface yet** (no `deleted_at`
 anywhere; S3 owns the schema).
@@ -169,82 +171,74 @@ The audited era, each batch with what it *found*:
 | 7.7 | Removal copy tells the truth | `TeamManager.tsx:153` never interpolated `${name}` — the crew confirm dialog never said who was being removed |
 | 7.8 | `ownName()` prefers the roster over `user_metadata` | The output is persisted into `messages.sender_name` and `activity_log.actor_name`, so it was the 6.1 ledger forgery through a second door. Display change for real users: **zero** — all six have identical roster and metadata names |
 | 7.9 | I-8 allowlist + two lint rules (ratchet only) | The rule found two importers a grep could not — multi-line import specifiers. HANDOFF's count of 71 was right; the grep-based 67 was wrong |
+| 8.1 | Both client-creation paths write the owner `client_members` row, before the claim; `organization_id` stamped on both `clients` inserts | The **spec gap** behind §8.1: S1 §5.2 specified the 0012 backfill and never specified the create path, so a one-time fix read as a permanent one. Same failure mode as AD-004's inherited premise |
+| 8.2 | Presence + away-escalation fan out to every active `client_members` row, project scope respected; 0025 printed | Presence could not be answered per member **at all** — `client_members` has no `last_seen_at`, and a per-company column cannot say who is present. Also: `phone` is the COMPANY's one number on every member's state, so an unguarded SMS fan-out texts one handset once per teammate |
+| 8.3 | `delete-client` cuts every member's claims; `ProjectDetail` off the column | The brief's list was stale — two of its three sites closed in 7.6. The re-grep found a **fourth** it did not have: `ProjectDetail.tsx:399`, reached via `select('*')`, so no named-column grep could see it. And `delete-client` is a fan-out, not a lookup: teammates of a deleted company kept a `client_id` claim pointing at nothing |
+| 8.4 | `sendSms` takes the caller's org; `DEFAULT_ORG_ID` no longer imported there | One caller, and the org was already resolved on the recipient state — no session threading needed. Required parameter, not an optional with a fallback: there is no constant left to default to |
+| 8.5 | House-org hard-stop opt-out is the stated `org_budgets` row; the `orgId === DEFAULT_ORG_ID` branch is gone | 0024 **is** applied — proved by a reversible probe (insert an `org_budgets` row for the decoy org without naming `hard_stop`, read `true`, delete). The house org's own `false` row is consistent with either state, so the row alone could not tell them apart. `lib/billing/plans.ts` is still dead — zero importers |
+| 8.6 | `clients.user_id` retired; 0026 printed, guards removed, hook fixed in the same transaction | **0022's live access-token hook read the column** (`0022:111-118`). No guard would have caught it: Postgres tracks no column dependency inside a PL/pgSQL body, and the printed guard scanned `pg_policies`, a different catalog. Worse, the hook's own `exception when others` would have absorbed the 42703 and returned every user's token unenriched — a silently empty app for everyone, which is the exact failure AD-001 and 0022 exist to prevent |
 
-## 7. Current state (verified 2026-08-28, after Batch 7)
+## 7. Current state (verified 2026-08-28, after Batch 8)
 
 - **Branch:** `throughline` (main ⊆ throughline, fast-forward).
-- **Migrations applied: 0000–0023.** 0023 **is applied** — verified by probing
-  for the named `p_org` parameter, which only resolves against the new
-  signature. The prior "0023 printed, NOT applied" line was stale.
-- **Printed, NOT applied:**
-  - **0024** — `org_budgets.hard_stop` default → true, backfill excluding the
-    house org. Not a table-shape change; no deploy queued behind it. Verification
-    queries are in the file footer.
-  - **0025** — drops `clients.user_id`. **BLOCKED, and the file refuses to run**:
-    two guard blocks abort if any client company lacks an active owner in
-    `client_members`, or if any live policy still reads the column. Both
-    preconditions in §8.1 must clear first. **TABLE-SHAPE CHANGE** when it lands
-    — ship code, apply, reload the PostgREST schema cache.
-- **Access token hook:** enabled in production, verified from a live JWT.
-- **Harness:** `npm run test:rls` → **10 pass / 0 fail / 0 vacuous / 0
-  error**; positive controls 3,3,2,2,2,2.
-- **`tsc --noEmit`:** clean. **Lint: 353** problems (was 354 — 7.7 removed an
-  unused-parameter warning; failures do not fail the build). **`npm run build`:**
-  green, compiled in 16s, Sentry-wrapped.
+- **Migrations applied: 0000–0024.** 0024 **is applied** — this was asserted
+  rather than shown before, and is now proved: inserting an `org_budgets` row
+  for the harness decoy org without naming `hard_stop` returns `true`, so the
+  stored default is flipped. The probe row was deleted; `org_budgets` is back to
+  its single row. The house org's own `false` row is consistent with 0024
+  applied *or* not, so it could never have settled the question by itself.
+- **Printed, NOT applied — and the order between them matters:**
+  - **0025 — `client_members.last_seen_at`** (Batch 8.2). Presence is per
+    person, and no per-company column can express that.
+    **ADDITIVE TABLE-SHAPE CHANGE. Apply BEFORE deploying Batch 8** — the
+    reverse of a drop. Deploying first fails the member SELECT in `lib/notify.ts`
+    with 42703, resolving the recipient set to empty: client notifications stop
+    and the heartbeat no-ops. Both errors now reach Sentry, but the order
+    prevents it. Backfills each active owner from `clients.last_seen_at` so
+    nobody reads as away across the deploy.
+  - **0026 — drops `clients.user_id`** (Batch 8.6, renumbered from 0025 so
+    filename order stays apply order). Guard blocks removed; both preconditions
+    met. It also replaces `custom_access_token_hook` in the same transaction —
+    see §6, 8.6. **TABLE-SHAPE CHANGE: apply 0025 and deploy the code first,
+    then apply this, then reload the PostgREST schema cache.** The file carries a
+    pre-apply query covering `pg_policies` **and** `pg_proc`; run it.
+- **Full sequence to land Batch 8:** apply 0025 → deploy → apply 0026 → reload
+  the schema cache → verify with the queries in each file's footer.
+- **Access token hook:** enabled in production, verified from a live JWT. 0026
+  changes its body; step 2 (verify a client's token still carries
+  `organization_id`) is the check that matters after applying it.
+- **Harness:** `npm run test:rls` → **10 pass / 0 fail / 0 vacuous / 0 error**;
+  positive controls 3,3,2,2,2,2. Run after 8.1 and after 8.6, unchanged.
+- **`tsc --noEmit`:** clean. **Lint: 353** problems, unchanged across all six
+  commits (failures do not fail the build). **`npm run build`:** green,
+  compiled in 7.6s, Sentry-wrapped, 81 static pages.
 - **Live data:** 3 organizations (McPrime + 2 harness) · 8 client companies (2
-  harness) · 13 auth users (6 harness) · 21 files · ~200 messages · 15
-  `usage_events` rows with kind `primeos` · `org_credits` for McPrime at
-  **−15¢** (it billed past zero because `hard_stop` was false — the exposure 7.1
-  closes for every tenant but the house org).
-- **Storage metering works.** A real upload wrote `storage.bytes` = 65,035,931 at
-  2026-08-28 10:53Z. The Batch 6.5 question is answered.
-- **Every admin's claim org matches their roster row** (verified across all 13
-  auth users), and no admin claim exists without a roster row — which is what
-  made 7.5's org-scoped `orgRolesOf` safe to ship.
-- **Sentry:** wired, but `NEXT_PUBLIC_SENTRY_DSN` is **not present in
-  `.env.local`** — capture no-ops to console locally. The batch brief listed
-  "Sentry DSN set" as a precondition; if it is set in Vercel's environment that
-  is not visible from the repo, and it is not set for local runs.
+  harness) · 9 `client_members` rows · 13 auth users (6 harness) · 21 files ·
+  ~200 messages · `org_credits` for McPrime at **−15¢** · `org_budgets` holds
+  exactly **one** row (the house org, `hard_stop = false` — its stated opt-out).
+- **Every client company has an active `owner` in `client_members`**, and every
+  `clients.user_id` value appears on one of those rows. That is what makes the
+  0026 drop lossless, and it is now maintained by the create paths rather than
+  by a one-time backfill.
+- **`client_members.last_seen_at` does not exist yet** — confirmed by live
+  probe. It is what 0025 adds.
+- **Sentry:** wired. `NEXT_PUBLIC_SENTRY_DSN` is set in Vercel per the Batch 8
+  brief; it is still **absent from `.env.local`**, so `captureError` no-ops to
+  console on local runs. Not visible from the repo either way.
 
 ## 8. What is open — citable only
 
-### 8.1 BLOCKING — client onboarding is broken right now
+### 8.1 CLOSED — client onboarding
 
-**Neither client-creation route creates a `client_members` row.**
-`app/api/admin/create-client/route.ts:143-155` and
-`app/api/admin/invite-client/route.ts:77-89` insert `clients` (with `user_id`)
-and stamp `app_metadata.client_id`, and stop there. No trigger fills the gap;
-migration `0012`'s backfill covered only the rows that existed then.
+Batch 8.1. Both creation paths write the owner `client_members` row before the
+claim, and fail the route (deleting the company row) if that insert fails. The
+next client created works. Do not re-open.
 
-Since Batch 6.8 made `client_members` the sole authority, a client company
-created **today** produces a login with no membership: `clientMembershipOf()`
-returns null, `portalAccess()` returns null, and the person lands in an empty
-portal shell. Every existing company is fine — all 8 have an active owner row —
-but only because the last real one was created 2026-06-02, before the backfill,
-and the two harness companies were seeded with explicit rows. **The next client
-created breaks.**
+### 8.2 CLOSED — `clients.user_id`
 
-Fix: insert the owner `client_members` row on both paths, in the order
-`clients` → `client_members` → claims (7.5's ordering rule). It also unblocks
-half of §8.2.
-
-### 8.2 `clients.user_id` — three readers still to move
-
-Batch 7.6 moved the two the brief named (`auth/callback`, `onboarding/page`). A
-re-grep found five. These three are live, and 0025 will not run until they and
-§8.1 clear:
-
-| Site | Failure after the drop |
-|---|---|
-| `app/api/presence/heartbeat/route.ts:27` | **Silent.** `last_seen_at` stops updating, so every client reads "away" and the escalation path emails/texts people who are in the app |
-| `app/api/admin/delete-client/route.ts:34` | **Loud.** 42703 → `fetchError` → 404 "Client not found." Deleting a client company stops working |
-| `lib/notify.ts:196` | **Silent.** Recipient resolves to all-nulls; client push and email stop targeting anyone |
-
-Two are decisions, not moves: `delete-client` cuts claims for the primary login
-only and `notify` pushes to the primary login only. Post-6.8 the authority is
-`client_members`, so both need an answer to "every member of the company, or
-just one?" — a fan-out change. `scripts/seed-harness-tenant.ts:273-281` writes
-the column too and loses that step in the same change.
+Batch 8.2/8.3/8.6. Zero references in application code; the column drops with
+0026, which also removes the access-token hook's read of it. S1 §10 q2 and
+S2 §11 q4 close with it.
 
 ### 8.3 Live defects / security
 
@@ -255,57 +249,85 @@ the column too and loses that step in the same change.
 3. The `$2` per-call AI ceiling (S0 §4) is **unbuilt**. 7.1 fixed the *budget*
    half of I-5; nothing bounds a single call but `max_tokens: 2000` in
    `app/api/studio/muse/route.ts:141`.
-4. `lib/sms.ts:24` meters every tenant's SMS against `DEFAULT_ORG_ID` (T-5).
-5. The cron route's **POST** half (`app/api/cron/message-nudge/route.ts:90-99`)
-   is a user-session path — `PresencePulse` calls it on every page load — running
-   a service-role scan of every unread message. Allowlisted as PERMANENT for its
-   GET half only; the POST half is not.
+4. The cron route's **POST** half (`app/api/cron/message-nudge/route.ts:90-99`)
+   is a user-session path — `PresencePulse` calls it on every page load —
+   running a service-role scan of every unread message. Allowlisted as PERMANENT
+   for its GET half only; the POST half is not.
+5. `lib/billing/plans.ts:32` still tests `orgId === DEFAULT_ORG_ID` for the
+   house org. **Dead code** — zero importers anywhere (verified 8.5) — but it is
+   the last instance of the rule 8.5 removed from `lib/credits.ts`, and it is a
+   hardcoded McPrime identity (P-1). Whoever gives that file its first importer
+   must state the exemption per-org first, not wire the branch.
+6. `clients.last_seen_at` is now written by nothing and read by nothing (8.2).
+   Retiring it is a column drop nobody has scheduled.
+
+Item 4 of this list in the Batch 7 compilation — `lib/sms.ts:24` metering every
+tenant against `DEFAULT_ORG_ID` — **closed in 8.4**.
 
 Closed in Batch 7 and **not** to be re-opened: `hard_stop` default (7.1) ·
 global presence disclosure (7.2) · the three `void recordUsage` sites (7.3) ·
 estimated AI cost and the `primeos` kind (7.4) · the tenant bootstrap and all
 four `['member']` sources (7.5) · account-destruction copy (7.7) ·
 `user_metadata` display names (7.8) · the missing I-8 ratchet (7.9).
+Closed in Batch 8: client onboarding (8.1) · client-side presence and
+notification fan-out (8.2) · the last `clients.user_id` readers (8.3) · SMS
+metering (8.4) · the house-org identity test (8.5) · the column itself (8.6).
 
 ### 8.4 Structural (sequenced, not forgotten)
 
 The I-8 **migration** — the ratchet exists (7.9), no file has moved; read-path
 flips per surface, portal dashboard first (S2 §7 order), paired with I-11's
 `getSupabaseAdmin()` accessor in one pass (S0-A §4.3) · I-1 + I-3 per surface
-together · I-2's subscription budget: eight globally-named channels and ~13
-subs/session (S2.5) · `tenantScope()` insert-stamping helper + lint (T-5,
-S1 §8.1) · retention schema (S3) · AD-004-R's resumable uploader + attachment FK
-· provenance tables have zero reads/writes (`supabase/migrations/0003`) · dead
-code inventory (C-6) including `app/(admin)` (S4), `hooks/useFileUpload.ts`,
-`lib/r2.ts:39-107`.
+together (16 `setInterval` sites) · I-2's subscription budget: eight
+globally-named channels and ~13 subs/session (S2.5) · `tenantScope()`
+insert-stamping helper + lint (T-5, S1 §8.1) — 8.1 and 8.4 closed three sites by
+hand, the remaining inserts still lean on column DEFAULTs · retention schema
+(S3) · AD-004-R's resumable uploader + attachment FK · per-member `phone` and
+`notification_prefs` on `client_members` (8.2 falls back to the company's, which
+is why SMS dedupes by number) · provenance tables have zero reads/writes
+(`supabase/migrations/0003`) · dead code inventory (C-6) including `app/(admin)`
+(S4), `hooks/useFileUpload.ts`, `lib/r2.ts:39-107`, `lib/billing/plans.ts`.
 
 ## 9. What to do next
 
-The foundation is **not** clear. Two things block, in this order:
+**The foundation is complete.** Nothing on this page blocks S3-core, and nothing
+found in Batch 8 forces S3-core work to be redone.
 
-1. **§8.1 — the `client_members` insert.** This is not sequencing, it is a live
-   break: onboarding a new client today produces an unusable login. Smallest and
-   most urgent item on this page.
-2. **§8.2 — the three remaining `clients.user_id` readers**, then apply 0025.
-   Its guard blocks will refuse the drop until §8.1 is fixed anyway.
+Two operator steps stand between the code and the running system, and they are
+sequencing, not design:
 
-Then, in any order:
+1. **Apply 0025, deploy Batch 8, apply 0026, reload the schema cache.** §7 has
+   the full sequence and each file's footer has its verification queries. Until
+   0025 is applied, the deployed presence and notification code is ahead of the
+   database.
+2. Nothing else. The three items that blocked previous batches — client
+   onboarding, the `clients.user_id` readers, and the `hard_stop` default — are
+   all closed.
 
-3. **Apply 0024** and confirm with the queries in its footer.
-4. **Decide the `$2` per-call ceiling** (§8.3 item 3) — the other half of I-5,
-   and the one that matters once generation exists (S-V §10: budget check →
-   per-call ceiling → route → queue → meter → provenance).
-5. **Start the I-8 migration proper**: portal dashboard off `supabaseAdmin`,
-   paired with I-11, shrinking `admin-allowlist.mjs` one surface at a time.
+**Then S3-core, and it is the next artifact — a spec, not code:**
 
-**Then S3-core:** messaging schema, approval decoupling (X-2), file version
-stacking, retention columns, attachment FK. Nothing found in Batch 7 forces any
-of those to be redone — see the closing note of the Batch 7 report.
+- **Messaging schema** — `messages` carries the denormalized `sender_name` that
+  AD-003's pseudonymisation must rewrite, no `deleted_at`, and no pagination
+  cursor (I-1's first surface).
+- **Approval decoupling (X-2)** — approvals are welded to the Client space;
+  S1 §9 needs them free of it before archetype `internal` (P-9) is expressible.
+- **File version stacking** — one `files` row per upload today, no lineage.
+- **Retention columns** — S0 §5's 90-day grace, 7-year activity log and 30-day
+  erasure have **no expression surface at all**: no table has `deleted_at`, no
+  purge job exists, no export path exists (S0-A §3).
+- **Attachment FK** — `messages.attachment_file_id → files(id)`, replacing the
+  `"bucket::path"` string, plus the body-trust fix and orphan cleanup
+  (AD-004-R items 1–3, §8.3 items 1–2).
+
+Independent of S3-core and available any time: the `$2` per-call ceiling
+(§8.3 item 3 — the other half of I-5, and the one that matters once generation
+exists), and the I-8 read-path migration proper (portal dashboard first, paired
+with I-11, shrinking `admin-allowlist.mjs` one surface at a time).
 
 The v1 cap (S-V §13) is the boundary: nothing outside it before studio two is
-live and paying. Note that studio two is now *possible* — `npm run provision:tenant`
-creates an organization and a working owner, proven end to end (7.5) — which it
-was not before this batch.
+live and paying. Studio two is *possible* — `npm run provision:tenant` creates an
+organization and a working owner (7.5) — and as of 8.1 the client companies that
+studio creates work too, which they would not have.
 
 ## 10. Working agreements
 
@@ -319,10 +341,13 @@ was not before this batch.
   sweep and the client-team action sweep).
 - **Migrations are printed, never applied by the agent.** Applied by hand in
   the SQL editor, `00NN` order, forward-only, idempotent, every
-  `create policy` preceded by `drop policy if exists`. Table-shape changes:
-  queue the deploy behind the migration, reload the PostgREST schema cache.
+  `create policy` preceded by `drop policy if exists`. Renumber an unapplied
+  file rather than telling an operator to apply out of order (8.2).
+  Table-shape changes go in **opposite** orders and both matter: a **drop**
+  ships the code first and applies second; an **additive** column applies first
+  and deploys second. Reload the PostgREST schema cache either way.
 - **`tsc --noEmit` after every commit; report the lint delta** (baseline
-  354). Run the harness after anything touching policies, auth, or tenancy.
+  **353**). Run the harness after anything touching policies, auth, or tenancy.
 - **Verify before writing.** Claims about the code cite `path:line`; claims
   about the database come from a live read. This file drifts the moment that
   stops.
@@ -346,20 +371,59 @@ was not before this batch.
 6. **Whether a browser-callable activity endpoint should exist at all** —
    server-side emission as a side effect of the real action is the stronger
    shape (6.1 report → S3).
-7. **Claim-cut fan-out on the client side** (new, from 7.6) — `delete-client`
-   and `lib/notify.ts` each act on the primary login alone. With `client_members`
-   as the authority, should they act on every member of the company? Gates §8.2.
-8. **The `$2` per-call AI ceiling** (new, from 7.1) — where it is enforced, and
+7. **The `$2` per-call AI ceiling** (new, from 7.1) — where it is enforced, and
    what "confirm above" means in a streaming UI. S0 §4 fixes the number; nothing
    fixes the mechanism.
 
 Hours per week is answered — **30** — and is not carried forward.
 
-**Two questions the Batch 7 brief asked to remove, and why they are still here.**
-The brief said "§11: remove question 2 (answered). Remove question 6 if item 6
-landed." §11 question 2 is *crew project-scoping default for a new member*, and
-question 6 is *whether a browser-callable activity endpoint should exist* —
-neither is what those instructions describe. The brief's "question 2" is storage
-metering, which is answered (§7) but was never a §11 entry; and item 6 is the
-`clients.user_id` retirement, which resolves **S1 §10 q2 / S2 §11 q4**, not this
-list's q6 — and did not land in any case. Both entries are left open.
+**Answered and removed in Batch 8:** the old question 7 — *claim-cut fan-out on
+the client side*. `lib/notify.ts` and `delete-client` both act on **every active
+member of the company** now (8.2, 8.3), because `client_members` is the roster
+and a company's people are its members. Project-scoped notifications additionally
+respect `scope_mode` + `client_member_projects`.
+
+Still standing from Batch 7's compilation, for the same reason: §11 questions 2
+and 6 are *crew project-scoping default* and *whether a browser-callable activity
+endpoint should exist*. The Batch 7 brief asked for their removal while
+describing two different things (storage metering, which was never a §11 entry,
+and the `clients.user_id` retirement, which resolves S1 §10 q2 / S2 §11 q4). Both
+remain open.
+
+---
+
+## 12. Lessons on the record
+
+Not questions. Failure modes that have each cost a batch, kept here so the next
+one is recognised rather than rediscovered.
+
+1. **A spec that specifies a backfill has not specified the invariant.**
+   S1 §5.2 made `client_members` the sole authority and said "verify every
+   `clients.user_id` has a matching `client_members` row (the 0012 backfill did
+   this)." True of every row that existed, silent about the path that creates
+   new ones. So the create path never wrote one, and a one-time fix read as a
+   permanent one — for two months, invisibly, because no client company was
+   created in that window (Batch 8.1). **When a spec repairs existing state, ask
+   in the same breath what keeps the state repaired.**
+
+   This is the same shape as **AD-004's wrong premise** (S0-A §1): a plausible
+   claim inherited from a prior document and promoted to settled fact without
+   being checked against the code. Both are recorded because a spec is only as
+   good as the thing that would have contradicted it.
+
+2. **A guard proves what it looks at, and nothing else.** 0026's predecessor
+   refused to run while any policy still read `clients.user_id`, and was written
+   as though that were the whole question. The live access-token hook read the
+   column from a function body — a different catalog, and one Postgres tracks no
+   dependency for, so the drop would have succeeded and the breakage would have
+   surfaced at the next login as a silently empty app for every user (Batch 8.6).
+   **Enumerate the kinds of live object that can hold a reference, then write the
+   check.**
+
+3. **The column default is not the default.** `org_budgets.hard_stop` shipped
+   `default false`, but nothing in the application inserts that table, so the
+   real default was the app-side `?? false` (Batch 7.1). Two batches later the
+   same table taught the converse: the McPrime row's value could not distinguish
+   "0024 applied" from "0024 not applied", because the backfill excludes it — the
+   stored **default** had to be probed instead (Batch 8.5). **Ask which write
+   path actually decides the value.**
