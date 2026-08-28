@@ -17,6 +17,7 @@
     "@blocknote/mantine": "^0.51.4",
     "@blocknote/react": "^0.51.4",
     "@hookform/resolvers": "^5.2.2",
+    "@sentry/nextjs": "^10.71.0",
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.105.1",
     "class-variance-authority": "^0.7.1",

@@ -7,6 +7,7 @@ import { recordUsage } from '@/lib/usage'
 import { userOrgId } from '@/lib/auth/role'
 import { resolveFolder } from '@/lib/fileCategories'
 import { NextRequest, NextResponse } from 'next/server'
+import { captureError } from '@/lib/errors'
 
 // Step 2 of the direct-to-R2 upload: the browser has PUT the file to R2
 // using the presigned URL; now persist the files-table row. We re-authorize
@@ -163,13 +164,16 @@ export async function POST(req: NextRequest) {
         p_body: null,
         p_meta: { file_id: fileRecord.id, size: fileRecord.file_size, mime },
       })
-    } catch {
-      // RPC not present / non-critical — ignore.
+    } catch (err) {
+      // Non-critical — the upload succeeded — but the ledger gap must be
+      // visible (I-10): a commit with no activity entry is how provenance
+      // quietly rots.
+      captureError(err, { where: 'files/commit log_activity', fileId: fileRecord.id })
     }
 
     return NextResponse.json({ file: fileRecord })
   } catch (err: any) {
-    console.error('[commit] error:', err)
+    captureError(err, { where: 'files/commit' })
     return NextResponse.json(
       { error: err.message ?? 'Failed to save file.' },
       { status: 500 }

@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { captureError } from '@/lib/errors'
 
 // The single metering write path. EVERY billable boundary calls this — even
 // while the surface is priced at zero — so the metered-vs-subscription launch
@@ -23,7 +24,7 @@ export async function recordUsage(
   createdBy?: string
 ): Promise<void> {
   try {
-    await supabaseAdmin.from('usage_events').insert({
+    const { error } = await supabaseAdmin.from('usage_events').insert({
       organization_id: organizationId,
       kind,
       units,
@@ -31,7 +32,18 @@ export async function recordUsage(
       ref,
       created_by: createdBy ?? null,
     })
-  } catch {
-    // Metering must never take down the action it measures.
+    // supabase-js does not throw on a failed insert — it RETURNS the error.
+    // The old catch-only shape meant a rejected metering row vanished without
+    // a trace, which is how storage.bytes wrote nothing for months while the
+    // function looked fine (Batch 6 item 5).
+    if (error) {
+      captureError(new Error(`usage insert rejected: ${error.message}`), {
+        where: 'recordUsage', kind, organizationId, units,
+      })
+    }
+  } catch (err) {
+    // Metering must never take down the action it measures — but the failure
+    // must reach the sink (I-10).
+    captureError(err, { where: 'recordUsage', kind, organizationId, units })
   }
 }
