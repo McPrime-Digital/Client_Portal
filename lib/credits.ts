@@ -3,6 +3,7 @@ import 'server-only'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { captureError } from '@/lib/errors'
 import { recordUsage } from '@/lib/usage'
+import { DEFAULT_ORG_ID } from '@/lib/auth/role'
 
 // SaaS credit metering. Credits are held in cents on org_credits.balance_cents.
 // The company's keys are server-side; each AI action estimates a cost, gates on
@@ -37,7 +38,19 @@ export async function getCreditState(orgId: string): Promise<{ balanceCents: num
   // behaviour itself is unchanged.
   if (creditRes.error) captureError(new Error(`org_credits read failed: ${creditRes.error.message}`), { where: 'getCreditState', orgId })
   if (budgetRes.error) captureError(new Error(`org_budgets read failed: ${budgetRes.error.message}`), { where: 'getCreditState', orgId })
-  return { balanceCents: creditRes.data?.balance_cents ?? 0, hardStop: budgetRes.data?.hard_stop ?? false }
+
+  // NO ROW MEANS ON, not off (S0 §4 — hard stop is on by default, opt-out
+  // only). 0024 flips the column default, but a DEFAULT only applies to an
+  // INSERT, and nothing in the application inserts org_budgets: an org that has
+  // never had a budget configured has no row at all, and this fallback is the
+  // only thing that decides for it. `?? false` meant every new tenant billed
+  // past zero until someone remembered to create the row.
+  //
+  // The house org is exempt by standing rule — it is metered, never charged or
+  // blocked (lib/billing/plans.ts:24-25,32). Its explicit `false` row carries
+  // that today; this keeps the exemption true even if the row is lost.
+  const hardStop = orgId === DEFAULT_ORG_ID ? false : (budgetRes.data?.hard_stop ?? true)
+  return { balanceCents: creditRes.data?.balance_cents ?? 0, hardStop }
 }
 
 export async function chargeCredits(
