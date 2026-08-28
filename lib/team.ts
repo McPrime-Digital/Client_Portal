@@ -109,11 +109,25 @@ export type ClientMembership = {
   title: string | null
 }
 
-function ownName(user: User, fallback: string | null | undefined): string {
+/** The member's display name, THE ROSTER FIRST.
+ *
+ *  `user_metadata` is user-editable — `supabase.auth.updateUser({ data })` is a
+ *  browser call — so preferring it let anyone choose the name that gets written
+ *  into `messages.sender_name` and into `activity_log.actor_name` on every
+ *  approval and change request they make. Batch 6.1 closed that on the ledger
+ *  route by resolving from the roster; this closes it everywhere else, because
+ *  `ownName()` feeds the same two persisted fields through
+ *  `app/api/portal/actions/route.ts:28`.
+ *
+ *  `roster` is the `client_members.name` an admin or company owner set when
+ *  they invited the person — a name the subject cannot rewrite. It wins
+ *  whenever it holds anything; `user_metadata` survives only as the fallback
+ *  for a roster row with no name, where the alternative is an email prefix. */
+function ownName(user: User, roster: string | null | undefined): string {
   return (
-    (user.user_metadata?.name as string | undefined) ??
-    fallback ??
-    user.email?.split('@')[0] ??
+    roster?.trim() ||
+    (user.user_metadata?.name as string | undefined) ||
+    user.email?.split('@')[0] ||
     'Member'
   )
 }
