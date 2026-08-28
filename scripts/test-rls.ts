@@ -219,10 +219,30 @@ async function main() {
 
   // ── 6 · revoked member reads nothing, anywhere ────────────────────────────
   {
-    const leaks = await leaksAcross(revoked, ALL_TABLES.map((table) => ({ table, filters: [] })))
-    // No positive control: a revoked member must see nothing, so there is no
-    // row whose absence would make this vacuous.
-    judge(6, 'harness-revoked reads zero rows from every table', leaks, null)
+    // ONE ROW IS EXCLUDED, and the exclusion is a statement about the model,
+    // not a concession to a failing test. organization_members_self_read
+    // (0012:72-74) is `user_id = auth.uid()` with no status predicate, so a
+    // revoked member still reads their own roster row — deliberately. Status
+    // lives on that row; without it the app cannot tell "your access was
+    // revoked" from "you were never here", and revocation would surface as an
+    // empty Workspace, the silent-empty failure S0 AD-001 exists to prevent.
+    // Reading the record of your own revocation is not a leak. Every OTHER
+    // row on that table, and every row on the other ten, still must be zero —
+    // the neq below narrows one table, it does not exempt it.
+    const { data: me, error: meErr } = await revoked.auth.getUser()
+    if (meErr || !me.user) {
+      record(6, 'harness-revoked reads zero rows from every table', 'ERROR',
+        meErr ? meErr.message : 'signed in but no user on the session')
+    } else {
+      const notSelf: Filter[] = [{ op: 'neq', col: 'user_id', val: me.user.id }]
+      const leaks = await leaksAcross(revoked, ALL_TABLES.map((table) => ({
+        table,
+        filters: table === 'organization_members' ? notSelf : [],
+      })))
+      // No positive control: apart from that one row, a revoked member must
+      // see nothing, so there is no row whose absence would make this vacuous.
+      judge(6, 'harness-revoked reads zero rows from every table (bar their own roster row)', leaks, null)
+    }
   }
 
   // ── 7 · column-level write protection on clients ──────────────────────────
