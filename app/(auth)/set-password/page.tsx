@@ -6,7 +6,6 @@ import { createClient } from '@/lib/supabase/client'
 import type { Session } from '@supabase/supabase-js'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import McPrimeLogo from '@/components/McPrimeLogo'
-import { userClientId } from '@/lib/auth/role'
 
 export default function SetPasswordPage() {
   const router = useRouter()
@@ -113,17 +112,11 @@ export default function SetPasswordPage() {
       return
     }
 
-    // Link auth user to client record
-    const { data: { user } } = await supabase.auth.getUser()
-    if (user) {
-      const clientId = userClientId(user)
-      if (clientId) {
-        await supabase
-          .from('clients')
-          .update({ user_id: user.id })
-          .eq('id', clientId)
-      }
-    }
+    // (A clients.user_id self-link write lived here. It was dead twice over:
+    // both creation paths set user_id at INSERT via the service role, and
+    // 0021's column grants exclude user_id — so this browser-client update
+    // has errored, ignored, since 0021 applied. Removed in Batch 6 item 8;
+    // client_members is the sole membership authority.)
 
     setSuccess(true)
     // New clients land in the self-serve onboarding wizard first.

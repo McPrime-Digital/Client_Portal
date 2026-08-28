@@ -108,8 +108,12 @@ function ownName(user: User, fallback: string | null | undefined): string {
   )
 }
 
-/** Resolve the client company + this user's role in it. Legacy primary logins
- *  (clients.user_id) are owners; invited teammates come from client_members. */
+/** Resolve the client company + this user's role in it. client_members is the
+ *  SOLE authority (S1 §5.2): the clients.user_id primary-login branches are
+ *  gone — the 0012 backfill put every primary login in client_members as an
+ *  owner (re-verified against production in Batch 6 before this landed), so a
+ *  primary login is just a member whose row says owner. clients.user_id is
+ *  DEPRECATED: nothing reads it; the column drops in Batch 7. */
 type MemberRow = {
   client_id: string
   role: string
@@ -132,36 +136,29 @@ function fromRow(user: User, m: MemberRow): ClientMembership {
 export async function clientMembershipOf(user: User): Promise<ClientMembership | null> {
   const claimed = userClientId(user as never)
   if (claimed) {
-    const { data: c } = await supabaseAdmin
-      .from('clients')
-      .select('id, user_id, name')
-      .eq('id', claimed)
-      .single()
-    if (c?.user_id === user.id) {
-      return { clientId: c.id, role: 'owner', name: ownName(user, c.name), extraCaps: [], title: null }
-    }
     const { data: m } = await supabaseAdmin
       .from('client_members')
       .select('client_id, role, status, name, extra_caps, title')
       .eq('client_id', claimed)
       .eq('user_id', user.id)
-      .single()
-    if (m && m.status === 'active') return fromRow(user, m as MemberRow)
-    return null
+      .eq('status', 'active')
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    return m ? fromRow(user, m as MemberRow) : null
   }
-  // legacy sessions without the client_id claim
-  const { data: c } = await supabaseAdmin
-    .from('clients')
-    .select('id, name')
-    .eq('user_id', user.id)
-    .single()
-  if (c) return { clientId: c.id, role: 'owner', name: ownName(user, c.name), extraCaps: [], title: null }
+  // Legacy sessions without the client_id claim. DETERMINISTIC on multiple
+  // memberships: oldest active row wins. The old .single() ERRORED on two
+  // rows and resolved the person to no client at all — which took uploads
+  // down with it via lib/uploadScope.ts (S0-A §2).
   const { data: m } = await supabaseAdmin
     .from('client_members')
     .select('client_id, role, name, extra_caps, title')
     .eq('user_id', user.id)
     .eq('status', 'active')
-    .single()
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
   return m ? fromRow(user, m as MemberRow) : null
 }
 
@@ -192,7 +189,10 @@ export type PortalAccess = {
 
 /** The member's full access context — role, message-history cutoff, project
  *  scope. Pages apply `projectIds` with .in() and `historyFrom` with .gte();
- *  null means unscoped. Primary logins (clients.user_id) are never scoped.
+ *  null means unscoped. EVERY role resolves through its membership row —
+ *  owners included, so a billing-contact owner CAN now be given a narrower
+ *  role or a project scope (S1 §5.2; the old owner short-circuit hardcoded
+ *  historyFrom/projectIds to null for every owner).
  *
  *  Scope is STATED, not inferred (migration 0018 A5). scope_mode 'all' means
  *  every project; 'selected' means exactly the client_member_projects rows —
@@ -202,19 +202,15 @@ export type PortalAccess = {
 export async function portalAccess(user: User): Promise<PortalAccess | null> {
   const membership = await clientMembershipOf(user)
   if (!membership) return null
-  if (membership.role === 'owner') {
-    return {
-      clientId: membership.clientId, role: 'owner', name: membership.name,
-      extraCaps: [], title: null, historyFrom: null, projectIds: null,
-    }
-  }
   const { data: m } = await supabaseAdmin
     .from('client_members')
     .select('id, history_from, scope_mode')
     .eq('client_id', membership.clientId)
     .eq('user_id', user.id)
     .eq('status', 'active')
-    .single()
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
   let projectIds: string[] | null = null
   if (m?.scope_mode === 'selected') {
     const { data: scoped } = await supabaseAdmin
@@ -234,16 +230,19 @@ export async function portalAccess(user: User): Promise<PortalAccess | null> {
   }
 }
 
-/** Same resolution from a bare user id (for helpers without the User object). */
+/** Same resolution from a bare user id (for helpers without the User object).
+ *  Every upload authorization routes through here (lib/uploadScope.ts), so the
+ *  old clients.user_id-then-.single() shape mattered: two active memberships
+ *  errored into NO_CLIENT and 403'd every upload. Oldest active row wins. */
 export async function portalClientIdByUserId(userId: string): Promise<string> {
-  const { data: c } = await supabaseAdmin.from('clients').select('id').eq('user_id', userId).single()
-  if (c) return c.id
   const { data: m } = await supabaseAdmin
     .from('client_members')
     .select('client_id')
     .eq('user_id', userId)
     .eq('status', 'active')
-    .single()
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
   return m?.client_id ?? NO_CLIENT
 }
 
