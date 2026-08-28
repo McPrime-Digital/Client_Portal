@@ -2,6 +2,7 @@ import 'server-only'
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { captureError } from '@/lib/errors'
+import { recordUsage } from '@/lib/usage'
 
 // SaaS credit metering. Credits are held in cents on org_credits.balance_cents.
 // The company's keys are server-side; each AI action estimates a cost, gates on
@@ -44,20 +45,16 @@ export async function chargeCredits(
   cents: number,
   reason: string,
   ref: Record<string, unknown> = {},
+  /** NATIVE units for the usage row (e.g. tokens for AI calls). The ledger
+   *  charge stays in cents; the usage row must not (S-V §11 defect 1 — a
+   *  units column mixing cents and tokens is incomparable across rows and
+   *  poisons pricing analysis). Falls back to cents when the caller has no
+   *  native measure, which keeps old call shapes working. */
+  units?: number,
 ): Promise<number | null> {
-  // journal the raw usage event too (Control Tower reads usage_events)
-  const { error: journalError } = await supabaseAdmin.from('usage_events').insert({
-    organization_id: orgId,
-    kind: reason,
-    units: cents,
-    cost_cents: cents,
-    ref,
-  })
-  if (journalError) {
-    captureError(new Error(`usage journal insert rejected: ${journalError.message}`), {
-      where: 'chargeCredits', orgId, reason, cents,
-    })
-  }
+  // Journal the raw usage event through THE write path (lib/usage.ts —
+  // "never a second"), not a local insert. Control Tower reads usage_events.
+  await recordUsage(orgId, reason, units ?? cents, cents, ref)
   const { data, error } = await supabaseAdmin.rpc('charge_credits', {
     p_org: orgId,
     p_cents: cents,

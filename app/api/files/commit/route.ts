@@ -94,8 +94,13 @@ export async function POST(req: NextRequest) {
       throw new Error(insertError.message)
     }
 
-    // Meter storage at the commit boundary (fire-and-forget).
-    void recordUsage(userOrgId(user), 'storage.bytes', fileRecord.file_size ?? 0, 0, { file_id: fileRecord.id }, user.id)
+    // Meter storage at the commit boundary. AWAITED, not void: on Vercel a
+    // fire-and-forget insert races the lambda freeze after the response, and
+    // recordUsage never throws (it captures internally), so awaiting costs one
+    // insert's latency and buys a guarantee. Batch 6 item 5a: the "zero
+    // storage.bytes rows" mystery was NOT a failure here — no file had been
+    // committed since metering landed (2026-08-25); the write path works.
+    await recordUsage(userOrgId(user), 'storage.bytes', fileRecord.file_size ?? 0, 0, { file_id: fileRecord.id }, user.id)
 
     // Link this upload to an invoice as its payment receipt, if asked.
     // Authorize: admins any invoice; clients only their own.

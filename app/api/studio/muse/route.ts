@@ -81,7 +81,11 @@ export async function POST(req: NextRequest) {
     `Selected text:\n"""\n${(selection ?? '').slice(0, 8000)}\n"""\n\nInstruction: ${instruction}`
   const inChars = system.length + userMessage.length + turns.reduce((a, t) => a + t.text.length, 0)
   const charge = (outChars: number) => {
-    void chargeCredits(orgId, estimateCostCents(model.id, inChars, outChars), 'primeos', { model: model.id, user: user.id })
+    // units = estimated tokens (native measure), cents stay the charge. Same
+    // ~4-chars/token estimate as estimateCostCents — provider-reported usage
+    // replacing the estimate is S-V §11 defect 2, not this change.
+    const tokens = Math.ceil((inChars + outChars) / 4)
+    void chargeCredits(orgId, estimateCostCents(model.id, inChars, outChars), 'primeos', { model: model.id, user: user.id }, tokens)
   }
 
   const ENC = new TextEncoder()
