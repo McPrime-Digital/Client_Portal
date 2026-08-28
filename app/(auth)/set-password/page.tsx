@@ -47,6 +47,17 @@ export default function SetPasswordPage() {
       (_event, session) => { adopt(session) }
     )
 
+    /*
+     * NOT an authorization gate — the one permitted getSession() in the app.
+     * This is the password-recovery landing page: it reads whatever session
+     * the client library just built from the URL hash, purely to decide
+     * whether to render the form or keep waiting. Nothing is authorized off
+     * it; the credential change itself goes through updateUser(), which the
+     * auth server validates. getUser() here would round-trip before the hash
+     * token has been adopted, report no user, and break the reset flow (see
+     * CLAUDE.md on /set-password loops).
+     */
+    // eslint-disable-next-line no-restricted-syntax
     supabase.auth.getSession().then(async ({ data }) => {
       if (adopt(data.session)) return
 

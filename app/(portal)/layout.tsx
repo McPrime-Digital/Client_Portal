@@ -15,11 +15,14 @@ export default async function PortalLayout({
 }) {
   const supabase = await createClient()
 
-  // 1. Get current session
-  const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+  // 1. Establish the session — getUser(), never getSession() (S2 §2).
+  // getSession() decodes the cookie locally and hands back whatever it says;
+  // it does not ask the auth server whether that token is still good. This is
+  // the gate for the whole client portal, so it revalidates.
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
 
   // 2. Redirect to login if unauthenticated
-  if (sessionError || !session?.user) {
+  if (authError || !user) {
     redirect('/login')
   }
 
@@ -28,17 +31,17 @@ export default async function PortalLayout({
   await supabaseAdmin
     .from('client_members')
     .update({ status: 'active', accepted_at: new Date().toISOString() })
-    .eq('user_id', session.user.id)
+    .eq('user_id', user.id)
     .eq('status', 'invited')
 
   // 3. Resolve membership ONCE: who they are, which company, which role.
-  const membership = await clientMembershipOf(session.user)
+  const membership = await clientMembershipOf(user)
 
   // A paused member (either side of the house) sees a hold screen, nothing else.
   if (!membership) {
     const [{ data: heldClient }, { data: heldCrew }] = await Promise.all([
-      supabaseAdmin.from('client_members').select('id').eq('user_id', session.user.id).eq('status', 'paused').maybeSingle(),
-      supabaseAdmin.from('organization_members').select('id').eq('user_id', session.user.id).eq('status', 'paused').maybeSingle(),
+      supabaseAdmin.from('client_members').select('id').eq('user_id', user.id).eq('status', 'paused').maybeSingle(),
+      supabaseAdmin.from('organization_members').select('id').eq('user_id', user.id).eq('status', 'paused').maybeSingle(),
     ])
     if (heldClient || heldCrew) {
       return (
@@ -80,7 +83,7 @@ export default async function PortalLayout({
   // Note: if clientData is null, it might be an admin testing the portal 
   // or a newly created user that doesn't have a clients record yet.
   const fallbackClient = {
-    name: session?.user?.user_metadata?.full_name || session?.user?.email?.split('@')[0] || 'User',
+    name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
     company: null,
     avatar_url: null,
   }
@@ -109,7 +112,7 @@ export default async function PortalLayout({
     <div className="flex h-screen overflow-hidden bg-background">
       <PresencePulse
         role="client"
-        userId={session.user.id}
+        userId={user.id}
         clientId={(activeClient as any).id ?? null}
       />
       <Sidebar
