@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { isAdmin } from '@/lib/auth/role'
+import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { orgAccessOf } from '@/lib/team'
 import StudioSidebar from '@/components/studio/StudioSidebar'
 import StudioTopbar from '@/components/studio/StudioTopbar'
@@ -69,8 +69,9 @@ export default async function StudioLayout({ children }: { children: React.React
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      {/* admin presence heartbeat — without it clients get false "away" alerts */}
-      <PresencePulse role="admin" userId={user.id} clientId={null} />
+      {/* admin presence heartbeat — without it clients get false "away" alerts.
+          orgId scopes the presence room to this tenant (C-3). */}
+      <PresencePulse role="admin" userId={user.id} clientId={null} orgId={userOrgId(user)} />
       {/* editor font library (Script Design font picker) */}
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />

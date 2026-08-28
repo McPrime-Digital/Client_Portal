@@ -96,13 +96,18 @@ export default async function PortalLayout({
   const memberExtra = membership?.extraCaps ?? []
   const memberTitle = membership?.title ?? null
 
+  // The tenant this portal session belongs to. Read from the client company's
+  // row rather than the user's claim: the company is the authority on which
+  // studio it belongs to. Used for the business-settings lookup (T-3) and to
+  // scope the presence room (C-3).
+  const orgId =
+    (clientData as { organization_id?: string } | null)?.organization_id ?? DEFAULT_ORG_ID
+
   // The studio/agency serving this client — shown in the sidebar co-brand.
   // Scoped to the org that owns this client company (T-3), not a global row.
   let orgName = 'McPrime Digital'
   try {
-    const biz = await getBusinessSettings(
-      (clientData as { organization_id?: string } | null)?.organization_id ?? DEFAULT_ORG_ID
-    )
+    const biz = await getBusinessSettings(orgId)
     if (biz?.business_name) orgName = biz.business_name
   } catch {
     // best-effort
@@ -114,6 +119,7 @@ export default async function PortalLayout({
         role="client"
         userId={user.id}
         clientId={(activeClient as any).id ?? null}
+        orgId={orgId}
       />
       <Sidebar
         clientName={activeClient.name}

@@ -23,10 +23,15 @@ export default function PresencePulse({
   role,
   userId,
   clientId,
+  orgId,
 }: {
   role: 'admin' | 'client'
   userId: string
   clientId: string | null
+  /** The tenant whose presence room this session joins. Server-resolved and
+   *  passed in — a client component cannot read app_metadata.organization_id
+   *  without a round trip, and presence must not wait on one. */
+  orgId: string
 }) {
   const setOnline = usePresenceStore((s) => s.setOnline)
   const deliverTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
@@ -35,8 +40,22 @@ export default function PresencePulse({
     if (!userId) return
     const supabase = createClient()
 
-    // ── 1. Shared app presence (visibility-gated) ─────────────
-    const presenceCh = supabase.channel('presence:app', {
+    // ── 1. Shared app presence (visibility-gated), scoped to the tenant ─────
+    // The key was 'presence:app' — one room for the entire product, so every
+    // member of every tenant tracked into it and read everyone else's
+    // {role, userId, clientId} back out (C-3; S-V §X-10: presence is scoped to
+    // a tenant or a room, never app-wide). Presence broadcasts are NOT filtered
+    // by RLS, so nothing downstream of this was going to catch it.
+    //
+    // Org, not client company, is the right room: the portal's "is the studio
+    // online" indicator (isAdminOnline) must still see crew, and the studio's
+    // per-company indicator (isClientOnline) already filters by clientId. So
+    // this removes only entries both selectors were discarding — behaviour
+    // inside a tenant is unchanged.
+    //
+    // Scope only. The subscription budget (I-2's second half) and the
+    // multiplexed channel are S2.5/S5 work and are untouched here.
+    const presenceCh = supabase.channel(`presence:org:${orgId}`, {
       config: { presence: { key: userId } },
     })
     // Track when the app is foregrounded; untrack when it's hidden, so the other
@@ -146,7 +165,7 @@ export default function PresencePulse({
       supabase.removeChannel(inboxCh)
       setOnline([])
     }
-  }, [userId, role, clientId, setOnline])
+  }, [userId, role, clientId, orgId, setOnline])
 
   return null
 }

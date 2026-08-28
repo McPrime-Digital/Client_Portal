@@ -35,7 +35,9 @@ export default async function AdminLayout({
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <PresencePulse role="admin" userId={user.id} clientId={null} />
+      {/* Unreachable in practice — the proxy redirects every /admin URL to
+          /studio — but it still compiles, so it carries the tenant scope too. */}
+      <PresencePulse role="admin" userId={user.id} clientId={null} orgId={userOrgId(user)} />
       <AdminSidebar adminName={adminName} companyName={companyName} />
       <div className="flex flex-col flex-1 overflow-hidden">
         <AdminTopbar adminName={adminName} adminRole={adminRole} />
