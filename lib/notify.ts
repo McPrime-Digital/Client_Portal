@@ -380,7 +380,7 @@ export async function notifyAwayRecipient(opts: {
       }
       if (ch.sms === true && phone && !sentSms.has(phone)) {
         sentSms.add(phone)
-        sends.push(sendSms(phone, text))
+        sends.push(sendSms(phone, text, orgId))
       }
     }
 
