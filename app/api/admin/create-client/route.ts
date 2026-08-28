@@ -139,6 +139,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Insert into clients table using service_role (bypasses RLS).
+    // No user_id: the column is retired by 0026. Who the company's login is, is
+    // answered by the client_members row below and by nothing else (S1 §5.2).
     // organization_id is STAMPED, not defaulted (T-5, S1 §3). The column
     // DEFAULT is McPrime's org, so an unstamped insert files a second studio's
     // client company inside tenant zero — and the client_members row below
@@ -146,7 +148,6 @@ export async function POST(req: NextRequest) {
     const { data: client, error: insertError } = await supabaseAdmin
       .from('clients')
       .insert({
-        user_id: userId,
         organization_id: userOrgId(user),
         name: name.trim(),
         email: email.trim().toLowerCase(),

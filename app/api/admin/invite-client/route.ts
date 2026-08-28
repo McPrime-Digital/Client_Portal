@@ -71,7 +71,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 2. Create client record in DB. organization_id is STAMPED, not defaulted
+    // 2. Create client record in DB. No user_id — the column is retired by 0026;
+    // the client_members row below is the only record of who the login is
+    // (S1 §5.2). organization_id is STAMPED, not defaulted
     // (T-5, S1 §3): the column DEFAULT is McPrime's org, so an unstamped insert
     // files a second studio's client company inside tenant zero.
     const { data: clientRecord, error: clientError } =
@@ -83,7 +85,6 @@ export async function POST(request: NextRequest) {
           company: company?.trim() || null,
           phone: phone?.trim() || null,
           notes: notes?.trim() || null,
-          user_id: inviteData.user.id,
           organization_id: userOrgId(user),
           invited_at: new Date().toISOString(),
           invite_count: 1,

@@ -265,22 +265,12 @@ async function main() {
     userIds[p.key] = await upsertPersona(admin, p.key, pw, clientOf[p.key])
   }
 
-  // 4 · primary logins
-  record(`\n-- ═══ primary logins (clients.user_id) ═══`)
-  if (APPLY) {
-    for (const [cid, key] of [[COMPANY_1_ID, 'c1own'], [COMPANY_2_ID, 'c2own']] as const) {
-      const { error } = await admin.from('clients')
-        .update({ user_id: userIds[key] })
-        .eq('id', cid)
-        .eq('organization_id', HARNESS_ORG_ID)   // belt: never touch a McPrime row
-      if (error) throw new Error(`clients.user_id: ${error.message}`)
-    }
-    console.log(`  ✓ clients.user_id            2 row(s)`)
-  }
-  record(`update public.clients set user_id = <harness-c1-own> where id = '${COMPANY_1_ID}' and organization_id = '${HARNESS_ORG_ID}';`)
-  record(`update public.clients set user_id = <harness-c2-own> where id = '${COMPANY_2_ID}' and organization_id = '${HARNESS_ORG_ID}';`)
-
-  // 5 · projects
+  // 4 · projects
+  //
+  // (A "primary logins" step wrote clients.user_id here. The column is retired
+  // by 0026 — client_members is the sole authority (S1 §5.2) — and the personas
+  // that step named already get explicit owner rows in the client rosters
+  // below, so nothing the harness asserts depended on it.)
   record(`\n-- ═══ projects ═══`)
   await seedRows(admin, 'projects', [
     { id: PROJECT_1_ID, organization_id: HARNESS_ORG_ID, client_id: COMPANY_1_ID,
@@ -291,7 +281,7 @@ async function main() {
       title: 'ZZ-HARNESS Project Three', type: 'Film', status: 'Active', progress: 60 },
   ])
 
-  // 6 · rosters
+  // 5 · rosters
   record(`\n-- ═══ crew roster ═══`)
   await seedRows(admin, 'organization_members', [
     { id: OM_OWNER_ID, organization_id: HARNESS_ORG_ID, user_id: userIds.owner,
@@ -326,7 +316,7 @@ async function main() {
     [{ member_id: CM_C1MATE_ID, project_id: PROJECT_1_ID, organization_id: HARNESS_ORG_ID }],
     'member_id,project_id')
 
-  // 7 · work rows
+  // 6 · work rows
   record(`\n-- ═══ messages (2 either side of the history cutoff ${HISTORY_CUTOFF}) ═══`)
   const projects = [
     { id: PROJECT_1_ID, n: 1 }, { id: PROJECT_2_ID, n: 2 }, { id: PROJECT_3_ID, n: 3 },
