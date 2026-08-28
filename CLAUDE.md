@@ -4,6 +4,11 @@ Guidance for Claude Code (claude.ai/code) working in this repository.
 
 ## Governing documents
 
+**Read `HANDOFF.md` (repo root) first.** It is the verified project state —
+what is built, what is open (file:line), what to do next — compiled from the
+code and the live database, not from memory. The spec stack below is the
+*reasoning*; HANDOFF is the *state*.
+
 **`docs/specs/` is the authoritative spec stack for this project.** Six documents, in
 reading order:
 
@@ -239,22 +244,25 @@ into new code.
 
 ## Migrations
 
-`supabase/migrations/` holds **two conflicting numbering schemes**, and this is a live hazard:
+`supabase/migrations/` holds one numbering scheme (`00NN`); the retired `2026*` scheme is fenced in `_archive/`:
 
-- `0000_baseline_schema.sql` … `0017_custom_access.sql` — the current source of truth.
+- `0000_baseline_schema.sql` … `0023_overdue_predicate.sql` — the current source of truth.
   `0000` is a full captured baseline that **drops and recreates** the core tables.
-- `20260531_*.sql` … `20260606_*.sql` (phase1–12 + invoicing) — historical, already baked into
-  `0000`, and explicitly marked "do NOT re-run".
+- `_archive/20260531_*.sql` … `_archive/20260606_*.sql` (phase1–12 + invoicing) — historical,
+  already baked into `0000`, moved to `supabase/migrations/_archive/` (Batch 6.9). Read
+  `_archive/README.md` before touching them; nothing in that directory is ever applied.
 
-Lexicographically `0000…` sorts **before** `2026…`, so any runner that applies files in
-filename order runs the retired series **last**. That is not merely wasteful:
-`20260603_phase7.sql:44-52` and `20260604_phase8.sql:69-75` create policies that read the role
-from `user_metadata` first — user-editable — which would reintroduce a privilege-escalation
-hole that `0000` was captured specifically to close. `20260531_reseed_phases.sql` also deletes
-and re-seeds every project's phases.
+Lexicographically `0000…` sorts **before** `2026…`, which is why the retired series lives in
+`_archive/` (a filename-ordered runner pointed at `migrations/` would have applied it **last**):
+`_archive/20260603_phase7.sql:44-52` and `_archive/20260604_phase8.sql:69-75` create policies
+that read the role from `user_metadata` first — user-editable — which would reintroduce a
+privilege-escalation hole that `0000` was captured specifically to close.
+`_archive/20260531_reseed_phases.sql` also deletes and re-seeds every project's phases. Any
+future runner must exclude `_archive/` (see `_archive/README.md` rule 2).
 
-There is no migration runner in the repo; migrations are applied by hand. Which runner, and
-whether to archive the `2026*` series, is owned by S6 (S0 §7).
+There is no migration runner in the repo; migrations are applied by hand, in `00NN` filename
+order. Which runner to adopt is owned by S6 (S0 §7); the `2026*` archival question is resolved
+(Batch 6.9).
 
 **[VIOLATES S0 I-12 — pending remediation.]** `0000`, `0002`, `0003` and `0004` create
 policies without a preceding `drop policy if exists`; `create policy` has no `IF NOT EXISTS`,
