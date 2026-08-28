@@ -1,4 +1,5 @@
-import { isAdmin } from '@/lib/auth/role'
+import { isAdmin, userOrgId } from '@/lib/auth/role'
+import { cutMemberAccess } from '@/lib/memberAccess'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { NextRequest, NextResponse } from 'next/server'
@@ -25,11 +26,14 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Fetch the client record
+    // Fetch the client record — org-scoped: unscoped, an admin of one tenant
+    // could delete another tenant's company (and its invoices and files rows)
+    // by id. Foreign uuids 404 like any other miss.
     const { data: client, error: fetchError } = await supabaseAdmin
       .from('clients')
       .select('id, user_id, name, email')
       .eq('id', clientId)
+      .eq('organization_id', userOrgId(user))
       .single()
 
     if (fetchError || !client) {
@@ -60,13 +64,15 @@ export async function POST(req: NextRequest) {
       throw new Error(deleteError.message)
     }
 
-    // Delete the auth user if linked
+    // Cut the primary login's claims — but keep the account. The identity may
+    // belong to another tenant (S1 §2); with the company row and its cascade-
+    // deleted client_members rows gone, the login reads nothing regardless.
     if (client.user_id) {
       try {
-        await supabaseAdmin.auth.admin.deleteUser(client.user_id)
+        await cutMemberAccess(client.user_id)
       } catch (authErr: any) {
         // Non-fatal — client record is already deleted
-        console.error('Failed to delete auth user:', authErr.message)
+        console.error('Failed to cut auth claims:', authErr.message)
       }
     }
 

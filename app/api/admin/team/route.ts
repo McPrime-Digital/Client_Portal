@@ -176,10 +176,21 @@ export async function DELETE(req: NextRequest) {
   if (target.role === 'owner' && !gate.role.includes('owner')) {
     return NextResponse.json({ error: 'Only an owner can revoke an owner.' }, { status: 403 })
   }
-  // Deletion is forever: the auth account itself goes — no Throughline access
-  // of any kind remains. (Pause is the reversible option.)
+  // Removal takes the MEMBERSHIP, not the account. The login survives — the
+  // identity may span tenants (S1 §2), and after 0021 an account with no
+  // roster row reads nothing anyway. The claims cut matters doubly here:
+  // orgRolesOf() resolves a claim-admin with NO roster row to ['member'] (the
+  // T-4 bootstrap fallback), so a removed crew member with an intact role
+  // claim would keep member-level studio access. Stripping role closes that.
+  // (Pause is the reversible option.)
   if (target.user_id) {
-    await supabaseAdmin.auth.admin.deleteUser(target.user_id)
+    const claimError = await cutMemberAccess(target.user_id)
+    if (claimError) {
+      return NextResponse.json(
+        { error: `The member's access claims could not be cut, so they were not removed: ${claimError}` },
+        { status: 500 },
+      )
+    }
   }
   const { error } = await supabaseAdmin
     .from('organization_members')

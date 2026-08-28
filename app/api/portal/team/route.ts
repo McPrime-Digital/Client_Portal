@@ -210,10 +210,20 @@ export async function DELETE(req: NextRequest) {
   if (target.role === 'owner' || target.user_id === user.id) {
     return NextResponse.json({ error: 'The account owner cannot be removed here.' }, { status: 400 })
   }
-  // Deletion is forever: the auth account itself goes — no portal, no
-  // Throughline access of any kind. (Pause is the reversible option.)
+  // Removal takes the MEMBERSHIP, not the account. The login survives — it
+  // may belong to another tenant (S1 §2: one identity can be crew at one org
+  // and a client contact elsewhere), and after 0021 an account with no roster
+  // row reads nothing anyway. Claims are cut like a revocation so the stale
+  // role/client_id cannot route them anywhere while their token lives.
+  // (Pause is the reversible option.)
   if (target.user_id) {
-    await supabaseAdmin.auth.admin.deleteUser(target.user_id)
+    const claimError = await cutMemberAccess(target.user_id)
+    if (claimError) {
+      return NextResponse.json(
+        { error: `The teammate's access claims could not be cut, so they were not removed: ${claimError}` },
+        { status: 500 },
+      )
+    }
   }
   const { error } = await supabaseAdmin.from('client_members').delete().eq('id', target.id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

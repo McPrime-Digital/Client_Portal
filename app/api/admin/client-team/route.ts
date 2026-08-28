@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { isAdmin } from '@/lib/auth/role'
+import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { orgRolesOf, canManageOrg } from '@/lib/team'
 import { createNotification } from '@/lib/notify'
 import { cutMemberAccess, restoreClientAccess, statusCutsAccess } from '@/lib/memberAccess'
@@ -15,7 +15,12 @@ async function requireManager() {
   if (!user || !isAdmin(user)) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
   const role = await orgRolesOf(user)
   if (!canManageOrg(role)) return { error: NextResponse.json({ error: 'Only org owners and admins can manage client teams.' }, { status: 403 }) }
-  return { user }
+  // Every lookup and every write below carries this predicate. Before it,
+  // each action keyed off a bare body id — an org admin of ANY tenant could
+  // approve, pause, re-role or delete another tenant's client teammate, and
+  // flip another tenant's invite policy, by id (the Batch 3A hole, fixed on
+  // admin/team, missed here).
+  return { user, orgId: userOrgId(user) }
 }
 
 export async function GET(req: NextRequest) {
@@ -24,13 +29,15 @@ export async function GET(req: NextRequest) {
   if (!user || !isAdmin(user)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const clientId = req.nextUrl.searchParams.get('clientId')
   if (!clientId) return NextResponse.json({ error: 'clientId required' }, { status: 400 })
+  const orgId = userOrgId(user)
   const [{ data: members }, { data: company }] = await Promise.all([
     supabaseAdmin
       .from('client_members')
       .select('id, user_id, name, email, role, status, invited_at, accepted_at, invited_by, extra_caps, title')
       .eq('client_id', clientId)
+      .eq('organization_id', orgId)
       .order('created_at', { ascending: true }),
-    supabaseAdmin.from('clients').select('invite_policy').eq('id', clientId).single(),
+    supabaseAdmin.from('clients').select('invite_policy').eq('id', clientId).eq('organization_id', orgId).single(),
   ])
   const me = await orgRolesOf(user)
   return NextResponse.json({
@@ -44,6 +51,7 @@ export async function POST(req: NextRequest) {
   // approve a pending invite, or invite a member directly on the client's behalf
   const gate = await requireManager()
   if ('error' in gate) return gate.error
+  const { orgId } = gate
   const body = await req.json().catch(() => ({}))
   const { action } = body
 
@@ -52,6 +60,7 @@ export async function POST(req: NextRequest) {
       .from('client_members')
       .select('id, client_id, name, email, role, status')
       .eq('id', body.memberId)
+      .eq('organization_id', orgId)
       .single()
     if (!member || member.status !== 'pending') {
       return NextResponse.json({ error: 'No pending invite found.' }, { status: 404 })
@@ -60,6 +69,7 @@ export async function POST(req: NextRequest) {
       .from('clients')
       .select('id, organization_id')
       .eq('id', member.client_id)
+      .eq('organization_id', orgId)
       .single()
     const { data: invite, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(member.email, {
       data: { name: member.name },
@@ -87,13 +97,16 @@ export async function POST(req: NextRequest) {
       .from('client_members')
       .select('id, user_id')
       .eq('id', body.memberId)
+      .eq('organization_id', orgId)
       .eq('status', 'pending')
       .maybeSingle()
+    if (!target) return NextResponse.json({ error: 'No pending invite found.' }, { status: 404 })
 
     const { error } = await supabaseAdmin
       .from('client_members')
       .update({ status: 'revoked' })
       .eq('id', body.memberId)
+      .eq('organization_id', orgId)
       .eq('status', 'pending')
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
@@ -120,6 +133,7 @@ export async function POST(req: NextRequest) {
       .from('clients')
       .update({ invite_policy: body.policy })
       .eq('id', body.clientId)
+      .eq('organization_id', orgId)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ success: true })
   }
@@ -132,6 +146,7 @@ export async function POST(req: NextRequest) {
       .from('client_members')
       .update({ role: body.role })
       .eq('id', body.memberId)
+      .eq('organization_id', orgId)
       .neq('role', 'owner')
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ success: true })
@@ -148,6 +163,7 @@ export async function POST(req: NextRequest) {
       .from('client_members')
       .update(patch)
       .eq('id', body.memberId)
+      .eq('organization_id', orgId)
       .neq('role', 'owner')
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ success: true })
@@ -158,6 +174,7 @@ export async function POST(req: NextRequest) {
       .from('client_members')
       .select('id, user_id, client_id, organization_id')
       .eq('id', body.memberId)
+      .eq('organization_id', orgId)
       .neq('role', 'owner')
       .maybeSingle()
     if (!target) return NextResponse.json({ error: 'Member not found.' }, { status: 404 })
@@ -167,6 +184,7 @@ export async function POST(req: NextRequest) {
       .from('client_members')
       .update({ status: nextStatus })
       .eq('id', body.memberId)
+      .eq('organization_id', orgId)
       .neq('role', 'owner')
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
@@ -191,12 +209,23 @@ export async function POST(req: NextRequest) {
       .from('client_members')
       .select('id, user_id, role')
       .eq('id', body.memberId)
+      .eq('organization_id', orgId)
       .single()
     if (!target) return NextResponse.json({ error: 'Member not found.' }, { status: 404 })
     if (target.role === 'owner') return NextResponse.json({ error: 'The account owner cannot be deleted here.' }, { status: 400 })
-    // Deletion is forever: the auth account itself goes.
+    // Removal takes the MEMBERSHIP, not the account. The auth user survives:
+    // S1 §2 allows one identity to span the crew and another company, and
+    // after 0021 an account with no roster row reads nothing anyway. The
+    // claims are cut like a revocation so the stale role/client_id cannot
+    // route them anywhere while their token lives.
     if (target.user_id) {
-      await supabaseAdmin.auth.admin.deleteUser(target.user_id)
+      const claimError = await cutMemberAccess(target.user_id)
+      if (claimError) {
+        return NextResponse.json(
+          { error: `The teammate's access claims could not be cut, so they were not removed: ${claimError}` },
+          { status: 500 },
+        )
+      }
     }
     const { error } = await supabaseAdmin.from('client_members').delete().eq('id', target.id)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
