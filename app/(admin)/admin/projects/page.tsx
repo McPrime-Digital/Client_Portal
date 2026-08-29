@@ -39,7 +39,7 @@ export default async function AdminProjectsPage() {
 
   return (
     <>
-      <RealtimeRefresh tables={['projects', 'project_phases', 'tasks', 'messages', 'files']} pollMs={45000} />
+      <RealtimeRefresh tables={['projects', 'project_phases', 'tasks', 'messages', 'files']} pollMs={300_000} />
       <AdminProjectsList projects={projectsSynced} />
     </>
   )

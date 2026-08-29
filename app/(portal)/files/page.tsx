@@ -60,7 +60,7 @@ export default async function FilesPage() {
   return (
     <>
       {/* Live: new task media / deliverables / uploads appear without a reload. */}
-      <RealtimeRefresh tables={['files']} pollMs={15000} />
+      <RealtimeRefresh tables={['files']} pollMs={300_000} />
       <AllFilesVault files={files ?? []} projects={projects ?? []} />
     </>
   )

@@ -54,7 +54,7 @@ export default async function AdminInvoicesPage() {
 
   return (
     <>
-      <RealtimeRefresh tables={['invoices']} pollMs={45000} />
+      <RealtimeRefresh tables={['invoices']} pollMs={300_000} />
       <AdminInvoicesList
         invoices={invoices ?? []}
         summary={{ paid, outstanding, overdue }}

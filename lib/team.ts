@@ -1,5 +1,7 @@
 import 'server-only'
 
+import { cache } from 'react'
+
 import type { User } from '@supabase/supabase-js'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { isAdmin, userClientId, userOrgId } from '@/lib/auth/role'
@@ -67,8 +69,12 @@ export type OrgAccess = {
   projectIds: string[] | null
 }
 
-/** Roles + custom grants + custom title + project scope in one read. */
-export async function orgAccessOf(user: User): Promise<OrgAccess> {
+/** Roles + custom grants + custom title + project scope in one read.
+ *
+ *  Memoised per request: app/studio/layout.tsx and lib/studio/guard.ts both
+ *  resolve this on every admin page load, and it costs 2-3 queries each time.
+ *  Keyed on the user object, which getCurrentUser() keeps stable per request. */
+export const orgAccessOf = cache(async (user: User): Promise<OrgAccess> => {
   const roles = await orgRolesOf(user)
   if (roles.length === 0) return { roles, extraCaps: [], title: null, projectIds: null }
   const { data } = await supabaseAdmin
@@ -90,7 +96,7 @@ export async function orgAccessOf(user: User): Promise<OrgAccess> {
     title: data?.title ?? null,
     projectIds,
   }
-}
+})
 
 /** True when the admin may manage the org team / settings / billing. */
 export function canManageOrg(role: OrgRole | OrgRole[] | null): boolean {

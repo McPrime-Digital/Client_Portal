@@ -1,7 +1,7 @@
 import 'server-only'
 
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { getCurrentUser } from '@/lib/auth/currentUser'
 import { orgAccessOf, type OrgAccess } from '@/lib/team'
 import { orgFeatureAllowed } from '@/lib/permissions'
 
@@ -14,8 +14,7 @@ import { orgFeatureAllowed } from '@/lib/permissions'
  *  nothing here. A claim-holder with no active roster row now fails every
  *  feature gate rather than passing the member-level ones. */
 export async function requireOrgFeature(spaceId: string, slug: string): Promise<OrgAccess> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getCurrentUser()
   if (!user) redirect('/login')
   const access = await orgAccessOf(user)
   if (access.roles.length === 0) redirect('/studio')

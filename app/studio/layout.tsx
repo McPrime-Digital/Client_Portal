@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { getCurrentUser } from '@/lib/auth/currentUser'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { orgAccessOf } from '@/lib/team'
 import StudioSidebar from '@/components/studio/StudioSidebar'
@@ -13,10 +13,7 @@ import { GOOGLE_FONTS_HREF } from '@/lib/studio/fonts'
 // Throughline internal/studio shell — team-only (admins). The external client
 // portal stays at /dashboard; this is the 3-space (Crew/Client/Workspace) home.
 export default async function StudioLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const user = await getCurrentUser()
 
   if (!user) redirect('/login')
   if (!isAdmin(user)) redirect('/dashboard')

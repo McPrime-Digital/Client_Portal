@@ -133,7 +133,7 @@ export default async function ReviewApprovalsPage() {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <RealtimeRefresh tables={['tasks']} pollMs={30_000} />
+      <RealtimeRefresh tables={['tasks']} pollMs={300_000} />
 
       <div className="mb-6">
         <h1 className="flex items-center gap-3 font-display text-2xl font-semibold text-foreground">

@@ -43,7 +43,7 @@ export default async function ClientsPage() {
 
   return (
     <div className="space-y-6">
-      <RealtimeRefresh tables={['clients', 'projects']} pollMs={45000} />
+      <RealtimeRefresh tables={['clients', 'projects']} pollMs={300_000} />
       <div className="flex items-center
         justify-between">
         <div>
