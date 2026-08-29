@@ -52,9 +52,12 @@ Accurate notes on the dependency list — several packages are installed but not
   `radix-ui`), but the app imports almost none of it: the only live usage is `Toaster` from
   `components/ui/sonner` (`app/layout.tsx:4`). `components/ui/sheet.tsx` imports
   `components/ui/button` and is itself unused. Everything else is hand-written Tailwind.
-- **`react-hook-form` / `@hookform/resolvers` / `zod`** are in `package.json` but have **zero
-  imports** anywhere in `app/`, `lib/`, `components/`, `hooks/`. Forms are `useState` +
-  hand-rolled validation. **[VIOLATES S0 I-7 — no API boundary validates against a schema.]**
+- **`react-hook-form` / `@hookform/resolvers`** are in `package.json` with **zero imports**
+  anywhere in `app/`, `lib/`, `components/`, `hooks/`. Forms are `useState` + hand-rolled
+  validation. **`zod` is now used, but at exactly one site** —
+  `app/api/activity/route.ts:1` (Batch 6.1, so the activity ledger stops accepting forged
+  entries). **[VIOLATES S0 I-7 — one of 41 route handlers validates against a schema; the
+  other 40 do not.]**
 - **`resend`** is a dependency but never imported. Email goes out as a raw `fetch` to
   `https://api.resend.com/emails` (`lib/notify.ts:136`).
 - **Stripe is not used for invoicing.** The Stripe SDK is used only for the AI-credit top-up
@@ -116,8 +119,9 @@ service-role access is an enumerated allowlist. Today the opposite is true:
 - **RLS is enabled on every table**, and the policies are real — but for the app's own reads
   they are mostly bypassed. What RLS *is* load-bearing for is **Realtime**: browser
   subscriptions authenticate as the user, so a missing SELECT policy silently kills live
-  updates rather than erroring. `supabase/migrations/20260603_phase7.sql` exists solely
-  because of this.
+  updates rather than erroring. `supabase/migrations/_archive/20260603_phase7.sql` exists
+  solely because of this (moved to `_archive/` in Batch 6.9 — see "Migrations" below; it is
+  historical and never re-applied).
 - **Role and identity come from `app_metadata`, never `user_metadata`.** `lib/auth/role.ts`
   is the single trust anchor (`userRole`, `isAdmin`, `userClientId`, `userOrgId`).
   `user_metadata` is user-editable via `supabase.auth.updateUser({ data })` — trusting it is
@@ -178,10 +182,22 @@ Walk each of these paths mentally before saving an edit to `proxy.ts`.
 - `app/(portal)/` — client-facing protected area (`/dashboard`, `/projects`, `/approvals`,
   `/team`, `/files`, `/messages`, `/invoices`). `app/(portal)/layout.tsx` resolves membership
   and redirects. Note it uses `auth.getSession()` (line 17), not `auth.getUser()`.
-- `app/(admin)/` — **dead code.** The layout does enforce `role === 'admin'`
-  (`app/(admin)/admin/layout.tsx:20-21`), but the proxy redirects every `/admin` URL to
-  `/studio` first, so none of these 17 pages is reachable. Whether to delete or retain the
-  group is an open question owned by S4 (S0 §7). Do not build on it.
+- `app/(admin)/` — **NOT dead, and must not be deleted. 14 of its 15 page modules are the
+  canonical implementations behind the studio.** No `/admin/*` URL is reachable — the proxy
+  redirects every one to `/studio` (see above) — but reachability is not the same as being
+  unused: the studio routes are thin gated wrappers that *re-export these modules*. Fifteen
+  files under `app/studio/` import from here, e.g. `app/studio/client/companies/page.tsx:3`
+  → `@/app/(admin)/admin/clients/page`, and `admin/settings/page.tsx` backs both
+  `/studio/crew/settings` and `/studio/client/settings`. **Deleting this group deletes most
+  of the studio.** To change studio behaviour, edit the module here; the wrapper adds only
+  `requireOrgFeature()`.
+  Genuinely unreachable, and the only part that is: `admin/dashboard/page.tsx` (nothing
+  re-exports it; it is the stale target of `app/auth/callback/route.ts:86`),
+  `admin/layout.tsx` and `admin/loading.tsx` (the wrappers render under
+  `app/studio/layout.tsx`, so the `role === 'admin'` check at `admin/layout.tsx:20-21`
+  never runs for them). Whether to retire those three is owned by S4 (S0 §7).
+  This entry previously read "dead code … none of these 17 pages is reachable". That was
+  wrong on both counts and would have taken the studio down with a cleanup sweep.
 - `app/studio/` — the Throughline studio shell (admin-only; `app/studio/layout.tsx` enforces
   `isAdmin`). Three spaces — Crew / Client / Workspace — declared in `lib/studio/spaces.ts`.
   Features without an implementation render a "Phase N · coming soon" card
