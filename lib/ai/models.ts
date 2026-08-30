@@ -1,4 +1,4 @@
-// Throughline model registry — the single source of truth for every AI model the
+// Genreline model registry — the single source of truth for every AI model the
 // studio can call. Muse (chat), The Stage (generation), Model Arena, and Remaster
 // all read from here, so adding a model = one entry. Access is per-org: keys live
 // in org settings (encrypted); `via` says how we reach it (the provider's own API,
@@ -15,7 +15,7 @@ export type AIModel = {
   label: string // display name
   provider: string // brand
   modality: Modality
-  via: Access // how Throughline reaches it
+  via: Access // how Genreline reaches it
   tags?: string[] // 'flagship' | 'fast' | 'reasoning' | 'cinematic' | 'lipsync' | ...
 }
 

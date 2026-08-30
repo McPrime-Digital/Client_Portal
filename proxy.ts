@@ -60,7 +60,7 @@ export async function proxy(request: NextRequest) {
   }
 
   // Legacy /admin chrome is retired — every old admin URL maps to its
-  // Throughline home (deep segments and query strings preserved). The /studio
+  // Genreline home (deep segments and query strings preserved). The /studio
   // gate below still enforces auth + role after the redirect.
   if (pathname === '/admin' || pathname.startsWith('/admin/')) {
     const rest = pathname.slice('/admin'.length)
@@ -86,7 +86,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Admin trying to access client portal — send to the Throughline studio home
+  // Admin trying to access client portal — send to the Genreline studio home
   if (user && isPortalRoute) {
     const role = userRole(user)
     if (role === 'admin') {

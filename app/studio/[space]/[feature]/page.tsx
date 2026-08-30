@@ -57,7 +57,7 @@ export default async function FeaturePage({
         </h1>
         <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
           This is where <b className="text-foreground">{feature.label}</b> will live. Scheduled for{' '}
-          <b className="text-foreground">Phase {feature.phase}</b> of the Throughline build.
+          <b className="text-foreground">Phase {feature.phase}</b> of the Genreline build.
         </p>
         <span className="mt-5 inline-block rounded-full bg-secondary px-3 py-1 text-[11px] font-semibold text-muted-foreground">
           Phase {feature.phase} · coming soon

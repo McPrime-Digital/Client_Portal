@@ -1,6 +1,6 @@
-// The 3-space information architecture for Throughline's internal/studio shell.
+// The 3-space information architecture for Genreline's internal/studio shell.
 // Crew (team only) · Client (client-facing) · Workspace (the work). Each space
-// lists its features; `phase` ties to the Throughline build plan (docs/throughline-master-plan.md).
+// lists its features; `phase` ties to the Genreline build plan (docs/throughline-master-plan.md).
 import type { LucideIcon } from 'lucide-react'
 import {
   UsersRound, Handshake, Clapperboard,

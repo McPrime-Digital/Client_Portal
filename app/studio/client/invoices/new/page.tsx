@@ -1,5 +1,5 @@
 /* Gated studio route — roles + custom grants checked before the canonical
-   page module renders inside the Throughline shell. */
+   page module renders inside the Genreline shell. */
 import Page from '@/app/(admin)/admin/invoices/new/page'
 import { requireOrgFeature } from '@/lib/studio/guard'
 

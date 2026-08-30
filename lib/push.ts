@@ -2,6 +2,7 @@ import 'server-only'
 
 import webpush from 'web-push'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { PRODUCT_CONTACT_EMAIL } from '@/lib/product'
 
 // Server-side Web Push sender. Configured lazily from env so the app boots
 // fine without VAPID keys (push simply no-ops until they're set):
@@ -13,7 +14,7 @@ function ensureConfigured(): boolean {
   if (configured !== null) return configured
   const pub = process.env.VAPID_PUBLIC_KEY || process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
   const priv = process.env.VAPID_PRIVATE_KEY
-  const subject = process.env.VAPID_SUBJECT || 'mailto:notifications@mcprime.digital'
+  const subject = process.env.VAPID_SUBJECT || `mailto:${PRODUCT_CONTACT_EMAIL}`
   if (!pub || !priv) {
     configured = false
     return false

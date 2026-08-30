@@ -17,9 +17,15 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useSidebarStore } from '@/lib/stores/sidebar-store'
-import McPrimeLogo from '@/components/McPrimeLogo'
+import TenantLogo from '@/components/TenantLogo'
+import { PRODUCT_NAME, PRODUCT_TAGLINE } from '@/lib/product'
 
-type Props = { adminName: string; companyName?: string }
+type Props = {
+  adminName: string
+  /** The studio's own name — required and undefaulted (S0-B §2). */
+  companyName: string
+  companyLogoUrl?: string | null
+}
 
 const adminNavItems = [
   {
@@ -56,7 +62,7 @@ const adminNavItems = [
   },
 ]
 
-export default function AdminSidebar({ adminName, companyName = 'McPrime Digital' }: Props) {
+export default function AdminSidebar({ adminName, companyName, companyLogoUrl = null }: Props) {
   const pathname = usePathname()
   const router = useRouter()
   const { isOpen, close } = useSidebarStore()
@@ -122,7 +128,7 @@ export default function AdminSidebar({ adminName, companyName = 'McPrime Digital
       {/* Logo + company name + Admin badge (extreme top-left) — fixed 60px
           height so its bottom border aligns with the topbar's */}
       <div className="flex items-center gap-2.5 px-4 h-[60px] flex-shrink-0 border-b border-border">
-        <McPrimeLogo height={32} />
+        <TenantLogo name={companyName} logoUrl={companyLogoUrl} height={32} rounded="rounded-lg" />
         <div className="min-w-0">
           <p className="text-sm font-bold leading-tight truncate text-foreground">
             {companyName}
@@ -134,7 +140,7 @@ export default function AdminSidebar({ adminName, companyName = 'McPrime Digital
         </div>
       </div>
 
-      {/* Throughline Studio launcher — the door into the studio side */}
+      {/* Studio launcher — the door into the studio side */}
       <div className="px-3 pt-4">
         <Link
           href="/studio"
@@ -150,8 +156,8 @@ export default function AdminSidebar({ adminName, companyName = 'McPrime Digital
             </svg>
           </span>
           <span className="min-w-0 leading-tight">
-            <span className="block truncate text-sm font-semibold text-foreground">Throughline</span>
-            <span className="block text-[10px] uppercase tracking-[0.18em] text-faint">Studio OS</span>
+            <span className="block truncate text-sm font-semibold text-foreground">{PRODUCT_NAME}</span>
+            <span className="block text-[10px] uppercase tracking-[0.18em] text-faint">{PRODUCT_TAGLINE}</span>
           </span>
           <ArrowUpRight
             size={15}

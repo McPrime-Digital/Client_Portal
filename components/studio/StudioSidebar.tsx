@@ -1,5 +1,7 @@
 'use client'
 
+import { PRODUCT_NAME, PRODUCT_TAGLINE } from '@/lib/product'
+
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
@@ -76,8 +78,8 @@ export default function StudioSidebar({
           </svg>
         </div>
         <div className="leading-tight">
-          <div className="font-display text-[17px] font-bold text-foreground">Throughline</div>
-          <div className="text-[10px] uppercase tracking-[0.2em] text-faint">Studio OS</div>
+          <div className="font-display text-[17px] font-bold text-foreground">{PRODUCT_NAME}</div>
+          <div className="text-[10px] uppercase tracking-[0.2em] text-faint">{PRODUCT_TAGLINE}</div>
         </div>
       </div>
 

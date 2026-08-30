@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import AdminSidebar from '@/components/admin/AdminSidebar'
 import AdminTopbar from '@/components/admin/AdminTopbar'
 import PresencePulse from '@/components/shared/PresencePulse'
-import { getBusinessSettings } from '@/lib/businessSettings'
+import { tenantBrand } from '@/lib/tenantBrand'
 import { userRole, userOrgId } from '@/lib/auth/role'
 
 export default async function AdminLayout({
@@ -20,15 +20,10 @@ export default async function AdminLayout({
   const role = userRole(user)
   if (role !== 'admin') redirect('/dashboard')
 
-  // Agency/company name shown beside the logo (top-left). Falls back to the
-  // McPrime brand if business settings haven't been filled in.
-  let companyName = 'McPrime Digital'
-  try {
-    const biz = await getBusinessSettings(userOrgId(user))
-    if (biz?.business_name) companyName = biz.business_name
-  } catch {
-    // best-effort
-  }
+  // The studio's own name and logo beside the product wordmark (S0-B §3).
+  // The fallback was the literal 'McPrime Digital', so an unfilled
+  // business_settings row put one studio's name in every studio's chrome.
+  const brand = await tenantBrand(userOrgId(user))
 
   const adminName = user.user_metadata?.name ?? 'Admin'
   const adminRole = user.user_metadata?.title || 'Owner'
@@ -38,7 +33,7 @@ export default async function AdminLayout({
       {/* Unreachable in practice — the proxy redirects every /admin URL to
           /studio — but it still compiles, so it carries the tenant scope too. */}
       <PresencePulse role="admin" userId={user.id} clientId={null} orgId={userOrgId(user)} />
-      <AdminSidebar adminName={adminName} companyName={companyName} />
+      <AdminSidebar adminName={adminName} companyName={brand.name} companyLogoUrl={brand.logoUrl} />
       <div className="flex flex-col flex-1 overflow-hidden">
         <AdminTopbar adminName={adminName} adminRole={adminRole} />
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">

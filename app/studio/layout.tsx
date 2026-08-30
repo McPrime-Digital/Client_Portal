@@ -9,26 +9,34 @@ import SessionDock from '@/components/studio/SessionDock'
 import PrimeOSDock from '@/components/studio/PrimeOSDock'
 import PresencePulse from '@/components/shared/PresencePulse'
 import { GOOGLE_FONTS_HREF } from '@/lib/studio/fonts'
+import { tenantBrand } from '@/lib/tenantBrand'
+import { PRODUCT_NAME, PRODUCT_TAGLINE } from '@/lib/product'
+import type { Metadata } from 'next'
 
-// Throughline internal/studio shell — team-only (admins). The external client
+// Genreline's internal/studio shell — team-only (admins). The external client
 // portal stays at /dashboard; this is the 3-space (Crew/Client/Workspace) home.
+//
+// The studio is where the product speaks as itself (S0-B §3): Genreline in the
+// chrome, the studio's own name and logo as tenant context beside it.
+export const metadata: Metadata = {
+  title: `${PRODUCT_NAME} — ${PRODUCT_TAGLINE}`,
+}
 export default async function StudioLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser()
 
   if (!user) redirect('/login')
   if (!isAdmin(user)) redirect('/dashboard')
 
-  let orgName = 'McPrime'
-  try {
-    const { data: org } = await supabaseAdmin
-      .from('organizations')
-      .select('name')
-      .limit(1)
-      .single()
-    if (org?.name) orgName = org.name
-  } catch {
-    // organizations table may not exist in every environment — best-effort.
-  }
+  // THIS WAS CROSS-TENANT. The previous shape was
+  // `.from('organizations').select('name').limit(1).single()` — no predicate at
+  // all, so it returned whichever organization Postgres handed back first and
+  // rendered that name in this admin's chrome. Three orgs exist today, so the
+  // studio header could already show another studio's name. It is the exact
+  // failure lib/businessSettings.ts warns about in prose ("a .limit(1).single()
+  // anywhere else silently reads whichever tenant Postgres returns first") —
+  // T-3, found while renaming the comment above it.
+  const brand = await tenantBrand(userOrgId(user))
+  const orgName = brand.name
 
   const userName =
     (user.user_metadata?.name as string | undefined) ?? user.email?.split('@')[0] ?? 'Owner'
