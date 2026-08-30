@@ -139,6 +139,8 @@ type Props = {
   initialTasks: Task[]
   phases?: Phase[]
   userRole: 'admin' | 'client'
+  /** The studio serving this client — shown to the client side (S0-B §3). */
+  studioName: string
   // client-side only: whether this member's role may approve/request changes
   canApprove?: boolean
   onProgressUpdate?: (pct: number) => void
@@ -151,6 +153,7 @@ export default function TaskBoard({
   initialTasks,
   phases,
   userRole,
+  studioName,
   canApprove = true,
   onProgressUpdate,
   involvement,
@@ -793,7 +796,7 @@ export default function TaskBoard({
                     <p className="text-xs font-medium leading-snug" style={{ color: 'hsl(var(--foreground))' }}>{t.title}</p>
                     {t.approval_note && <p className="text-[11px] mt-0.5 leading-snug" style={{ color: 'hsl(var(--muted-foreground))' }}>“{t.approval_note}”</p>}
                     <p className="text-[10px] mt-1" style={{ color: 'hsl(var(--text-faint))' }}>
-                      Changes requested · {userRole === 'client' ? 'awaiting McPrime to resend for approval' : 'resend for approval when ready'}
+                      Changes requested · {userRole === 'client' ? `awaiting ${studioName} to resend for approval` : 'resend for approval when ready'}
                     </p>
                     {latestAttachmentByTask.has(t.id) && (
                       <button type="button" onClick={() => { const a = latestAttachmentByTask.get(t.id)!; openFile(a.fileId, a.name) }}
@@ -848,7 +851,7 @@ export default function TaskBoard({
                   <ShieldCheck size={20} style={{ color: 'hsl(var(--text-faint))' }} />
                   <p className="text-xs mt-2" style={{ color: 'hsl(var(--muted-foreground))' }}>No approval decisions yet</p>
                   <p className="text-[10px] mt-0.5" style={{ color: 'hsl(var(--text-faint))' }}>
-                    Every approval &amp; change request is stored here for both you and {userRole === 'client' ? 'McPrime' : 'the client'}.
+                    Every approval &amp; change request is stored here for both you and {userRole === 'client' ? studioName : 'the client'}.
                   </p>
                 </div>
               )}

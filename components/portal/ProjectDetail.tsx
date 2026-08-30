@@ -48,6 +48,8 @@ type Props = {
   files: FileRecord[]
   initialMessages: Message[]
   client: Client
+  /** The studio serving this client (S0-B §3) — resolved by the page. */
+  studioName: string
   involvement?: any[]
   // the signed-in member's own display name (never the company owner's)
   memberName?: string
@@ -101,6 +103,7 @@ export default function ProjectDetail({
   files,
   initialMessages,
   client,
+  studioName,
   involvement,
   memberName,
   memberRole = 'owner',
@@ -828,6 +831,7 @@ export default function ProjectDetail({
       {activeTab === 'files' && (
         <div className="space-y-6">
           <FileVault
+              studioName={studioName}
             projectId={project.id}
             clientId={client.id}
             userId={client.id}
@@ -902,7 +906,7 @@ export default function ProjectDetail({
               currentRole="client"
               currentName={memberName ?? client.name}
               readOnly={canMessage === false}
-              otherName="McPrime Digital"
+              otherName={studioName}
               projectId={project.id}
               onSendMessage={sendMessage}
               onUploadAttachment={handleAttachmentUpload}
@@ -942,6 +946,7 @@ export default function ProjectDetail({
       {/* ── TASKS TAB ── */}
       {activeTab === 'tasks' && (
         <TaskBoard
+          studioName={studioName}
           projectId={project.id}
           clientId={client.id}
           initialTasks={(tasks ?? []) as any}

@@ -1,4 +1,5 @@
 import { clientCan } from '@/lib/permissions'
+import { tenantBrand } from '@/lib/tenantBrand'
 import { portalClientId, portalAccess } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -22,6 +23,9 @@ export default async function MessagesPage() {
 
   // Member scoping — project allowlist + message-history cutoff.
   const access = await portalAccess(user)
+
+  // The studio on the other side of these threads (S0-B §3).
+  const brand = await tenantBrand(client.organization_id)
 
   // Fetch all projects with their latest message
   const { data: projects } = await supabaseAdmin
@@ -100,6 +104,7 @@ export default async function MessagesPage() {
       threads={threads}
       clientId={client.id}
       clientName={access?.name ?? client.name}
+      studioName={brand.name}
       canSend={clientCan(access?.role ?? 'owner', 'message', access?.extraCaps)}
     />
   )

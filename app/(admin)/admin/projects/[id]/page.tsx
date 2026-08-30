@@ -1,4 +1,5 @@
 import { isAdmin, userOrgId } from '@/lib/auth/role'
+import { tenantBrand } from '@/lib/tenantBrand'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect, notFound } from 'next/navigation'
@@ -24,6 +25,11 @@ export default async function AdminProjectDetailPage({
   // reads below are then transitively in-tenant, and carry the predicate too
   // because both tables hold organization_id and it costs nothing.
   const orgId = userOrgId(user)
+
+  // This studio's own name, for the surfaces it shares with the client portal
+  // (the vault's uploader label, the approvals ledger). Resolved from the
+  // admin's own org — on this side the caller IS the tenant (S0-B §3).
+  const brand = await tenantBrand(orgId)
 
   const { data: project } = await supabaseAdmin
     .from('projects')
@@ -148,6 +154,7 @@ export default async function AdminProjectDetailPage({
         files={files ?? []}
         initialMessages={messages ?? []}
         involvement={involvement}
+        studioName={brand.name}
       />
     </>
   )

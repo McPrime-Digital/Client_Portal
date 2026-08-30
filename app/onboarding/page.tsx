@@ -2,6 +2,7 @@ import { isAdmin } from '@/lib/auth/role'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { portalClientId } from '@/lib/team'
+import { tenantBrand } from '@/lib/tenantBrand'
 import { redirect } from 'next/navigation'
 import OnboardingWizard from '@/components/portal/OnboardingWizard'
 
@@ -27,13 +28,17 @@ export default async function OnboardingPage() {
   // still cannot arrive on this page by any route the app offers.
   const { data: client } = await supabaseAdmin
     .from('clients')
-    .select('id, name, company, phone, avatar_url, onboarding_completed_at')
+    .select('id, name, company, phone, avatar_url, organization_id, onboarding_completed_at')
     .eq('id', await portalClientId(user))
     .maybeSingle()
 
   // No client record, or already onboarded → straight to the portal.
   if (!client) redirect('/dashboard')
   if (client.onboarding_completed_at) redirect('/dashboard')
+
+  // The studio this client is onboarding with. Its brand, not the product's
+  // and not another tenant's (S0-B §2).
+  const brand = await tenantBrand(client.organization_id)
 
   return (
     <OnboardingWizard
@@ -43,6 +48,8 @@ export default async function OnboardingPage() {
         phone: client.phone ?? '',
         avatarUrl: client.avatar_url ?? null,
       }}
+      studioName={brand.name}
+      studioLogoUrl={brand.logoUrl}
     />
   )
 }

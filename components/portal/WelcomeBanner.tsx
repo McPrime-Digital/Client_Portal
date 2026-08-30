@@ -5,9 +5,12 @@ import { X, Sparkles } from 'lucide-react'
 
 export default function WelcomeBanner({
   clientName,
+  studioName,
   dismissed,
 }: {
   clientName: string
+  /** The studio whose portal this is (S0-B §3) — never the product's name. */
+  studioName: string
   // Server-persisted: once the client closes the banner it never returns.
   dismissed: boolean
 }) {
@@ -82,7 +85,7 @@ export default function WelcomeBanner({
             font-bold"
             style={{ color: 'hsl(var(--foreground))' }}
           >
-            Welcome to McPrime Digital,{' '}
+            Welcome to {studioName},{' '}
             {clientName.split(' ')[0]} 👋
           </h2>
           <p

@@ -2,11 +2,29 @@ import { clientMembershipOf } from '@/lib/team'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { getBusinessSettings } from '@/lib/businessSettings'
+import { tenantBrand, tenantBrandForClient } from '@/lib/tenantBrand'
+import type { Metadata } from 'next'
 import { DEFAULT_ORG_ID } from '@/lib/auth/role'
 import Sidebar from '@/components/layout/Sidebar'
 import Topbar from '@/components/layout/Topbar'
 import PresencePulse from '@/components/shared/PresencePulse'
+
+// The portal's <title> is the TENANT's, not the product's (S0-B §3). The root
+// layout's metadata is a single global string and cannot be: one root serves
+// the portal, the studio and the pre-auth auth pages. A nested layout override
+// is the only place a per-tenant title can be resolved, because it is the only
+// one of the three that has a session to resolve it from.
+export async function generateMetadata(): Promise<Metadata> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { title: 'Client Portal' }
+
+  const membership = await clientMembershipOf(user)
+  const brand = await tenantBrandForClient(membership?.clientId)
+  return brand.resolved
+    ? { title: `${brand.name} — Client Portal`, description: `Your ${brand.name} project portal` }
+    : { title: 'Client Portal' }
+}
 
 export default async function PortalLayout({
   children,
@@ -105,13 +123,13 @@ export default async function PortalLayout({
 
   // The studio/agency serving this client — shown in the sidebar co-brand.
   // Scoped to the org that owns this client company (T-3), not a global row.
-  let orgName = 'McPrime Digital'
-  try {
-    const biz = await getBusinessSettings(orgId)
-    if (biz?.business_name) orgName = biz.business_name
-  } catch {
-    // best-effort
-  }
+  //
+  // The fallback used to be the literal 'McPrime Digital', so every tenant's
+  // clients read one studio's name whenever the lookup missed (S0-B §2, P-1).
+  // It now degrades to a neutral stand-in, and the logo comes with the name —
+  // it lives on organizations, not business_settings, which is why one helper
+  // owns both reads.
+  const brand = await tenantBrand(orgId)
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -126,7 +144,8 @@ export default async function PortalLayout({
         clientCompany={(activeClient as any).company ?? null}
         clientId={(activeClient as any).id}
         clientAvatar={(activeClient as any).avatar_url ?? null}
-        orgName={orgName}
+        orgName={brand.name}
+        orgLogoUrl={brand.logoUrl}
         memberRole={memberRole}
         memberExtra={memberExtra}
       />

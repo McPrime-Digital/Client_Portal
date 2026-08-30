@@ -143,7 +143,10 @@ export const FOLDER_LABEL: Record<VaultFolder, string> = {
 
 // One-line undertext shown beneath each folder header.
 export const FOLDER_DESC: Record<VaultFolder, string> = {
-  deliverables: 'Final files delivered by McPrime',
+  // Named no studio before: it said "delivered by McPrime" in every tenant's
+  // vault, on both sides of the house. The sentence does not need a name —
+  // the reader already knows who they are working with (S0-B §2).
+  deliverables: 'Final delivered files',
   tasks: 'Media shared for your review & approval',
   brand: 'Logos, guidelines & brand source files',
   invoices: 'Invoices and payment receipts',

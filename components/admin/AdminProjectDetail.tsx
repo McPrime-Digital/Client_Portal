@@ -84,6 +84,7 @@ export default function AdminProjectDetail({
   files: initialFiles,
   initialMessages,
   involvement,
+  studioName,
 }: any) {
   const router = useRouter()
   const supabase = createClient()
@@ -959,6 +960,7 @@ export default function AdminProjectDetail({
       {activeTab === 'files' && (
         <div className="space-y-6">
           <FileVault
+            studioName={studioName}
             projectId={project.id}
             clientId={project.client_id}
             userId="admin"
@@ -1070,6 +1072,7 @@ export default function AdminProjectDetail({
       {/* ── TASKS TAB ── */}
       {activeTab === 'tasks' && (
         <TaskBoard
+          studioName={studioName}
           projectId={project.id}
           clientId={client.id}
           initialTasks={(tasks ?? []) as any}

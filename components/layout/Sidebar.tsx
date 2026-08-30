@@ -23,7 +23,11 @@ type Props = {
   clientCompany?: string | null
   clientId: string
   clientAvatar?: string | null
-  orgName?: string
+  // The studio serving this client, resolved from the database by the layout.
+  // Required, and with no default: a default is how one tenant's name came to
+  // render in every tenant's portal (S0-B §2).
+  orgName: string
+  orgLogoUrl?: string | null
   memberRole?: ClientRole
   memberExtra?: string[]
 }
@@ -59,7 +63,7 @@ const navItems = [
   },
 ]
 
-export default function Sidebar({ clientName, clientCompany, clientId, clientAvatar, orgName = 'McPrime Digital', memberRole = 'owner', memberExtra = [] }: Props) {
+export default function Sidebar({ clientName, clientCompany, clientId, clientAvatar, orgName, orgLogoUrl = null, memberRole = 'owner', memberExtra = [] }: Props) {
   // The portal is the client's own — brand it with their company (their logo if uploaded).
   const brandName = clientCompany || clientName || 'Client'
   const pathname = usePathname()
@@ -218,10 +222,20 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
       {/* Co-brand — the organization's platform, powered by Throughline */}
       <div className="px-4 pt-4 pb-1">
         <div className="rounded-xl border border-border bg-background px-4 py-3">
-          <p className="truncate text-[12px] font-semibold text-foreground">
-            {orgName}
-            <span className="ml-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-faint">Platform</span>
-          </p>
+          <div className="flex items-center gap-2">
+            {orgLogoUrl && (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={orgLogoUrl}
+                alt={orgName}
+                className="h-[18px] w-[18px] flex-shrink-0 rounded-[5px] object-contain"
+              />
+            )}
+            <p className="truncate text-[12px] font-semibold text-foreground">
+              {orgName}
+              <span className="ml-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-faint">Platform</span>
+            </p>
+          </div>
           <div className="mt-2 flex items-center gap-1.5 border-t border-border pt-2">
             <span className="text-[9.5px] uppercase tracking-[0.16em] text-faint">Powered by</span>
             <svg viewBox="0 0 48 48" fill="none" className="h-[12px] w-[12px] flex-shrink-0 text-primary">

@@ -1,4 +1,5 @@
 import { portalClientId, portalAccess } from '@/lib/team'
+import { tenantBrand } from '@/lib/tenantBrand'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
@@ -31,12 +32,20 @@ export default async function ProjectsPage() {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
         <FolderOpen size={40} style={{ color: 'hsl(var(--text-faint))' }} />
+          {/* No client row means no organization, so there is genuinely no
+              tenant to name here. The name is dropped rather than defaulted:
+              printing one studio's name to another studio's client is the
+              P-1 defect, and a stand-in reads worse than the sentence without
+              it (S0-B §2). */}
         <p style={{ color: 'hsl(var(--muted-foreground))' }}>
-          Your account is being set up. Please contact McPrime Digital.
+          Your account is being set up. Please contact your studio.
         </p>
       </div>
     )
   }
+
+  // The studio serving this client — its name, from the database (S0-B §3).
+  const brand = await tenantBrand(client.organization_id)
 
   const { data: projects } = await supabaseAdmin
     .from('projects')
@@ -251,7 +260,7 @@ export default async function ProjectsPage() {
             No projects yet
           </p>
           <p className="text-sm mt-1" style={{ color: 'hsl(var(--text-faint))' }}>
-            McPrime Digital will set up your projects here
+            {brand.name} will set up your projects here
           </p>
         </div>
       )}

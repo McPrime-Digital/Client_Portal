@@ -2,7 +2,7 @@
 
 import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import McPrimeLogo from '@/components/McPrimeLogo'
+import TenantLogo from '@/components/TenantLogo'
 import {
   ArrowRight, ArrowLeft, Loader2, Check, ImagePlus, Building2,
   Bell, Sparkles,
@@ -22,7 +22,16 @@ const PREF_OPTIONS = [
   { key: 'status', label: 'Project status changes' },
 ]
 
-export default function OnboardingWizard({ initial }: { initial: Initial }) {
+export default function OnboardingWizard({
+  initial,
+  studioName,
+  studioLogoUrl,
+}: {
+  initial: Initial
+  /** The studio this client is onboarding with (S0-B §2) — its brand, not ours. */
+  studioName: string
+  studioLogoUrl: string | null
+}) {
   const router = useRouter()
   const [step, setStep] = useState(0)
   const [saving, setSaving] = useState(false)
@@ -98,7 +107,7 @@ export default function OnboardingWizard({ initial }: { initial: Initial }) {
     <div className="min-h-screen flex items-center justify-center px-4 py-10"
       style={{ backgroundColor: 'hsl(var(--background))' }}>
       <div className="w-full max-w-md">
-        <div className="mb-6"><McPrimeLogo height={48} rounded="rounded-2xl" /></div>
+        <div className="mb-6"><TenantLogo name={studioName} logoUrl={studioLogoUrl} height={48} rounded="rounded-2xl" /></div>
 
         {/* Step indicator */}
         <div className="flex items-center gap-1.5 mb-8">

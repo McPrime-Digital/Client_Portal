@@ -2,6 +2,7 @@ import { clientCan } from '@/lib/permissions'
 import { portalClientId, portalAccess } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { tenantBrand } from '@/lib/tenantBrand'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import StatusBadge from '@/components/portal/StatusBadge'
@@ -135,8 +136,13 @@ export default async function DashboardPage() {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
         <AlertCircle size={40} style={{ color: 'hsl(var(--text-faint))' }} />
+          {/* No client row means no organization, so there is genuinely no
+              tenant to name here. The name is dropped rather than defaulted:
+              printing one studio's name to another studio's client is the
+              P-1 defect, and a stand-in reads worse than the sentence without
+              it (S0-B §2). */}
         <p style={{ color: 'hsl(var(--muted-foreground))' }}>
-          Your account is being set up. Please contact McPrime Digital.
+          Your account is being set up. Please contact your studio.
         </p>
       </div>
     )
@@ -145,6 +151,9 @@ export default async function DashboardPage() {
   // Welcome banner shows for every client until they dismiss it themselves
   // (persisted in clients.welcome_dismissed_at). Absent column → shows.
   const welcomeDismissed = !!client?.welcome_dismissed_at
+
+  // The studio serving this client — name resolved from the database (S0-B §3).
+  const brand = await tenantBrand(client.organization_id)
 
   // Projects first, then everything scoped to their ids
   const { data: projects } = await supabaseAdmin
@@ -379,7 +388,7 @@ export default async function DashboardPage() {
       />
 
       {/* Welcome banner — stays until the client closes it themselves */}
-      <WelcomeBanner clientName={access?.name ?? client?.name ?? 'there'} dismissed={welcomeDismissed} />
+      <WelcomeBanner clientName={access?.name ?? client?.name ?? 'there'} studioName={brand.name} dismissed={welcomeDismissed} />
 
       {/* Pending approvals — items awaiting the client's review */}
       {pendingApprovals.length > 0 && (

@@ -71,6 +71,10 @@ type Props = {
   userId: string
   userRole: 'admin' | 'client'
   userName: string
+  /** The studio that owns this work — labels its own uploads (S0-B §3).
+   *  Required, and deliberately without a default: the literal 'McPrime' used
+   *  to stand here, so every tenant's vault credited one studio (P-1). */
+  studioName: string
   initialFiles: FileRecord[]
 }
 
@@ -128,6 +132,7 @@ export default function FileVault({
   userId,
   userRole,
   userName,
+  studioName,
   initialFiles,
 }: Props) {
   const supabase = createClient()
@@ -324,7 +329,7 @@ export default function FileVault({
               {formatDate(file.created_at)}
             </span>
             <span className="text-xs" style={{ color: 'hsl(var(--text-faint))' }}>
-              {file.uploaded_by_role === 'admin' ? 'McPrime' : file.uploaded_by_role}
+              {file.uploaded_by_role === 'admin' ? studioName : file.uploaded_by_role}
             </span>
           </div>
           {file.description && (

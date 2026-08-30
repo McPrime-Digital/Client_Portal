@@ -33,6 +33,8 @@ type Props = {
   threads: Thread[]
   clientId: string
   clientName: string
+  /** The studio on the other side of these threads (S0-B §3). */
+  studioName: string
   // view-only members read the thread but get no composer
   canSend?: boolean
 }
@@ -77,6 +79,7 @@ export default function MessagesHub({
   threads: initialThreads,
   clientId,
   clientName,
+  studioName,
   canSend = true,
 }: Props) {
   const supabase = createClient()
@@ -640,7 +643,7 @@ export default function MessagesHub({
                         >
                           {thread.latestMessage
                             .sender_role === 'admin'
-                            ? 'McPrime: '
+                            ? `${studioName}: `
                             : 'You: '}
                           {messagePreview(thread.latestMessage)}
                         </p>
@@ -819,7 +822,7 @@ export default function MessagesHub({
                     messages={messages}
                     currentRole="client"
                     currentName={clientName}
-                    otherName="McPrime Digital"
+                    otherName={studioName}
                     projectId={activeThread.id}
                     onSendMessage={sendMessage}
                     readOnly={!canSend}

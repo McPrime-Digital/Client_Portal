@@ -3,6 +3,7 @@ import { portalClientId, portalAccess } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getBusinessSettings } from '@/lib/businessSettings'
+import { tenantBrand } from '@/lib/tenantBrand'
 import { redirect } from 'next/navigation'
 import InvoicesClient from '@/components/portal/InvoicesClient'
 import RealtimeRefresh from '@/components/shared/RealtimeRefresh'
@@ -47,6 +48,7 @@ export default async function InvoicesPage() {
   // row (T-3). Admin-only table; read via service role and passed down, since
   // clients never query it directly.
   const paymentSettings = await getBusinessSettings(client.organization_id)
+  const brand = await tenantBrand(client.organization_id)
 
   return (
     <>
@@ -56,6 +58,7 @@ export default async function InvoicesPage() {
         clientName={client.name}
         clientId={client.id}
         paymentSettings={paymentSettings ?? null}
+        studioName={brand.name}
       />
     </>
   )

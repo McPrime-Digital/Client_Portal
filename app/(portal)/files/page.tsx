@@ -24,8 +24,13 @@ export default async function FilesPage() {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-4">
         <AlertCircle size={40} className="text-faint" />
+          {/* No client row means no organization, so there is genuinely no
+              tenant to name here. The name is dropped rather than defaulted:
+              printing one studio's name to another studio's client is the
+              P-1 defect, and a stand-in reads worse than the sentence without
+              it (S0-B §2). */}
         <p className="text-sm text-muted-foreground">
-          Your account is being set up. Please contact McPrime Digital.
+          Your account is being set up. Please contact your studio.
         </p>
       </div>
     )

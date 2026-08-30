@@ -48,6 +48,8 @@ type Props = {
   clientName: string
   clientId: string
   paymentSettings: BusinessSettings | null
+  /** The studio that issued these invoices, resolved by the page (S0-B §3). */
+  studioName: string
 }
 
 function Detail({ label, value }: { label: string; value: string }) {
@@ -64,8 +66,8 @@ function Detail({ label, value }: { label: string; value: string }) {
 // unpaid invoice. The receipt lands in the Files Vault (Invoices &
 // Receipts) and is linked to the invoice for the admin to verify.
 function InvoicePaymentPanel({
-  invoice, settings, clientId, onViewReceipt,
-}: { invoice: Invoice; settings: BusinessSettings | null; clientId: string; onViewReceipt: (fileId: string, name: string) => void }) {
+  invoice, settings, clientId, studioName, onViewReceipt,
+}: { invoice: Invoice; settings: BusinessSettings | null; clientId: string; studioName: string; onViewReceipt: (fileId: string, name: string) => void }) {
   const [uploading, setUploading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [err, setErr] = useState('')
@@ -126,7 +128,7 @@ function InvoicePaymentPanel({
         </div>
       ) : (
         <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>
-          Contact McPrime Digital for payment details.
+          Contact {studioName} for payment details.
         </p>
       )}
 
@@ -224,6 +226,7 @@ export default function InvoicesClient({
   clientId,
   paymentSettings,
   clientName,
+  studioName,
 }: Props) {
   const unpaid = invoices.filter(
     (i) => i.status === 'unpaid' || i.status === 'overdue'
@@ -343,7 +346,7 @@ export default function InvoicesClient({
           </p>
           <p className="text-sm mt-1"
             style={{ color: 'hsl(var(--text-faint))' }}>
-            Your invoices from McPrime Digital will appear here
+            Your invoices from {studioName} will appear here
           </p>
         </div>
       )}
@@ -480,6 +483,7 @@ export default function InvoicesClient({
                   invoice={invoice}
                   settings={paymentSettings}
                   clientId={clientId}
+                  studioName={studioName}
                   onViewReceipt={openReceipt}
                 />
               </div>
