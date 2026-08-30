@@ -97,7 +97,7 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
     }
 
     loadBadges()
-    const interval = setInterval(loadBadges, 15_000)
+    const interval = setInterval(loadBadges, 90_000)
 
     // Realtime subscription still fires when replication is on
     const channel = supabase

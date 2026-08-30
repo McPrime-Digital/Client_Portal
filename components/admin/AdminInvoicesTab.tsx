@@ -100,7 +100,7 @@ export default function AdminInvoicesTab({
       .channel(`invoices:${projectId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'invoices', filter: `project_id=eq.${projectId}` }, () => loadInvoices())
       .subscribe()
-    const interval = setInterval(loadInvoices, 30_000)
+    const interval = setInterval(loadInvoices, 120_000)
     return () => { supabase.removeChannel(channel); clearInterval(interval) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])

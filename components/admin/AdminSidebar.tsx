@@ -84,7 +84,7 @@ export default function AdminSidebar({ adminName, companyName = 'McPrime Digital
     }
 
     loadBadge()
-    const interval = setInterval(loadBadge, 15_000)
+    const interval = setInterval(loadBadge, 90_000)
 
     const channel = supabase
       .channel('admin-sidebar-badges')

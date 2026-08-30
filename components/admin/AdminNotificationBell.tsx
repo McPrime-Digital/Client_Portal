@@ -66,7 +66,7 @@ export default function AdminNotificationBell() {
       .then(() => load())
       .catch(() => {})
     load()
-    const interval = setInterval(load, 20000)
+    const interval = setInterval(load, 90_000)
     const supabase = createClient()
     const channel = supabase
       .channel('admin-notifications')

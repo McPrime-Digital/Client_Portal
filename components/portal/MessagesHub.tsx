@@ -324,7 +324,7 @@ export default function MessagesHub({
   useEffect(() => {
     if (!activeThread) return
     const projectId = activeThread.id
-    const interval = setInterval(() => refetchMessages(projectId), 6000)
+    const interval = setInterval(() => refetchMessages(projectId), 60_000)
     return () => clearInterval(interval)
   }, [activeThread?.id, refetchMessages])
 

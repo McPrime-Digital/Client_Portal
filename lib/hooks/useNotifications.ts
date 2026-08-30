@@ -19,7 +19,7 @@ export type Notification = {
   created_at: string
 }
 
-const POLL_INTERVAL = 20_000
+const POLL_INTERVAL = 90_000
 
 export function useNotifications(clientId: string | null) {
   const [notifications, setNotifications] = useState<Notification[]>([])

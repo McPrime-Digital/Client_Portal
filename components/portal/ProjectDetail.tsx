@@ -135,6 +135,9 @@ export default function ProjectDetail({
   const [adminOnline, setAdminOnline] = useState(false)
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const typingBroadcastRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // The single subscribed typing channel. handleTyping() used to call
+  // supabase.channel(...) per keystroke — see the note on the send below.
+  const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const clientUploadRef = useRef<HTMLInputElement>(null)
@@ -280,7 +283,11 @@ export default function ProjectDetail({
         }
       })
       .subscribe()
-    return () => { supabase.removeChannel(ch) }
+    typingChannelRef.current = ch
+    return () => {
+      typingChannelRef.current = null
+      supabase.removeChannel(ch)
+    }
   }, [project.id])
 
   // Presence — track admin online status
@@ -307,7 +314,12 @@ export default function ProjectDetail({
   // Broadcast typing when client types
   function handleTyping() {
     if (typingBroadcastRef.current) return
-    supabase.channel(`typing:${project.id}`).send({
+    // MUST reuse the subscribed channel. `supabase.channel(name)` REGISTERS a new
+    // RealtimeChannel on every call — supabase-js does not dedupe by name — so
+    // calling it here minted an orphaned channel per keystroke (throttled to one
+    // per 2s below, so ~30/minute per typing user) that nothing ever removed.
+    // They accumulated for the life of the page, client-side and on Realtime.
+    typingChannelRef.current?.send({
       type: 'broadcast',
       event: 'typing',
       payload: { role: 'client' },
@@ -336,7 +348,7 @@ export default function ProjectDetail({
           // (covers new messages arriving while tab is already open)
         })
         .catch(() => {})
-    }, 10_000)
+    }, 60_000)
     return () => clearInterval(interval)
   }, [project.id])
 

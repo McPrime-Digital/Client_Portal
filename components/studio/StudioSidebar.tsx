@@ -51,7 +51,7 @@ export default function StudioSidebar({
     }
 
     loadBadge()
-    const interval = setInterval(loadBadge, 15_000)
+    const interval = setInterval(loadBadge, 90_000)
     const channel = supabase
       .channel('studio-sidebar-badges')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => loadBadge())

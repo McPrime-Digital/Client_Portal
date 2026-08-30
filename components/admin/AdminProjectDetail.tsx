@@ -127,6 +127,9 @@ export default function AdminProjectDetail({
   const [clientOnline, setClientOnline] = useState(false)
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const typingBroadcastRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // The single subscribed typing channel. handleTyping() used to call
+  // supabase.channel(...) per keystroke — see the note on the send below.
+  const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const refreshMessages = useCallback(async () => {
@@ -187,7 +190,7 @@ export default function AdminProjectDetail({
       .channel(`admin-proj-notifs:${project.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => loadAdminNotifs())
       .subscribe()
-    const poll = setInterval(loadAdminNotifs, 20000)
+    const poll = setInterval(loadAdminNotifs, 90_000)
     return () => { clearInterval(poll); supabase.removeChannel(channel) }
   }, [loadAdminNotifs])
   const tabBadge = (type: string) =>
@@ -290,7 +293,11 @@ export default function AdminProjectDetail({
         }
       })
       .subscribe()
-    return () => { supabase.removeChannel(ch) }
+    typingChannelRef.current = ch
+    return () => {
+      typingChannelRef.current = null
+      supabase.removeChannel(ch)
+    }
   }, [project.id])
 
   // Presence — track client online status
@@ -317,7 +324,12 @@ export default function AdminProjectDetail({
   // Broadcast typing when admin types
   function handleAdminTyping() {
     if (typingBroadcastRef.current) return
-    supabase.channel(`typing:${project.id}`).send({
+    // MUST reuse the subscribed channel. `supabase.channel(name)` REGISTERS a new
+    // RealtimeChannel on every call — supabase-js does not dedupe by name — so
+    // calling it here minted an orphaned channel per keystroke (throttled to one
+    // per 2s below, so ~30/minute per typing user) that nothing ever removed.
+    // They accumulated for the life of the page, client-side and on Realtime.
+    typingChannelRef.current?.send({
       type: 'broadcast',
       event: 'typing',
       payload: { role: 'admin' },
@@ -344,7 +356,7 @@ export default function AdminProjectDetail({
           })
         })
         .catch(() => {})
-    }, 10_000)
+    }, 60_000)
     return () => clearInterval(interval)
   }, [project.id])
 

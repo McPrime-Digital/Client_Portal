@@ -344,7 +344,7 @@ export default function TaskBoard({
         }
       } catch { /* ignore — realtime/other polls cover it */ }
     }
-    const interval = setInterval(tick, 7000)
+    const interval = setInterval(tick, 60_000)
     const onVisible = () => { if (!document.hidden) tick() }
     window.addEventListener('focus', onVisible)
     document.addEventListener('visibilitychange', onVisible)
