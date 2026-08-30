@@ -376,21 +376,27 @@ act on them; do not add another silent `catch {}`.
   the three pre-auth pages. Never use it for a client's company logo (the
   client sidebar shows the client's uploaded avatar, falling back to their
   initial), and never for a studio's.
-- **Mostly remediated in Batch 9.** McPrime's identity was hardcoded on 69 lines across
-  34 files. It now survives **only on the three pre-auth pages** —
-  `app/(auth)/login`, `/reset-password`, `/set-password` — which run before any
-  session exists and so have no tenant to resolve from. That is a stated open
-  question (HANDOFF §8.3 item 7, §11 q8), not a leftover.
-  **Do not add new hardcoded tenant strings, and do not "fix" the pre-auth
-  pages by substituting Genreline** — S0-B §2 calls that swapping one wrong
-  name for another. Resolve tenant identity through `lib/tenantBrand.ts`
+- **Remediated in Batch 9.** McPrime's identity was hardcoded on 69 lines across
+  34 files. **Zero remain in rendered code** — every surviving mention is an
+  explanatory comment, plus five dead `mcprime-*` Tailwind aliases with no
+  usages (`tailwind.config.ts:59-63`, C-6).
+  **Do not add new hardcoded tenant strings, and never "fix" a client-facing
+  one by substituting Genreline** — S0-B §2 calls that swapping one wrong name
+  for another. Resolve tenant identity through `lib/tenantBrand.ts`
   (`tenantBrand(orgId)` / `tenantBrandForClient(clientId)`), which returns the
   name, the logo and the PI-4 attribution flag from one read. It degrades to a
   neutral stand-in, never to a specific studio.
-- `components/McPrimeLogo.tsx` and `public/mcprime-logo.jpg` are now used **only**
-  by those three pre-auth pages. `components/TenantLogo.tsx` is the one to use
-  anywhere else — it renders the tenant's `organizations.logo_url`, falling back
-  to their initial rather than to any brand asset.
+- **Three marks, three jobs.** `components/TenantLogo.tsx` — the studio's own
+  logo, for client-facing surfaces; falls back to their initial, never to a
+  brand asset. `components/ProductMark.tsx` — Genreline's mark, for the studio
+  shell and the pre-auth pages, which have no tenant to resolve.
+  The client's own avatar stays the portal sidebar's identity.
+  `components/McPrimeLogo.tsx` is **deleted**; `public/mcprime-logo.jpg`
+  survives only because McPrime's `organizations.logo_url` may point at it.
+- **The pre-auth pages are deliberately tenant-neutral** (`/login`,
+  `/reset-password`, `/set-password`). They run before a session exists, so no
+  membership, claim or company row is available to resolve a studio from.
+  Do not add a tenant name, logo or copyright line to them.
 
 ## Working rules
 

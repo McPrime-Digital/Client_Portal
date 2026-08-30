@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { Eye, EyeOff } from 'lucide-react'
-import McPrimeLogo from '@/components/McPrimeLogo'
+import ProductMark from '@/components/ProductMark'
 
 export default function ResetPasswordPage() {
   const router = useRouter()
@@ -79,8 +79,9 @@ export default function ResetPasswordPage() {
       style={{ backgroundColor: 'hsl(var(--background))' }}
     >
       <div className="w-full max-w-sm">
+        {/* Product mark — pre-auth, no tenant to resolve (S0-B §2). */}
         <div className="mb-8">
-          <McPrimeLogo height={56} rounded="rounded-2xl" />
+          <ProductMark size={52} showName />
         </div>
 
         {updated ? (

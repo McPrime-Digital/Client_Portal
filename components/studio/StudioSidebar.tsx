@@ -1,6 +1,6 @@
 'use client'
 
-import { PRODUCT_NAME, PRODUCT_TAGLINE } from '@/lib/product'
+import ProductMark from '@/components/ProductMark'
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
@@ -69,18 +69,7 @@ export default function StudioSidebar({
     <aside className="flex h-screen w-[264px] flex-shrink-0 flex-col border-r border-border bg-card">
       {/* brand */}
       <div className="flex h-16 flex-shrink-0 items-center gap-3 border-b border-border px-5">
-        <div className="grid h-10 w-10 place-items-center rounded-xl border border-border bg-background text-primary">
-          <svg viewBox="0 0 48 48" fill="none" className="h-[26px] w-[26px]">
-            <path d="M3 31 C 11 31, 13 13, 24 13 S 37 31, 45 31" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-            <circle cx="3" cy="31" r="2.7" fill="currentColor" />
-            <circle cx="24" cy="13" r="3.1" fill="currentColor" />
-            <circle cx="45" cy="31" r="2.7" fill="currentColor" />
-          </svg>
-        </div>
-        <div className="leading-tight">
-          <div className="font-display text-[17px] font-bold text-foreground">{PRODUCT_NAME}</div>
-          <div className="text-[10px] uppercase tracking-[0.2em] text-faint">{PRODUCT_TAGLINE}</div>
-        </div>
+        <ProductMark size={40} showName showTagline />
       </div>
 
       {/* space switcher */}

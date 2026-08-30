@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import type { Session } from '@supabase/supabase-js'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
-import McPrimeLogo from '@/components/McPrimeLogo'
+import ProductMark from '@/components/ProductMark'
 
 export default function SetPasswordPage() {
   const router = useRouter()
@@ -146,9 +147,12 @@ export default function SetPasswordPage() {
       style={{ backgroundColor: 'hsl(var(--background))' }}
     >
       <div className="w-full max-w-sm">
-        {/* Logo */}
+        {/* Product mark — pre-auth, no tenant to resolve (S0-B §2). The
+            person WAS invited by a specific studio, but the invite token is
+            not exchanged until the form is submitted, so the studio is not
+            knowable here either. */}
         <div className="mb-8">
-          <McPrimeLogo height={56} rounded="rounded-2xl" />
+          <ProductMark size={52} showName />
         </div>
 
         {/* Page loading state */}
@@ -176,7 +180,7 @@ export default function SetPasswordPage() {
             </h1>
             <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>
               This invite link has expired or has already been used.
-              Please contact McPrime Digital for a new invite.
+              Please ask whoever invited you to send a new one.
             </p>
             <div
               className="p-4 rounded-lg text-sm"
@@ -190,18 +194,23 @@ export default function SetPasswordPage() {
               expire after a short time. Reach out and we&apos;ll send a
               fresh one.
             </div>
-            <a
-              href="mailto:hello@mcprimedigital.com"
-              className="block text-center text-sm py-3 rounded-lg 
-              font-medium transition-all"
+            {/* The contact button is gone rather than repointed. It was a
+                mailto to one studio's address on a page every tenant's invitees
+                reach, and there is nothing correct to put in its place: the
+                studio is unknown here, and a product support address would send
+                an invitee to the wrong company. The copy above tells them who
+                to ask — the person who invited them. */}
+            <Link
+              href="/login"
+              className="block text-center text-sm py-3 rounded-lg font-medium transition-all"
               style={{
                 backgroundColor: 'hsl(var(--border))',
                 color: 'hsl(var(--foreground))',
                 border: '1px solid hsl(var(--border))',
               }}
             >
-              Contact McPrime Digital
-            </a>
+              Back to sign in
+            </Link>
           </div>
         )}
 
@@ -239,8 +248,7 @@ export default function SetPasswordPage() {
               Set up your account
             </h1>
             <p className="text-sm mb-8" style={{ color: 'hsl(var(--muted-foreground))' }}>
-              Welcome to McPrime Digital. Create your password 
-              to access your portal.
+              Create your password to access your portal.
             </p>
 
             <form onSubmit={handleSubmit} className="space-y-5">

@@ -1,5 +1,6 @@
 'use client'
 
+import ProductMark from '@/components/ProductMark'
 import { PRODUCT_NAME } from '@/lib/product'
 
 import { useEffect, useState } from 'react'
@@ -249,12 +250,7 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
           {showsAttribution && (
           <div className="mt-2 flex items-center gap-1.5 border-t border-border pt-2">
             <span className="text-[9.5px] uppercase tracking-[0.16em] text-faint">Powered by</span>
-            <svg viewBox="0 0 48 48" fill="none" className="h-[12px] w-[12px] flex-shrink-0 text-primary">
-              <path d="M3 31 C 11 31, 13 13, 24 13 S 37 31, 45 31" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-              <circle cx="3" cy="31" r="3" fill="currentColor" />
-              <circle cx="24" cy="13" r="3.4" fill="currentColor" />
-              <circle cx="45" cy="31" r="3" fill="currentColor" />
-            </svg>
+            <ProductMark size={18} showName={false} />
             <span className="font-display text-[12px] font-bold tracking-wide text-foreground">{PRODUCT_NAME}</span>
           </div>
           )}

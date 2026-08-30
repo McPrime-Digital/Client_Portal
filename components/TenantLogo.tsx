@@ -10,9 +10,9 @@ type Props = {
 }
 
 /**
- * A TENANT's logo, on a client-facing surface. The counterpart to
- * `McPrimeLogo`, which is one specific studio's brand asset and belongs only on
- * that studio's own chrome.
+ * A TENANT's logo, on a client-facing surface. It replaced `McPrimeLogo`, a
+ * component that hardcoded one specific studio's brand asset and rendered it
+ * to every tenant; that file is deleted.
  *
  * S0-B §2: the portal wears the tenant's brand. A client of a studio bought
  * from that studio, so this is the mark they should see — not the product's,

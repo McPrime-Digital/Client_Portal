@@ -297,15 +297,19 @@ S2 §11 q4 close with it.
 
 **Opened by Batch 9 — what it found and did not fix:**
 
-7. **The three pre-auth pages still wear one tenant's brand**, and this is a
-   stop-and-report, not an oversight (Batch 9 item 2). `login/page.tsx:7,47,58,152`,
-   `reset-password/page.tsx:8,83`, `set-password/page.tsx:8,151,179,194,203,242`
-   — the McPrime logo, "Sign in to access your McPrime Digital portal",
-   "© McPrime Digital", and a `mailto:hello@mcprimedigital.com` on a public
-   page. **They run before any session exists, so there is no tenant to
-   resolve from.** The proposed resolution is in the Batch 9 report and the
-   decision is §11 question 8. Nothing was swapped there, because swapping in
-   "Genreline" would be the exact trap S0-B §2 names.
+7. **CLOSED in 9.7 — the pre-auth pages are tenant-neutral.** They ran before
+   any session exists, so there was no tenant to resolve; the owner chose
+   "neutral, brand after sign-in" over subdomain, route segment or email
+   lookup. `/login`, `/reset-password` and `/set-password` now carry the
+   product mark and no studio name. Branding begins at `/dashboard`, which
+   already resolves it. `components/McPrimeLogo.tsx` is deleted.
+   **Still open from it, and small:** `public/mcprime-logo.jpg` was NOT
+   deleted. Nothing in the code references it, but McPrime's
+   `organizations.logo_url` may point at that path and the repo cannot say —
+   check the row before removing the file. And the pre-auth pages now carry
+   **no copyright line at all**: "© McPrime Digital" was wrong for every
+   tenant, and the correct replacement is not knowable until S0-B §7's legal
+   entity is settled. An unowned © claim is worse than none.
 8. **Per-tenant email and SMS are blocked by provider configuration, not by
    code.** `lib/notify.ts:143` sends from a single `NOTIFY_FROM_EMAIL`;
    `lib/sms.ts:23` from a single `TWILIO_FROM`, and the SMS body carries no
@@ -453,15 +457,13 @@ studio creates work too, which they would not have.
    what "confirm above" means in a streaming UI. S0 §4 fixes the number; nothing
    fixes the mechanism.
 
-8. **How does a pre-auth page resolve its tenant?** New in Batch 9 (item 2's
-   stop-and-report). `/login`, `/reset-password` and `/set-password` render
-   before any session exists, so no membership, claim or company row is
-   available — yet they are the *first* client-facing surface, and they
-   currently show one studio's logo, name and copyright to every visitor. The
-   four candidate resolutions and their trade-offs are in the Batch 9 report;
-   `organizations.subdomain` already exists, `UNIQUE`, and is read by nothing
-   (`lib/types/database.ts:4` is its only mention). Answering this also decides
-   whether `components/McPrimeLogo.tsx` and `public/mcprime-logo.jpg` survive.
+8. **ANSWERED in Batch 9 — pre-auth pages are neutral, branding starts after
+   sign-in.** Kept here only for the seam it leaves: `organizations.subdomain`
+   exists, is `UNIQUE`, and is still read by nothing
+   (`lib/types/database.ts:4` is its only mention in the codebase). It is what
+   a future `studio-two.genreline.com` login would resolve against, and S0-B §5
+   already routes per-tenant custom domains to v2. Not carried forward as a
+   question.
 
 Hours per week is answered — **30** — and is not carried forward.
 

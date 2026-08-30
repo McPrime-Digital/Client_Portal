@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import McPrimeLogo from '@/components/McPrimeLogo'
+import ProductMark from '@/components/ProductMark'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -42,9 +42,13 @@ export default function LoginPage() {
       </div>
 
       <div className="relative w-full max-w-[420px] flex flex-col items-center">
-        {/* Logo */}
+        {/* The PRODUCT's mark, not a tenant's. This page runs before any
+            session exists, so there is no membership, claim or company row to
+            resolve a studio from — and rendering ONE studio's logo to every
+            visitor is what it used to do (S0-B §2). Branding begins at
+            /dashboard, where the tenant is known. */}
         <div className="mb-8">
-          <McPrimeLogo height={72} rounded="rounded-2xl" />
+          <ProductMark size={64} showName />
         </div>
 
         {/* Card */}
@@ -55,7 +59,7 @@ export default function LoginPage() {
               Welcome back
             </h1>
             <p className="mt-2 text-sm text-brand-muted leading-relaxed">
-              Sign in to access your McPrime Digital portal
+              Sign in to access your portal
             </p>
           </div>
 
@@ -147,10 +151,11 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Footer */}
-        <p className="mt-8 text-xs text-brand-muted/60 text-center">
-          &copy; {new Date().getFullYear()} McPrime Digital. All rights reserved.
-        </p>
+        {/* No copyright line. It said "© McPrime Digital" to every tenant's
+            clients, and the correct replacement is not knowable yet: S0-B §7
+            leaves the legal entity unresolved and names the copyright line on
+            product surfaces as a consequence to settle when it lands. An
+            unowned © claim is worse than none. */}
       </div>
     </div>
   )

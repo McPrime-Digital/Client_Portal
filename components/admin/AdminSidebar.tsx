@@ -18,6 +18,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { useSidebarStore } from '@/lib/stores/sidebar-store'
 import TenantLogo from '@/components/TenantLogo'
+import ProductMark from '@/components/ProductMark'
 import { PRODUCT_NAME, PRODUCT_TAGLINE } from '@/lib/product'
 
 type Props = {
@@ -147,14 +148,7 @@ export default function AdminSidebar({ adminName, companyName, companyLogoUrl = 
           onClick={close}
           className="group flex items-center gap-3 rounded-lg border border-border bg-background px-3 py-2.5 transition-colors hover:border-primary/40 hover:bg-primary/5"
         >
-          <span className="grid h-8 w-8 flex-shrink-0 place-items-center rounded-lg border border-border bg-card text-primary">
-            <svg viewBox="0 0 48 48" fill="none" className="h-[20px] w-[20px]">
-              <path d="M3 31 C 11 31, 13 13, 24 13 S 37 31, 45 31" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-              <circle cx="3" cy="31" r="2.7" fill="currentColor" />
-              <circle cx="24" cy="13" r="3.1" fill="currentColor" />
-              <circle cx="45" cy="31" r="2.7" fill="currentColor" />
-            </svg>
-          </span>
+          <ProductMark size={32} showName={false} />
           <span className="min-w-0 leading-tight">
             <span className="block truncate text-sm font-semibold text-foreground">{PRODUCT_NAME}</span>
             <span className="block text-[10px] uppercase tracking-[0.18em] text-faint">{PRODUCT_TAGLINE}</span>
