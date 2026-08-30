@@ -1,4 +1,5 @@
 import { isAdmin, userOrgId } from '@/lib/auth/role'
+import { tenantBrand } from '@/lib/tenantBrand'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
@@ -17,6 +18,9 @@ export default async function AdminMessagesPage() {
   // The message queries below are bounded by projectIds, which this filter
   // makes tenant-local — so the threads list cannot reach another studio's chat.
   const orgId = userOrgId(user)
+
+  // How this studio signs its own messages to clients (S-V §X-6).
+  const brand = await tenantBrand(orgId)
 
   // All projects with latest message + unread from clients
   const { data: projects } = await supabaseAdmin
@@ -84,7 +88,7 @@ export default async function AdminMessagesPage() {
   return (
     <AdminMessagesHub
       threads={threads}
-      adminName="McPrime Digital"
+      adminName={brand.name}
     />
   )
 }

@@ -1,4 +1,4 @@
-/* McPrime Digital — Web Push service worker.
+/* Web Push service worker.
    Receives push payloads from the server (lib/push.ts) and shows a native
    device notification; clicking it focuses or opens the relevant page. */
 
@@ -7,13 +7,17 @@ self.addEventListener('push', (event) => {
   try {
     data = event.data ? event.data.json() : {}
   } catch (e) {
-    data = { title: 'McPrime Digital', body: event.data ? event.data.text() : '' }
+    data = { title: 'Notification', body: event.data ? event.data.text() : '' }
   }
-  const title = data.title || 'McPrime Digital'
+  const title = data.title || 'Notification'
   const options = {
     body: data.body || '',
-    icon: data.icon || '/mcprime-logo.jpg',
-    badge: '/mcprime-logo.jpg',
+    // The sending tenant's logo, supplied by the server (lib/push.ts). This
+    // is a STATIC file — it cannot resolve a tenant — so when the payload
+    // carries no icon it falls through to the browser default rather than to
+    // one studio's brand asset, which is what it used to do for every tenant.
+    icon: data.icon || undefined,
+    badge: undefined,
     tag: data.tag || undefined,
     renotify: !!data.tag,
     data: { url: data.url || '/' },

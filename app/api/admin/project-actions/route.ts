@@ -1,4 +1,5 @@
 import { isAdmin, userOrgId } from '@/lib/auth/role'
+import { tenantBrand } from '@/lib/tenantBrand'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -10,12 +11,12 @@ import { seedDefaultTasks, buildPhaseTaskRows, safeCategory } from '@/lib/defaul
 
 // Records an approval-gate send into the Approvals & Records ledger when a
 // visible approval gate enters review (first send OR a resend for re-approval).
-async function recordGateSent(task: { id: string; title: string; project_id: string; visible_to_client?: boolean; requires_approval?: boolean; category?: string }, actorId: string, resend = false) {
+async function recordGateSent(task: { id: string; title: string; project_id: string; visible_to_client?: boolean; requires_approval?: boolean; category?: string }, actorId: string, studioName: string, resend = false) {
   const isGate = task.requires_approval || task.category === 'approval'
   if (!isGate || task.visible_to_client === false) return
   await recordActivity({
     projectId: task.project_id, clientId: await clientIdForProject(task.project_id),
-    actorId, actorName: 'McPrime Digital', actorRole: 'admin',
+    actorId, actorName: studioName, actorRole: 'admin',
     eventType: 'approval_requested',
     title: `${resend ? 'Re-sent for approval' : 'Approval requested'}: “${task.title}”`,
     body: null,
@@ -115,6 +116,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Not found.' }, { status: 404 })
   }
 
+  // The studio this admin acts for. Every sender name, notification title and
+  // ledger actor below used the literal 'McPrime Digital', so a second studio's
+  // client received chat and push signed with another company's name — the
+  // hardcoded sender identity S-V §X-6 exists to prevent. Resolved once per
+  // request from the caller's own org, after the tenant check above.
+  const studioName = (await tenantBrand(userOrgId(user))).name
+
   try {
     switch (action) {
 
@@ -155,7 +163,7 @@ export async function POST(req: NextRequest) {
             project_id,
             sender_id: user.id,
             sender_role: 'admin',
-            sender_name: 'McPrime Digital',
+            sender_name: studioName,
             body: msgBody,
             attachment_url: attachment_url || null,
             attachment_name: attachment_name || null,
@@ -171,7 +179,7 @@ export async function POST(req: NextRequest) {
         await pushMessageAlert({
           recipient: 'client',
           projectId: project_id,
-          senderName: 'McPrime Digital',
+          senderName: studioName,
           preview: messagePreview({ body: msgBody, attachment_name }),
         })
         return NextResponse.json({ message: data })
@@ -412,7 +420,7 @@ export async function POST(req: NextRequest) {
             body: title ?? null,
           })
           // A visible gate created directly in review is an approval send.
-          if (initialStatus === 'review') await recordGateSent(data, user.id, false)
+          if (initialStatus === 'review') await recordGateSent(data, user.id, studioName, false)
         }
         return NextResponse.json({ task: data })
       }
@@ -450,7 +458,7 @@ export async function POST(req: NextRequest) {
               body: data.title ?? null,
             })
             // Record the gate send (resend if it was previously changed).
-            await recordGateSent(data, user.id, data.approval_status === 'changes_requested')
+            await recordGateSent(data, user.id, studioName, data.approval_status === 'changes_requested')
           } else if (status === 'completed') {
             await createNotification({
               clientId: await clientIdForProject(data.project_id),
@@ -525,7 +533,7 @@ export async function POST(req: NextRequest) {
             title: 'A task needs your approval',
             body: data.title ?? null,
           })
-          await recordGateSent(data, user.id, data.approval_status === 'changes_requested')
+          await recordGateSent(data, user.id, studioName, data.approval_status === 'changes_requested')
         }
         return NextResponse.json({ task: data })
       }
@@ -556,7 +564,7 @@ export async function POST(req: NextRequest) {
             body: data.title ?? null,
           })
         }
-        await recordGateSent(data, user.id, true)
+        await recordGateSent(data, user.id, studioName, true)
         return NextResponse.json({ task: data })
       }
 
@@ -591,14 +599,14 @@ export async function POST(req: NextRequest) {
           project_id: task.project_id,
           sender_id: user.id,
           sender_role: 'admin',
-          sender_name: 'McPrime Digital',
+          sender_name: studioName,
           body: msgBody,
           attachment_url: attachment_url || null,
           attachment_name: attachment_name || null,
         })
         await createNotification({
           clientId, projectId: task.project_id, type: 'message',
-          title: 'New message from McPrime Digital', body: `${resend ? 'Re-sent' : 'Sent'} “${task.title}” for approval`,
+          title: `New message from ${studioName}`, body: `${resend ? 'Re-sent' : 'Sent'} “${task.title}” for approval`,
         })
 
         // 2) Move the gate into review (reset approval on a re-send) so the
@@ -623,7 +631,7 @@ export async function POST(req: NextRequest) {
         if (isGate && task.visible_to_client !== false) {
           await recordActivity({
             projectId: task.project_id, clientId,
-            actorId: user.id, actorName: 'McPrime Digital', actorRole: 'admin',
+            actorId: user.id, actorName: studioName, actorRole: 'admin',
             eventType: 'approval_requested',
             title: `${resend ? 'Re-sent for approval' : 'Approval requested'}: “${task.title}”`,
             body: trimmedNote || null,

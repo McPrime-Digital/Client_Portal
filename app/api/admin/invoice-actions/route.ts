@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getBusinessSettings, upsertBusinessSettings } from '@/lib/businessSettings'
+import { tenantBrand } from '@/lib/tenantBrand'
 import { createNotification } from '@/lib/notify'
 
 // All invoice writes go through here (service role, admin-gated) — never
@@ -36,6 +37,9 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json()
   const { action } = body
+
+  // The studio whose ledger this writes into (S-V §X-6).
+  const studioName = (await tenantBrand(userOrgId(user))).name
 
   try {
     switch (action) {
@@ -99,7 +103,7 @@ export async function POST(req: NextRequest) {
           .single()
         if (error) throw error
 
-        await logActivity(user, data.project_id, client_id, 'invoice_issued',
+        await logActivity(user, studioName, data.project_id, client_id, 'invoice_issued',
           `Invoice ${invoice_number} issued`,
           `${formatUsd(Number(amount))} · ${finalStatus}`)
 
@@ -144,7 +148,7 @@ export async function POST(req: NextRequest) {
           .select()
           .single()
         if (error) throw error
-        await logActivity(user, data.project_id, data.client_id,
+        await logActivity(user, studioName, data.project_id, data.client_id,
           'invoice_updated', `Invoice ${data.invoice_number} marked ${status}`, null)
         if (status === 'paid') {
           await createNotification({
@@ -169,7 +173,7 @@ export async function POST(req: NextRequest) {
           .select()
           .single()
         if (error) throw error
-        await logActivity(user, data.project_id, data.client_id,
+        await logActivity(user, studioName, data.project_id, data.client_id,
           'invoice_updated', `Receipt verified — ${data.invoice_number} marked paid`, null)
         await createNotification({
           clientId: data.client_id,
@@ -238,6 +242,7 @@ function formatUsd(n: number) {
 
 async function logActivity(
   user: { id: string; user_metadata?: { name?: string } },
+  studioName: string,
   projectId: string | null,
   clientId: string | null,
   eventType: string,
@@ -249,7 +254,9 @@ async function logActivity(
       p_project_id: projectId,
       p_client_id: clientId,
       p_actor_id: user.id,
-      p_actor_name: user.user_metadata?.name ?? 'McPrime Digital',
+      // See the same note in files/commit: the user_metadata primary is a
+      // separate (I-6) defect; the hardcoded tenant fallback is this batch's.
+      p_actor_name: user.user_metadata?.name ?? studioName,
       p_actor_role: 'admin',
       p_event_type: eventType,
       p_title: title,

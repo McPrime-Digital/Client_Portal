@@ -27,7 +27,11 @@ function ensureConfigured(): boolean {
   return configured
 }
 
-export type PushPayload = { title: string; body?: string; url?: string; tag?: string }
+// `icon` is the SENDING TENANT's logo. Without it the service worker fell back
+// to a single studio's brand asset, so every tenant's clients saw one company's
+// logo on the lock screen — sender identity is the picture as well as the name
+// (S-V §X-6).
+export type PushPayload = { title: string; body?: string; url?: string; tag?: string; icon?: string }
 
 // Send a push to every registered device for the given matcher. Expired
 // subscriptions (404/410) are pruned automatically. Never throws.

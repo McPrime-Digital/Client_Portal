@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getBusinessSettings } from '@/lib/businessSettings'
 import { DEFAULT_ORG_ID } from '@/lib/auth/role'
 import { appOriginOrNull } from '@/lib/appOrigin'
+import { tenantBrand } from '@/lib/tenantBrand'
 import { sendPushToUser, sendPushToAdmins } from '@/lib/push'
 import { sendSms } from '@/lib/sms'
 import { captureError } from '@/lib/errors'
@@ -313,10 +314,15 @@ export async function pushMessageAlert(opts: {
     if (states.length === 0) return
 
     const url = deepLink(opts.recipient, 'messages', opts.projectId)
+    // The sending studio's logo rides along, so the lock screen shows the
+    // tenant the recipient actually works with (S-V §X-6). One resolve for the
+    // whole fan-out — every recipient of this alert shares its tenant.
+    const icon = (await tenantBrand(states[0]?.orgId)).logoUrl ?? undefined
     const payload = {
       title: `New message from ${opts.senderName}`,
       body: opts.preview || undefined,
       url,
+      icon,
       tag: 'messages',
     }
     // Per recipient, because presence is per recipient: a teammate reading the
@@ -357,7 +363,8 @@ export async function notifyAwayRecipient(opts: {
     const subject = opts.title
     const text = opts.body ? `${opts.title}\n\n${opts.body}` : opts.title
     const url = deepLink(opts.recipient, opts.category, opts.projectId)
-    const push = { title: opts.title, body: opts.body ?? undefined, url, tag: opts.category }
+    const icon = (await tenantBrand(away[0]?.orgId)).logoUrl ?? undefined
+    const push = { title: opts.title, body: opts.body ?? undefined, url, icon, tag: opts.category }
 
     // The X-6 ladder is unchanged — in-app → push → email → SMS, same payload,
     // same per-category preferences. What changed is that it now runs once per

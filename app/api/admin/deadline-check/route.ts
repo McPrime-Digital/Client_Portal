@@ -2,6 +2,7 @@ import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { tenantBrand } from '@/lib/tenantBrand'
 import { createAdminNotification, createNotification } from '@/lib/notify'
 
 // Auto-proceed window: if a client doesn't respond to an approval gate within
@@ -28,6 +29,10 @@ export async function POST() {
   // so unscoped one studio's admin auto-approved every other studio's pending
   // client approvals. Scope resolved once from the verified session.
   const orgId = userOrgId(user)
+
+  // The studio sending this auto-proceed notice — not a hardcoded company
+  // name on every tenant's client chat (S-V §X-6).
+  const studioName = (await tenantBrand(orgId)).name
 
   // ── Auto-proceed stale client approvals ───────────────────────────────
   let autoProceeded = 0
@@ -63,7 +68,7 @@ export async function POST() {
         organization_id: orgId,   // stamped, not defaulted (T-5)
         sender_id: user.id,
         sender_role: 'admin',
-        sender_name: 'McPrime Digital',
+        sender_name: studioName,
         body: `⏳ No response received within ${APPROVAL_THRESHOLD_DAYS} days on "${t.title}". Per our process this step has auto-proceeded. Reply here if you still need changes.`,
       })
       await createNotification({

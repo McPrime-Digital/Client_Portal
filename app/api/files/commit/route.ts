@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { resolveUploadScope } from '@/lib/uploadScope'
 import { createNotification, createAdminNotification } from '@/lib/notify'
+import { tenantBrandForClient } from '@/lib/tenantBrand'
 import { recordUsage } from '@/lib/usage'
 import { userOrgId } from '@/lib/auth/role'
 import { resolveFolder } from '@/lib/fileCategories'
@@ -129,7 +130,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Notify the client when McPrime delivers a file (not chat attachments).
+    // Notify the client when the studio delivers a file (not chat attachments).
     if (role === 'admin' && direction === 'delivery' && category !== 'message') {
       await createNotification({
         clientId: scope.clientId,
@@ -157,9 +158,13 @@ export async function POST(req: NextRequest) {
         p_project_id: projectId ?? null,
         p_client_id: scope.clientId,
         p_actor_id: user.id,
+        // NOTE, recorded not fixed here: the PRIMARY still reads
+        // user_metadata, which is user-editable and is the ledger forgery
+        // Batch 7.8 closed for ownName(). Only the tenant-name FALLBACK is in
+        // this batch's scope; the primary belongs with the other I-6 sites.
         p_actor_name:
           user.user_metadata?.name ??
-          (role === 'admin' ? 'McPrime Digital' : 'Client'),
+          (role === 'admin' ? (await tenantBrandForClient(scope.clientId)).name : 'Client'),
         p_actor_role: role,
         p_event_type: category === 'receipt' ? 'receipt_uploaded' : 'file_uploaded',
         p_title:

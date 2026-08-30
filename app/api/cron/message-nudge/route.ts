@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { userOrgId } from '@/lib/auth/role'
 import { notifyAwayRecipient } from '@/lib/notify'
+import { tenantBrand } from '@/lib/tenantBrand'
 
 // "5 hours of no reply" message nudge. Active conversations never push; only
 // when a message has gone unread for 5h AND the recipient is away do we send a
@@ -28,7 +29,7 @@ async function runNudge(orgId?: string) {
   // Oldest-first so the snippet we show is the first unanswered message.
   let q = supabaseAdmin
     .from('messages')
-    .select('id, project_id, sender_role, sender_name, body, attachment_name')
+    .select('id, project_id, organization_id, sender_role, sender_name, body, attachment_name')
     .is('read_at', null)
     .is('nudged_at', null)
     .eq('is_deleted', false)
@@ -40,14 +41,28 @@ async function runNudge(orgId?: string) {
 
   if (!pending?.length) return { nudged: 0 }
 
+  // The studio's name per tenant, resolved once each. The GET sweep crosses
+  // every tenant, so a single hardcoded name here signed one company's nudges
+  // with another's — S-V §X-6's exact failure, on the one path that fans out
+  // across the whole product.
+  const studioNames = new Map<string, string>()
+  async function studioNameFor(orgId: string | null | undefined): Promise<string> {
+    if (!orgId) return 'Your studio'
+    const hit = studioNames.get(orgId)
+    if (hit) return hit
+    const name = (await tenantBrand(orgId)).name
+    studioNames.set(orgId, name)
+    return name
+  }
+
   // Group unanswered messages by project + direction (sender role).
-  const groups = new Map<string, { project_id: string; sender_role: string; ids: string[]; first: any; count: number }>()
+  const groups = new Map<string, { project_id: string; organization_id: string | null; sender_role: string; ids: string[]; first: any; count: number }>()
   for (const m of pending) {
     if (!m.project_id) continue
     const key = `${m.project_id}:${m.sender_role}`
     const g = groups.get(key)
     if (g) { g.ids.push(m.id); g.count++ }
-    else groups.set(key, { project_id: m.project_id, sender_role: m.sender_role, ids: [m.id], first: m, count: 1 })
+    else groups.set(key, { project_id: m.project_id, organization_id: m.organization_id ?? null, sender_role: m.sender_role, ids: [m.id], first: m, count: 1 })
   }
 
   let nudged = 0
@@ -56,7 +71,9 @@ async function runNudge(orgId?: string) {
     const snippet =
       (g.first.body && String(g.first.body).slice(0, 140)) ||
       (g.first.attachment_name ? `📎 ${g.first.attachment_name}` : 'New message')
-    const who = g.sender_role === 'client' ? (g.first.sender_name || 'A client') : 'McPrime Digital'
+    const who = g.sender_role === 'client'
+      ? (g.first.sender_name || 'A client')
+      : await studioNameFor(g.organization_id)
     const title =
       g.count > 1
         ? `${g.count} unread messages from ${who}`

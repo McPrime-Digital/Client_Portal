@@ -463,7 +463,7 @@ anything to remember..."
                     style={{ color: 'hsl(var(--status-green))' }} />
                   <span className="text-[11px]"
                     style={{ color: 'hsl(var(--status-green))' }}>
-                    Sent via Resend from your McPrime domain
+                    Sent via Resend from the configured sender address
                   </span>
                 </div>
                 <div className="flex items-center gap-2 mt-1">

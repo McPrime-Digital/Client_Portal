@@ -511,7 +511,7 @@ export default function AdminProjectDetail({
         project_id: project.id,
         sender_id: user!.id,
         sender_role: 'admin',
-        sender_name: 'McPrime Digital',
+        sender_name: studioName,
         body: body.trim(),
         read_at: null,
         delivered_at: null,
@@ -965,7 +965,7 @@ export default function AdminProjectDetail({
             clientId={project.client_id}
             userId="admin"
             userRole="admin"
-            userName="McPrime Admin"
+            userName={`${studioName} Admin`}
             initialFiles={files as any}
           />
         </div>
@@ -1030,7 +1030,7 @@ export default function AdminProjectDetail({
             <MessageThread
               messages={messages}
               currentRole="admin"
-              currentName="McPrime Digital"
+              currentName={studioName}
               otherName={client.name}
               projectId={project.id}
               onSendMessage={sendMessage}
