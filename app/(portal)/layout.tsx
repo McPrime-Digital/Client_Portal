@@ -146,6 +146,7 @@ export default async function PortalLayout({
         clientAvatar={(activeClient as any).avatar_url ?? null}
         orgName={brand.name}
         orgLogoUrl={brand.logoUrl}
+        showsAttribution={brand.showsAttribution}
         memberRole={memberRole}
         memberExtra={memberExtra}
       />

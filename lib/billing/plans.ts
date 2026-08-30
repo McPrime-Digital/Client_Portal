@@ -1,7 +1,5 @@
 import 'server-only'
 
-import { DEFAULT_ORG_ID } from '@/lib/auth/role'
-
 // The single entitlement read path. organizations.plan names a tier; this map
 // gives each tier its limits. Metered launch = every gate open + credits
 // charged per use; subscription launch = these quotas enforced with overage to
@@ -28,9 +26,54 @@ export const PLANS: Record<PlanId, PlanLimits> = {
   enterprise: { orgSeats: null, clientCompanies: null, storageGb: null, meetingMinutesPerMonth: null, whiteLabel: true, sso: true },
 }
 
-export function planLimits(orgId: string, plan?: string | null): PlanLimits {
-  if (orgId === DEFAULT_ORG_ID) return PLANS.house
+// THE HOUSE ORG'S EXEMPTION IS ITS PLAN, NOT ITS ID. This read
+// `if (orgId === DEFAULT_ORG_ID) return PLANS.house` — a hardcoded McPrime
+// identity (P-1), and the last instance of the shape Batch 8.5 removed from
+// lib/credits.ts. HANDOFF §8.3 item 5 made removing it the price of giving this
+// file its first importer, which Batch 9.5 does. The exemption is now stated
+// where every other per-org decision is stated: organizations.plan says
+// 'house'. Same precedent as the org_budgets opt-out row (8.5) and scope_mode
+// (0018 A5) — a stated decision, never an inferred one.
+//
+// The orgId parameter is gone rather than ignored: an unused identity argument
+// invites the branch back.
+export function planLimits(plan?: string | null): PlanLimits {
   return PLANS[(plan as PlanId) ?? 'agency'] ?? PLANS.agency
+}
+
+// ── Plan features (S0-B PI-4) ───────────────────────────────────────────────
+// Discrete entitlements, separate from the numeric limits above, so one can be
+// sold without the other. `whiteLabel` on PlanLimits is the broader promise;
+// this is the single behaviour PI-4 names.
+export type PlanFeature =
+  /** Remove the "Powered by Genreline" attribution from client-facing surfaces. */
+  | 'attribution.hide'
+
+const PLAN_FEATURES: Record<PlanId, readonly PlanFeature[]> = {
+  house: ['attribution.hide'],
+  agency: [],
+  studio: ['attribution.hide'],
+  enterprise: ['attribution.hide'],
+}
+
+/**
+ * DEFAULT-DENY, and PI-4 depends on the polarity. An unset plan, an unknown
+ * plan, or a plan whose list omits the key all resolve to false — which
+ * resolves to the attribution being SHOWN. The correct default for an unsold
+ * feature falls out of S2 §5's discipline with no special case, no per-org
+ * boolean and no test for a tenant id.
+ *
+ * Not wired to billing, deliberately (S1-P §6): nothing sells 'attribution.hide'
+ * yet, so every tenant on the default plan shows the badge. Defining the key
+ * now is what keeps that a pricing change later rather than a refactor.
+ */
+export function planAllows(
+  plan: string | null | undefined,
+  feature: PlanFeature
+): boolean {
+  const features = PLAN_FEATURES[plan as PlanId]
+  if (!features) return false
+  return features.includes(feature)
 }
 
 /** True when the org may add one more of `used` against a numeric limit. */

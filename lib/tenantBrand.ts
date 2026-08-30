@@ -3,6 +3,7 @@ import 'server-only'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getBusinessSettings } from '@/lib/businessSettings'
 import { captureError } from '@/lib/errors'
+import { planAllows } from '@/lib/billing/plans'
 
 // The studio's OWN identity, as its clients know it — never the product's
 // (S0-B §2/§3). A client of a studio bought from that studio; they have no
@@ -37,12 +38,21 @@ export type TenantBrand = {
   logoUrl: string | null
   /** False when `name` is {@link NEUTRAL_TENANT_NAME} rather than a real one. */
   resolved: boolean
+  /**
+   * Whether client-facing surfaces carry the "Powered by Genreline" line
+   * (S0-B PI-4). Read here because it comes off the same organizations row as
+   * the name and logo, but DECIDED in lib/billing/plans.ts — this module
+   * carries the answer, it does not make it. Default-deny means an unresolved
+   * or unsold tenant shows the attribution, which is PI-4's stated default.
+   */
+  showsAttribution: boolean
 }
 
 const NEUTRAL: TenantBrand = {
   name: NEUTRAL_TENANT_NAME,
   logoUrl: null,
   resolved: false,
+  showsAttribution: true,
 }
 
 /** Name and logo of one tenant. Never throws — branding must not take a page down. */
@@ -55,7 +65,7 @@ export async function tenantBrand(
       getBusinessSettings(organizationId),
       supabaseAdmin
         .from('organizations')
-        .select('name, logo_url')
+        .select('name, logo_url, plan')
         .eq('id', organizationId)
         .maybeSingle(),
     ])
@@ -69,7 +79,8 @@ export async function tenantBrand(
       })
     }
 
-    const org = orgRes.data as { name?: string | null; logo_url?: string | null } | null
+    const org = orgRes.data as
+      { name?: string | null; logo_url?: string | null; plan?: string | null } | null
     const name =
       settings?.business_name?.trim() || org?.name?.trim() || NEUTRAL_TENANT_NAME
 
@@ -77,6 +88,7 @@ export async function tenantBrand(
       name,
       logoUrl: org?.logo_url?.trim() || null,
       resolved: name !== NEUTRAL_TENANT_NAME,
+      showsAttribution: !planAllows(org?.plan, 'attribution.hide'),
     }
   } catch (e) {
     captureError(e, { where: 'tenantBrand', organizationId })

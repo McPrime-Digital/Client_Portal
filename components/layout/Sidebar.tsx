@@ -1,5 +1,7 @@
 'use client'
 
+import { PRODUCT_NAME } from '@/lib/product'
+
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
@@ -28,6 +30,13 @@ type Props = {
   // render in every tenant's portal (S0-B §2).
   orgName: string
   orgLogoUrl?: string | null
+  /**
+   * The PI-4 attribution. Resolved server-side from the tenant's plan
+   * (lib/billing/plans.ts), never a boolean stored per org and never a test
+   * for a tenant id. No default: an omitted prop must not silently remove a
+   * line whose removal is a paid entitlement.
+   */
+  showsAttribution: boolean
   memberRole?: ClientRole
   memberExtra?: string[]
 }
@@ -63,7 +72,7 @@ const navItems = [
   },
 ]
 
-export default function Sidebar({ clientName, clientCompany, clientId, clientAvatar, orgName, orgLogoUrl = null, memberRole = 'owner', memberExtra = [] }: Props) {
+export default function Sidebar({ clientName, clientCompany, clientId, clientAvatar, orgName, orgLogoUrl = null, showsAttribution, memberRole = 'owner', memberExtra = [] }: Props) {
   // The portal is the client's own — brand it with their company (their logo if uploaded).
   const brandName = clientCompany || clientName || 'Client'
   const pathname = usePathname()
@@ -219,7 +228,8 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
         ))}
       </nav>
 
-      {/* Co-brand — the organization's platform, powered by Throughline */}
+      {/* Co-brand — the studio's platform, with the PI-4 attribution beneath
+          it when the tenant's plan has not bought its removal. */}
       <div className="px-4 pt-4 pb-1">
         <div className="rounded-xl border border-border bg-background px-4 py-3">
           <div className="flex items-center gap-2">
@@ -236,6 +246,7 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
               <span className="ml-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-faint">Platform</span>
             </p>
           </div>
+          {showsAttribution && (
           <div className="mt-2 flex items-center gap-1.5 border-t border-border pt-2">
             <span className="text-[9.5px] uppercase tracking-[0.16em] text-faint">Powered by</span>
             <svg viewBox="0 0 48 48" fill="none" className="h-[12px] w-[12px] flex-shrink-0 text-primary">
@@ -244,8 +255,9 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
               <circle cx="24" cy="13" r="3.4" fill="currentColor" />
               <circle cx="45" cy="31" r="3" fill="currentColor" />
             </svg>
-            <span className="font-display text-[12px] font-bold tracking-wide text-foreground">Throughline</span>
+            <span className="font-display text-[12px] font-bold tracking-wide text-foreground">{PRODUCT_NAME}</span>
           </div>
+          )}
         </div>
       </div>
 
