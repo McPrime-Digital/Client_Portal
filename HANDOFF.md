@@ -303,39 +303,121 @@ S2 §11 q4 close with it.
    lookup. `/login`, `/reset-password` and `/set-password` now carry the
    product mark and no studio name. Branding begins at `/dashboard`, which
    already resolves it. `components/McPrimeLogo.tsx` is deleted.
-   **Still open from it, and small:** `public/mcprime-logo.jpg` was NOT
-   deleted. Nothing in the code references it, but McPrime's
-   `organizations.logo_url` may point at that path and the repo cannot say —
-   check the row before removing the file. And the pre-auth pages now carry
+   **RESOLVED by live read 2026-08-30:** every `organizations.logo_url` is
+   `null`, and no `clients.avatar_url` or `projects.image_url` references the
+   path either. Nothing pointed at it, so `public/mcprime-logo.jpg` is
+   deleted — it was also being served publicly at `<origin>/mcprime-logo.jpg`
+   to every tenant. McPrime uploads a logo the way any tenant does, into
+   `organizations.logo_url`. The pre-auth pages now carry
    **no copyright line at all**: "© McPrime Digital" was wrong for every
    tenant, and the correct replacement is not knowable until S0-B §7's legal
    entity is settled. An unowned © claim is worse than none.
-8. **Per-tenant email and SMS are blocked by provider configuration, not by
-   code.** `lib/notify.ts:143` sends from a single `NOTIFY_FROM_EMAIL`;
-   `lib/sms.ts:23` from a single `TWILIO_FROM`, and the SMS body carries no
-   sender prefix at all. Message *content* now names the sending studio
-   everywhere (9.3); the envelope cannot until per-tenant Resend domain
-   verification and a Twilio Messaging Service exist. **S5.**
-9. **Two ledger actor names still prefer `user_metadata`** —
+8. **Per-tenant email and SMS envelopes are blocked by provider configuration
+   — but the CURRENT value is a live P-1 defect, and that half is not S5.**
+   `lib/notify.ts:143` sends from a single `NOTIFY_FROM_EMAIL`; `lib/sms.ts:23`
+   from a single `TWILIO_FROM`; the SMS body carries no sender prefix at all.
+   Message *content* names the sending studio everywhere since 9.3; the
+   envelope cannot be per-tenant until per-tenant Resend domain verification
+   and a Twilio Messaging Service exist. **That part is S5.**
+
+   **What is live now (checked 2026-08-30, `.env.local`):**
+   `NOTIFY_FROM_EMAIL` = `"McPrime Digital <notifications@mcprimedigital.com>"`.
+   So every notification email the product sends — to every tenant's clients —
+   arrives From one tenant. `S-V` §13.1 forbids exactly this, and the interim
+   fix is one variable, not a project: a neutral Genreline sender until
+   per-tenant sending exists.
+
+   **Prerequisite, and skipping it breaks all email:** Resend will only send
+   from a domain verified in the Resend account. `genreline.com` must be added
+   and its DNS records published there BEFORE the variable changes, or every
+   send fails. Change it in Vercel (Production, Preview) and in `.env.local`.
+
+   `TWILIO_*` is absent from `.env.local`, so SMS is inert locally; the Vercel
+   value was not visible from this machine and needs the same check — if
+   `TWILIO_FROM` is a McPrime-branded number or Messaging Service, it carries
+   the same defect.
+
+   `VAPID_SUBJECT` is also unset, so push falls back to
+   `lib/product.ts`'s `notifications@genreline.com`. That is a contact URI for
+   push services rather than a deliverable address, so it is correct as a
+   product value — but the mailbox does not necessarily exist.
+9. **Two ledger actor names still prefer `user_metadata`, and this is the
+   ledger — the thing S0 §1 says settles disputes.**
    `app/api/admin/invoice-actions/route.ts:253` and
-   `app/api/files/commit/route.ts:161`. 9.3 fixed only the hardcoded tenant
-   *fallback* behind them. The primary is user-editable, which is the ledger
-   forgery 7.8 closed for `ownName()`. **I-6, with the other write-path sites.**
-10. `lib/stores/session-store.ts:31` — the Zustand persist key is still
-   `'throughline-session'`. Deliberately not renamed: it is a localStorage key
-   in every existing user's browser, so renaming silently discards their
-   docked-session state. Low stakes, but it is live client data, not a string.
-   Needs a migration-on-read or a decision to accept the reset.
+   `app/api/files/commit/route.ts:161` both read
+   `user.user_metadata?.name ?? <studio name>`. 9.3 replaced only the hardcoded
+   tenant *fallback*; the primary is user-editable via
+   `supabase.auth.updateUser({ data })`, so a signed-in user can choose the
+   name that lands in `activity_log.actor_name` — invoice issued, receipt
+   verified, file delivered.
+
+   This is the same defect 7.8 closed for `ownName()`, surviving at two sites
+   the 7.8 sweep did not cover because they write through `log_activity`
+   directly rather than through the display-name helper. The fix is the 7.8
+   fix: resolve the actor from the roster (`orgRolesOf` / `lib/team.ts`), not
+   from the token's metadata. Small, self-contained, and it does not need a
+   migration.
+
+   **I-6, with the other write-path sites — but worth pulling forward rather
+   than waiting for the full S2 §7 write pass**, because unlike the read-path
+   work it changes one expression per site.
+10. **DECIDED, not merely skipped: `lib/stores/session-store.ts:31` keeps the
+   key `'throughline-session'`.** It is a localStorage key already written in
+   every existing user's browser, so renaming it does not migrate that state —
+   it orphans it, and the store silently rehydrates empty. What is lost today
+   is small (the docked session's title, view and mode; real session content is
+   Phase 2), but it is live client data, not a string, and the product name is
+   not visible through it to anyone.
+   **The decision: leave it until something else forces a version bump**, then
+   rename with Zustand's `migrate`/`version` options in the same change so the
+   old key is read once and rewritten. Renaming it alone buys nothing and
+   costs state. Revisit when the store gains real content.
 11. `tailwind.config.ts:59-63` — five `mcprime-*` colour aliases, hardcoded
    tenant identity in config with **zero usages anywhere**. Dead config, not a
    rename. Belongs to the C-6 dead-code inventory with `McPrimeLogo.tsx` and
    `public/mcprime-logo.jpg`, both of which become dead the moment §8.3 item 7
    is resolved.
-12. **McPrime's `organizations.plan` value is unverified** and nothing in the
-   application writes that column (default `'agency'`, `0001:23`). If it is not
-   `'house'`, the house org's own portal shows the "Powered by Genreline"
-   badge. That is default-deny working correctly, not a defect — but it is a
-   stated-row decision nobody has made. HANDOFF §12 lesson 3.
+12. **THE HOUSE ORG HAS NO EXEMPTION AT ALL, and Batch 9.5's commit message
+   overstated this.** Live read 2026-08-30: **all three organizations carry
+   `plan = 'agency'`** — the `0001:23` column default. Nothing in the
+   application writes that column.
+
+   9.5 removed `orgId === DEFAULT_ORG_ID` from `lib/billing/plans.ts`, which
+   was correct (P-1), and said the exemption "is now stated" as the plan
+   column. **The row was never written.** So the branch is gone and the stated
+   replacement does not exist: the house org's carve-out is currently recorded
+   nowhere. This is HANDOFF §12 lesson 1 exactly — a repair that did not state
+   the invariant — committed by the batch that quotes that lesson.
+
+   **Consequences today: none.** No gate reads `planLimits()`, and the one
+   live consumer, `planAllows('agency', 'attribution.hide')`, correctly
+   resolves false so the badge shows. **Consequences the first time a plan
+   gate ships: McPrime is gated like a paying agency** — 5 seats, 25 client
+   companies, 500 GB — which contradicts the standing house-org rule that
+   every money gate bypasses tenant zero while still metering it.
+
+   **The fix is one statement, not a migration.** Printed, not applied:
+
+   ```sql
+   -- State the house org's plan. Batch 9.5 removed the id-test that used to
+   -- imply it; this is the stated replacement, same shape as the org_budgets
+   -- hard_stop opt-out row (8.5) and scope_mode (0018 A5).
+   update public.organizations
+      set plan = 'house', updated_at = now()
+    where id = '00000000-0000-0000-0000-000000000001'
+      and plan is distinct from 'house';
+
+   -- verify: expect exactly one row, plan = 'house'
+   select id, name, plan from public.organizations
+    where id = '00000000-0000-0000-0000-000000000001';
+   ```
+
+   **The wider point, which outlives this row.** `plan` is one of the three
+   entitlement axes in `S-V` §8, and nothing writes it — not the create paths,
+   not `provision-tenant.ts` (it takes `--plan`, defaulting to `agency`).
+   Every plan-gated feature added from here resolves against whatever the
+   default happens to be. Deciding which write path owns `plan` belongs with
+   the billing work, and is now §11 question 9.
 13. **The Supabase Auth domain checklist is not in code and cannot be.**
    Changing domain requires updating Auth's Site URL and its Redirect URL
    allowlist in the Supabase dashboard. Miss them and every invite link and
@@ -464,6 +546,15 @@ studio creates work too, which they would not have.
    a future `studio-two.genreline.com` login would resolve against, and S0-B §5
    already routes per-tenant custom domains to v2. Not carried forward as a
    question.
+
+9. **Which write path owns `organizations.plan`?** New, from the 2026-08-30
+   read: all three orgs are `'agency'` because that is the column default and
+   nothing writes it — not the client-creation paths, not
+   `scripts/provision-tenant.ts` (which takes `--plan` but defaults to
+   `agency`). `plan` is one of `S-V` §8's three entitlement axes, so until
+   something owns it, every plan-gated feature resolves against a default
+   nobody chose. Related to §10.4 (does the archetype axis affect billing?) and
+   blocks nothing until the first real gate ships.
 
 Hours per week is answered — **30** — and is not carried forward.
 

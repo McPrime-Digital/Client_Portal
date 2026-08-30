@@ -50,6 +50,8 @@ The live site currently shows tenant identity hardcoded: `genreline.com/login` r
 
 The data for every tenant-identity row already exists. `business_settings` became per-tenant in migration 0018 and `organizations` carries name, logo and branding. **The pages are not reading it.** This is a wiring gap, not a schema gap.
 
+**Note added 2026-08-30, from Batch 9.2.** The row above is right that nothing is missing from the schema and slightly wrong about where it lives: the two sources are not interchangeable. The NAME is on `business_settings.business_name` (with `organizations.name` behind it); the LOGO is only ever on `organizations.logo_url` — `business_settings` has no logo column and never had one. A per-call-site `business_settings` read therefore gets the name and silently cannot get the logo, which is why `lib/tenantBrand.ts` owns both reads and the precedence between them. Recorded here rather than edited into the table above, per the working agreement.
+
 ---
 
 ## 4. Attribution as an entitlement
