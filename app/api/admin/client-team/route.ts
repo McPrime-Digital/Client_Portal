@@ -5,6 +5,7 @@ import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { orgRolesOf, canManageOrg } from '@/lib/team'
 import { createNotification } from '@/lib/notify'
 import { cutMemberAccess, restoreClientAccess, statusCutsAccess } from '@/lib/memberAccess'
+import { appUrl } from '@/lib/appOrigin'
 
 // Org oversight of a client company's team: full roster, approve pending
 // invites, invite directly, change roles, revoke, set the invite policy.
@@ -73,7 +74,7 @@ export async function POST(req: NextRequest) {
       .single()
     const { data: invite, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(member.email, {
       data: { name: member.name },
-      redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/set-password`,
+      redirectTo: appUrl('/set-password'),
     })
     if (inviteError) return NextResponse.json({ error: inviteError.message }, { status: 500 })
     await supabaseAdmin.auth.admin.updateUserById(invite.user.id, {

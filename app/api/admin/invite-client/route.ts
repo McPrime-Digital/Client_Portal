@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
+import { appUrl } from '@/lib/appOrigin'
 
 export async function POST(request: NextRequest) {
   try {
@@ -57,9 +58,7 @@ export async function POST(request: NextRequest) {
             role: 'client',
             name: name.trim(),
           },
-          redirectTo: `${
-            process.env.NEXT_PUBLIC_APP_URL
-          }/set-password`,
+          redirectTo: appUrl('/set-password'),
         }
       )
 

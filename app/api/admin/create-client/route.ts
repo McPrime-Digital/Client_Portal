@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 import { createClient as createServerClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
+import { appUrl } from '@/lib/appOrigin'
 
 // ONE message for every "this address is taken" outcome, whether the address
 // belongs to this tenant's client, to another tenant's, or to an auth user we
@@ -82,9 +83,7 @@ export async function POST(req: NextRequest) {
               name,
               role: 'client',
             },
-            redirectTo: `${
-              process.env.NEXT_PUBLIC_APP_URL
-            }/set-password`,
+            redirectTo: appUrl('/set-password'),
           }
         )
 

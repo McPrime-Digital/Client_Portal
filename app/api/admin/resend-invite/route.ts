@@ -5,6 +5,7 @@ import { createClient as createAdminClient }
 import { NextRequest, NextResponse }
   from 'next/server'
 import { isAdmin } from '@/lib/auth/role'
+import { appUrl } from '@/lib/appOrigin'
 
 export async function POST(req: NextRequest) {
   try {
@@ -49,10 +50,7 @@ export async function POST(req: NextRequest) {
         .inviteUserByEmail(
           email.trim().toLowerCase(),
           {
-            redirectTo:
-              `${process.env
-                .NEXT_PUBLIC_APP_URL}` +
-              `/set-password`,
+            redirectTo: appUrl('/set-password'),
             data: { role: 'client' },
           }
         )

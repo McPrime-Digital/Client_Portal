@@ -3,6 +3,7 @@ import 'server-only'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getBusinessSettings } from '@/lib/businessSettings'
 import { DEFAULT_ORG_ID } from '@/lib/auth/role'
+import { appOriginOrNull } from '@/lib/appOrigin'
 import { sendPushToUser, sendPushToAdmins } from '@/lib/push'
 import { sendSms } from '@/lib/sms'
 import { captureError } from '@/lib/errors'
@@ -33,7 +34,6 @@ const TYPE_CATEGORY: Record<NotificationType, NotifyCategory> = {
   member_invite_pending: 'status',
 }
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || ''
 
 export async function createNotification(opts: {
   clientId: string | null | undefined
@@ -134,7 +134,13 @@ function deepLink(recipient: 'admin' | 'client', category: NotifyCategory, proje
   else if (category === 'invoices') path = recipient === 'admin' ? '/admin/invoices' : '/invoices'
   else if (projectId) path = recipient === 'admin' ? `/admin/projects/${projectId}` : `/projects/${projectId}`
   else path = recipient === 'admin' ? '/admin' : '/dashboard'
-  return APP_URL ? `${APP_URL}${path}` : path
+  // Resolved per call, not captured at import (I-11). Origin-relative is a
+  // correct answer here and not a degraded one: this string only ever becomes
+  // a push payload's `url`, which public/sw.js hands to openWindow() inside a
+  // service worker that already has the origin. Nothing in this module puts a
+  // link in an email body — if that changes, this needs appUrl(), which throws.
+  const origin = appOriginOrNull()
+  return origin ? `${origin}${path}` : path
 }
 
 async function sendEmailAlert(to: string, subject: string, text: string): Promise<void> {

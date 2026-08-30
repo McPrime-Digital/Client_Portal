@@ -7,6 +7,7 @@ import { clientMembershipOf } from '@/lib/team'
 import { clientCan } from '@/lib/permissions'
 import { recordUsage } from '@/lib/usage'
 import { createAdminNotification } from '@/lib/notify'
+import { appUrl } from '@/lib/appOrigin'
 
 // The client company's own team management. Owner invites teammates
 // (marketing team, stakeholders), assigns roles, revokes. Honors the
@@ -89,7 +90,7 @@ export async function POST(req: NextRequest) {
   if (!needsApproval) {
     const { data: invite, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(cleanEmail, {
       data: { name: name.trim() },
-      redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/set-password`,
+      redirectTo: appUrl('/set-password'),
     })
     if (inviteError) return NextResponse.json({ error: inviteError.message }, { status: 500 })
     invitedUserId = invite.user.id

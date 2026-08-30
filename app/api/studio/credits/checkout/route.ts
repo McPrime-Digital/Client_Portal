@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { userOrgId } from '@/lib/auth/role'
 import { getStripe } from '@/lib/stripe'
+import { appOrigin } from '@/lib/appOrigin'
 
 // Create a Stripe Checkout session to buy credits. On success the webhook tops up
 // the org's balance via add_credits(). Amount is in cents ($5 min, $10k max).
@@ -13,7 +14,10 @@ export async function POST(req: NextRequest) {
   const { cents } = await req.json().catch(() => ({}))
   const amount = Math.max(500, Math.min(1_000_000, Math.round(Number(cents) || 0)))
   const orgId = userOrgId(user as never)
-  const origin = process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin
+  // One source of truth (S0-B §5). `req.nextUrl.origin` used to stand in
+  // here, but on Vercel that is the *deployment* URL, so a preview or an
+  // alias would send Stripe's customer back to a host that is not the product.
+  const origin = appOrigin()
 
   try {
     const session = await getStripe().checkout.sessions.create({

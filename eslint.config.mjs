@@ -60,6 +60,23 @@ const NO_ADMIN_IMPORT = {
   ],
 }
 
+/**
+ * S0-B PI-3 / §5. Four domains are planned, so the application's own origin is
+ * configuration read in exactly one place — `lib/appOrigin.ts`. Reading the
+ * variable directly is banned rather than merely discouraged because the
+ * failure is silent: `${process.env.NEXT_PUBLIC_APP_URL}/set-password` with the
+ * variable unset interpolates to the string `undefined/set-password` and sends
+ * a dead invite link that looks like a link. Six routes did exactly that.
+ *
+ * This is the invariant, not the cleanup (HANDOFF §12 lesson 1): converting the
+ * eight sites without banning the ninth leaves a repair, not a rule.
+ */
+const NO_RAW_APP_URL = {
+  selector: "MemberExpression[property.name='NEXT_PUBLIC_APP_URL']",
+  message:
+    "Read the application origin through appOrigin()/appUrl() from @/lib/appOrigin, never process.env directly. Unset, the raw variable interpolates to the string 'undefined' and ships a dead link (S0-B §5, I-11).",
+}
+
 const eslintConfig = [
   ...nextCoreWebVitals,
   ...nextTypescript,
@@ -76,7 +93,7 @@ const eslintConfig = [
   },
   {
     rules: {
-      'no-restricted-syntax': ['error', NO_GET_SESSION, ...NO_SERVICE_ROLE_KEY],
+      'no-restricted-syntax': ['error', NO_GET_SESSION, ...NO_SERVICE_ROLE_KEY, NO_RAW_APP_URL],
       'no-restricted-imports': ['error', NO_ADMIN_IMPORT],
     },
   },
@@ -88,7 +105,7 @@ const eslintConfig = [
     files: SERVICE_ROLE_ALLOWLIST,
     rules: {
       'no-restricted-imports': 'off',
-      'no-restricted-syntax': ['error', NO_GET_SESSION],
+      'no-restricted-syntax': ['error', NO_GET_SESSION, NO_RAW_APP_URL],
     },
   },
   {
@@ -98,6 +115,14 @@ const eslintConfig = [
     rules: {
       'no-restricted-syntax': 'off',
       'no-restricted-imports': 'off',
+    },
+  },
+  {
+    // The one place NEXT_PUBLIC_APP_URL is read. Only that ban is lifted; the
+    // others are restated, for the reason given on the allowlist block above.
+    files: ['lib/appOrigin.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', NO_GET_SESSION, ...NO_SERVICE_ROLE_KEY],
     },
   },
 ]

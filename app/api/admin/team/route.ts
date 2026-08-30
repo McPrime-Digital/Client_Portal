@@ -5,6 +5,7 @@ import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { orgRolesOf, canManageOrg } from '@/lib/team'
 import { cutMemberAccess, restoreOrgAccess, statusCutsAccess } from '@/lib/memberAccess'
 import { recordUsage } from '@/lib/usage'
+import { appUrl } from '@/lib/appOrigin'
 
 // Org crew management. GET roster · POST invite · PATCH role · DELETE revoke.
 // Gates read organization_members (table is truth), never the JWT.
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest) {
 
   const { data: invite, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(cleanEmail, {
     data: { name: name.trim() },
-    redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/set-password`,
+    redirectTo: appUrl('/set-password'),
   })
   if (inviteError) return NextResponse.json({ error: inviteError.message }, { status: 500 })
 
