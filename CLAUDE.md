@@ -2,6 +2,18 @@
 
 Guidance for Claude Code (claude.ai/code) working in this repository.
 
+**The product is Genreline** (`docs/specs/S0-B-product-identity.md`, PI-1).
+"Throughline" was the working name through the spec phase and is retired in
+new work; the git branch, the spec prose and `_archive/` keep it deliberately.
+The product name lives in `lib/product.ts` — do not write the literal again.
+
+**Two identities, and they are not the same rename** (S0-B §2). The **client
+portal wears the TENANT's brand** — read it from the database via
+`lib/tenantBrand.ts`, never a constant, never a fallback naming a specific
+studio. The **studio shell wears the product's**, with the tenant's logo as
+context. Putting "Genreline" on a client-facing page is as wrong as leaving
+"McPrime Digital" there: a client of a studio bought from that studio.
+
 ## Governing documents
 
 **Read `HANDOFF.md` (repo root) first.** It is the verified project state —
@@ -9,17 +21,19 @@ what is built, what is open (file:line), what to do next — compiled from the
 code and the live database, not from memory. The spec stack below is the
 *reasoning*; HANDOFF is the *state*.
 
-**`docs/specs/` is the authoritative spec stack for this project.** Six documents, in
-reading order:
+**`docs/specs/` is the authoritative spec stack for this project.** In reading
+order:
 
 | # | Document | Purpose |
 |---|---|---|
 | 1 | `S0-decisions-and-constraints.md` | Settled decisions and invariants |
 | 2 | `S0-A-amendments.md` | **Supersedes named S0 entries** (AD-004, AD-002, AD-001 rationale) |
-| 3 | `S0-conformance.md` | Where the code violates S0; input to sequencing |
-| 4 | `S1-P-personas-and-segments.md` | Who signs up, and what each needs |
-| 5 | `S-V-film-os.md` | Full platform architecture + the v1 cap |
-| 6 | `S1-tenancy-and-entitlement.md` | Tenancy model; resolves T-1 … T-5 |
+| 3 | `S0-B-product-identity.md` | **Supersedes the product name everywhere**; domain and attribution |
+| 4 | `S0-conformance.md` | Where the code violates S0; input to sequencing |
+| 5 | `S1-P-personas-and-segments.md` | Who signs up, and what each needs |
+| 6 | `S-V-film-os.md` | Full platform architecture + the v1 cap |
+| 7 | `S1-tenancy-and-entitlement.md` | Tenancy model; resolves T-1 … T-5 |
+| 8 | `S2-authorization.md` | Layered authorization; the RLS migration order |
 
 **Where S0 and S0-A disagree, S0-A wins.** S0 entries were not edited in place — the original
 text stands as the record of what was believed at the time, and reading S0 alone will give you
@@ -294,7 +308,11 @@ Loaded from `.env.local` (gitignored). Names only — never write a value into t
 - Supabase: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
   `SUPABASE_SERVICE_ROLE_KEY`
 - Cloudflare R2: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`
-- App: `NEXT_PUBLIC_APP_URL`
+- App: `NEXT_PUBLIC_APP_URL` — **read it only through `lib/appOrigin.ts`.**
+  `appOrigin()` / `appUrl()` throw when it is unset or carries no scheme;
+  `appOriginOrNull()` exists for the single caller (push deep links) where an
+  origin-relative URL is genuinely correct. Reading `process.env` directly is
+  an ESLint error. See the standing rule below.
 
 `lib/supabase/admin.ts:5` and `lib/r2.ts:16` construct their clients at **module scope** from
 these vars. **[VIOLATES S0 I-11 — pending remediation.]** `lib/stripe.ts` shows the correct
@@ -321,6 +339,27 @@ lazy-accessor pattern; use that for anything new.
 
 `vercel.json` schedules one cron: `GET /api/cron/message-nudge` daily at 09:00.
 
+## The application's own origin — one accessor, no literals
+
+**S0-B PI-3/§5.** Four domains are planned (`genreline.com` today, plus
+`.studio`, `.io`, `.ai`), so the hostname is configuration. There is exactly
+one place that reads it, `lib/appOrigin.ts`, and `no-restricted-syntax` makes
+reading `process.env.NEXT_PUBLIC_APP_URL` anywhere else an error.
+
+Why a ban rather than a convention: the failure is silent. Six invite routes
+wrote `` `${process.env.NEXT_PUBLIC_APP_URL}/set-password` ``, which with the
+variable unset interpolates to the string `undefined/set-password` and ships
+it to Supabase as a redirect target. The invite sends, the email arrives, and
+the link is dead — visible only to the person who cannot use it.
+
+- Absolute link that must work → `appUrl('/path')` or `appOrigin()`. Both throw.
+- Never a second source. `req.nextUrl.origin` is the *deployment* URL on
+  Vercel, so a preview or an alias silently produces a different host.
+- **The half that is not in code:** Supabase Auth holds its own Site URL and
+  Redirect URL allowlist as project configuration. Changing domain without
+  updating them breaks every invite and reset link, silently, for everyone.
+  No migration or build can catch it — it is a deploy-time checklist item.
+
 ## Error handling
 
 There is no error sink — no Sentry, no logging service. Failures surface as `console.error`
@@ -330,16 +369,28 @@ act on them; do not add another silent `catch {}`.
 
 ## Assets & branding
 
-- `public/mcprime-logo.jpg` — the McPrime Digital brand lockup, rendered via
-  `components/McPrimeLogo.tsx`. Use it only for McPrime's own branding (auth screens, admin
-  chrome) — never for a client's company logo (the client sidebar shows the client's uploaded
-  avatar, falling back to their initial).
-- **[VIOLATES S0 P-1 — pending remediation.]** McPrime's identity is hardcoded on 69 lines
-  across 34 files — UI copy, notification sender names, activity-log actor names, the `MPD-`
-  invoice number prefix, the push service worker, and the package name. S0 P-1 says McPrime is tenant
-  zero, not the product, and treats hardcoded identity as a defect. **Do not add new hardcoded
-  McPrime strings** — read the display name from `business_settings.business_name` /
-  `organizations.name` the way `app/(portal)/layout.tsx:97-102` does, or pass it in.
+- `public/mcprime-logo.jpg` — one tenant's brand lockup (McPrime Digital),
+  rendered via `components/McPrimeLogo.tsx`. **This entry previously said "admin
+  chrome" was a legitimate place for it. That is no longer true** — Batch 9.4
+  moved the admin sidebar onto `TenantLogo`, so the only remaining callers are
+  the three pre-auth pages. Never use it for a client's company logo (the
+  client sidebar shows the client's uploaded avatar, falling back to their
+  initial), and never for a studio's.
+- **Mostly remediated in Batch 9.** McPrime's identity was hardcoded on 69 lines across
+  34 files. It now survives **only on the three pre-auth pages** —
+  `app/(auth)/login`, `/reset-password`, `/set-password` — which run before any
+  session exists and so have no tenant to resolve from. That is a stated open
+  question (HANDOFF §8.3 item 7, §11 q8), not a leftover.
+  **Do not add new hardcoded tenant strings, and do not "fix" the pre-auth
+  pages by substituting Genreline** — S0-B §2 calls that swapping one wrong
+  name for another. Resolve tenant identity through `lib/tenantBrand.ts`
+  (`tenantBrand(orgId)` / `tenantBrandForClient(clientId)`), which returns the
+  name, the logo and the PI-4 attribution flag from one read. It degrades to a
+  neutral stand-in, never to a specific studio.
+- `components/McPrimeLogo.tsx` and `public/mcprime-logo.jpg` are now used **only**
+  by those three pre-auth pages. `components/TenantLogo.tsx` is the one to use
+  anywhere else — it renders the tenant's `organizations.logo_url`, falling back
+  to their initial rather than to any brand asset.
 
 ## Working rules
 

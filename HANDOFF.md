@@ -1,23 +1,30 @@
-# THROUGHLINE — HANDOFF
+# GENRELINE — HANDOFF
 
 **This is the first read.** It exists in the repository because its predecessor
 did not: the open list was kept outside the repo, drifted from the code with
 nothing able to contradict it, and four live defects fell off it entirely
 (recovered by Batch 6 item 0). Everything below was verified against the code
 and the live database on 2026-08-28 — nothing is quoted from memory of what a
-batch was supposed to do. Last compiled after **Batch 8**, the final foundation
-batch.
+batch was supposed to do. Last compiled after **Batch 9**; Batch 8 was the
+final foundation batch.
 
-After this, read `docs/specs/` in order: S0 → S0-A → S0-conformance → S1-P →
-S-V → S1 → S2. **Where S0 and S0-A disagree, S0-A wins.** `CLAUDE.md` holds
+After this, read `docs/specs/` in order: S0 → S0-A → **S0-B** → S0-conformance
+→ S1-P → S-V → S1 → S2. **Where S0 and S0-A disagree, S0-A wins**, and
+**S0-B supersedes the product name in all of them.** `CLAUDE.md` holds
 the working mechanics (commands, clients, route groups, env vars).
+
+**The product is Genreline** (S0-B PI-1). "Throughline" was the working name
+through the spec phase; every batch entry below that says Throughline is left
+as written, because it records what was true when it was written. The branch
+is still `throughline` and is not renamed.
 
 ---
 
 ## 1. What this is
 
-**Throughline** is a film-production OS built to sell (S0 P-1). McPrime
-Digital is tenant zero and a real dependent user — not the customer. The
+**Genreline** is a film-production OS built to sell (S0 P-1, S0-B PI-2).
+McPrime Digital is tenant zero and a real dependent user — not the customer,
+and with no special claim on the product. The
 client portal it grew from is live with real client traffic (S0 P-2), so every
 change ships against a running system: no big-bang migrations, no coordinated
 outages.
@@ -68,6 +75,14 @@ why crew project scoping exists.
 paying"** (S-V §13).
 
 ## 3. Settled architecture — and why
+
+- **S0-B — product identity.** The product is **Genreline**; the production
+  domain is `genreline.com` with three more planned, so the application's own
+  origin is configuration read in one place (`lib/appOrigin.ts`, 9.1). And the
+  rule that governs every branding decision: **the client portal wears the
+  TENANT's brand, the studio wears the product's.** Replacing "McPrime Digital"
+  with "Genreline" on a client-facing page swaps one wrong name for another —
+  a client of McPrime bought from McPrime.
 
 - **AD-001 — RLS owns tenancy; the capability matrix owns capability;
   service role is an enumerated allowlist.** The deciding constraint is
@@ -177,10 +192,18 @@ The audited era, each batch with what it *found*:
 | 8.4 | `sendSms` takes the caller's org; `DEFAULT_ORG_ID` no longer imported there | One caller, and the org was already resolved on the recipient state — no session threading needed. Required parameter, not an optional with a fallback: there is no constant left to default to |
 | 8.5 | House-org hard-stop opt-out is the stated `org_budgets` row; the `orgId === DEFAULT_ORG_ID` branch is gone | 0024 **is** applied — proved by a reversible probe (insert an `org_budgets` row for the decoy org without naming `hard_stop`, read `true`, delete). The house org's own `false` row is consistent with either state, so the row alone could not tell them apart. `lib/billing/plans.ts` is still dead — zero importers |
 | 8.6 | `clients.user_id` retired; 0026 printed, guards removed, hook fixed in the same transaction | **0022's live access-token hook read the column** (`0022:111-118`). No guard would have caught it: Postgres tracks no column dependency inside a PL/pgSQL body, and the printed guard scanned `pg_policies`, a different catalog. Worse, the hook's own `exception when others` would have absorbed the 42703 and returned every user's token unenriched — a silently empty app for everyone, which is the exact failure AD-001 and 0022 exist to prevent |
+| 9.1 | One origin accessor (`lib/appOrigin.ts`) + eslint ratchet; 8 sites converted | The audit expected literal hostnames and found **none**. The defect was the opposite shape: six routes interpolated `process.env.NEXT_PUBLIC_APP_URL` raw, so an unset variable sent `undefined/set-password` as an invite redirect — a dead link that looks like a link, invisible except to whoever cannot use it |
+| 9.2 | Portal reads the tenant's name, logo, title and copy from the database | S0-B §3's "wiring gap, one table" is **two**: `business_settings` has no logo column and never has — the logo is only on `organizations.logo_url`. And nine sites already read the DB and merely *fell back* to McPrime, so the defect fired exactly when a tenant was unresolved, which is when naming another tenant is worst |
+| 9.3 | Sender identity per tenant: 11 sites, plus the push icon | The nudge **cron** was the worst and no list ranked it: its GET half sweeps every tenant by design, so one hardcoded name signed the whole product's alerts. Also `sw.js` hardcoded one studio's logo as the push icon for every tenant — sender identity is the picture, not just the name |
+| 9.4 | Product renamed to Genreline; `lib/product.ts`; studio + admin chrome | `app/studio/layout.tsx` read the studio's own name with `.from('organizations').select('name').limit(1).single()` — **no predicate**, so the header rendered an arbitrary tenant's name. Three orgs exist; this was live. Found under a comment being renamed |
+| 9.5 | "Powered by Genreline" gated on a plan feature key | The badge already existed and shipped unconditionally to every client. Paid HANDOFF §8.3 item 5's price: `orgId === DEFAULT_ORG_ID` is gone from `lib/billing/plans.ts`, and the `orgId` parameter with it |
 
-## 7. Current state (verified 2026-08-28, after Batch 8)
+## 7. Current state (verified 2026-08-28, after Batch 8; Batch 9 deltas
+verified 2026-08-30 from the code — no live read was taken in Batch 9)
 
-- **Branch:** `throughline` (main ⊆ throughline, fast-forward).
+- **Branch:** `throughline` (main ⊆ throughline, fast-forward). Not renamed —
+  S0-B §6 excludes the branch, and renaming it is a remote/CI change, not a
+  code one.
 - **Migrations applied: 0000–0024.** 0024 **is applied** — this was asserted
   rather than shown before, and is now proved: inserting an `org_budgets` row
   for the harness decoy org without naming `hard_stop` returns `true`, so the
@@ -210,8 +233,19 @@ The audited era, each batch with what it *found*:
 - **Harness:** `npm run test:rls` → **10 pass / 0 fail / 0 vacuous / 0 error**;
   positive controls 3,3,2,2,2,2. Run after 8.1 and after 8.6, unchanged.
 - **`tsc --noEmit`:** clean. **Lint: 353** problems, unchanged across all six
-  commits (failures do not fail the build). **`npm run build`:** green,
-  compiled in 7.6s, Sentry-wrapped, 81 static pages.
+  Batch 8 commits and all five Batch 9 commits (failures do not fail the
+  build). **`npm run build`:** green — 7.6s at Batch 8, 8.8s at Batch 9.
+- **Batch 9 did not touch the database.** No migration was written, none was
+  needed, and no live read was taken. Every Batch 9 claim about data is marked
+  as unverified where it is (see §8.3 items 12 and 13).
+- **After Batch 9, the ONLY hardcoded tenant identity left in the application
+  is on the three pre-auth pages** — `app/(auth)/login`, `/reset-password`,
+  `/set-password`. That is item 2's stop-and-report, not an oversight (§8.3
+  item 7). Everything behind a session reads the tenant from the database.
+- **No literal application hostname exists in any code path.** Two occurrences
+  of `https://genreline.com` remain in `lib/appOrigin.ts` — one in a doc
+  comment, one inside the error message that tells an operator the expected
+  format. Neither is used to build a URL.
 - **Live data:** 3 organizations (McPrime + 2 harness) · 8 client companies (2
   harness) · 9 `client_members` rows · 13 auth users (6 harness) · 21 files ·
   ~200 messages · `org_credits` for McPrime at **−15¢** · `org_budgets` holds
@@ -253,13 +287,57 @@ S2 §11 q4 close with it.
    is a user-session path — `PresencePulse` calls it on every page load —
    running a service-role scan of every unread message. Allowlisted as PERMANENT
    for its GET half only; the POST half is not.
-5. `lib/billing/plans.ts:32` still tests `orgId === DEFAULT_ORG_ID` for the
-   house org. **Dead code** — zero importers anywhere (verified 8.5) — but it is
-   the last instance of the rule 8.5 removed from `lib/credits.ts`, and it is a
-   hardcoded McPrime identity (P-1). Whoever gives that file its first importer
-   must state the exemption per-org first, not wire the branch.
+5. **CLOSED in 9.5.** `lib/billing/plans.ts` no longer tests
+   `orgId === DEFAULT_ORG_ID`; the parameter is gone and the house org's
+   exemption is its `organizations.plan` value. The file now has one importer
+   (`lib/tenantBrand.ts`), so the condition this entry set was met before it
+   got one. Do not re-open.
 6. `clients.last_seen_at` is now written by nothing and read by nothing (8.2).
    Retiring it is a column drop nobody has scheduled.
+
+**Opened by Batch 9 — what it found and did not fix:**
+
+7. **The three pre-auth pages still wear one tenant's brand**, and this is a
+   stop-and-report, not an oversight (Batch 9 item 2). `login/page.tsx:7,47,58,152`,
+   `reset-password/page.tsx:8,83`, `set-password/page.tsx:8,151,179,194,203,242`
+   — the McPrime logo, "Sign in to access your McPrime Digital portal",
+   "© McPrime Digital", and a `mailto:hello@mcprimedigital.com` on a public
+   page. **They run before any session exists, so there is no tenant to
+   resolve from.** The proposed resolution is in the Batch 9 report and the
+   decision is §11 question 8. Nothing was swapped there, because swapping in
+   "Genreline" would be the exact trap S0-B §2 names.
+8. **Per-tenant email and SMS are blocked by provider configuration, not by
+   code.** `lib/notify.ts:143` sends from a single `NOTIFY_FROM_EMAIL`;
+   `lib/sms.ts:23` from a single `TWILIO_FROM`, and the SMS body carries no
+   sender prefix at all. Message *content* now names the sending studio
+   everywhere (9.3); the envelope cannot until per-tenant Resend domain
+   verification and a Twilio Messaging Service exist. **S5.**
+9. **Two ledger actor names still prefer `user_metadata`** —
+   `app/api/admin/invoice-actions/route.ts:253` and
+   `app/api/files/commit/route.ts:161`. 9.3 fixed only the hardcoded tenant
+   *fallback* behind them. The primary is user-editable, which is the ledger
+   forgery 7.8 closed for `ownName()`. **I-6, with the other write-path sites.**
+10. `lib/stores/session-store.ts:31` — the Zustand persist key is still
+   `'throughline-session'`. Deliberately not renamed: it is a localStorage key
+   in every existing user's browser, so renaming silently discards their
+   docked-session state. Low stakes, but it is live client data, not a string.
+   Needs a migration-on-read or a decision to accept the reset.
+11. `tailwind.config.ts:59-63` — five `mcprime-*` colour aliases, hardcoded
+   tenant identity in config with **zero usages anywhere**. Dead config, not a
+   rename. Belongs to the C-6 dead-code inventory with `McPrimeLogo.tsx` and
+   `public/mcprime-logo.jpg`, both of which become dead the moment §8.3 item 7
+   is resolved.
+12. **McPrime's `organizations.plan` value is unverified** and nothing in the
+   application writes that column (default `'agency'`, `0001:23`). If it is not
+   `'house'`, the house org's own portal shows the "Powered by Genreline"
+   badge. That is default-deny working correctly, not a defect — but it is a
+   stated-row decision nobody has made. HANDOFF §12 lesson 3.
+13. **The Supabase Auth domain checklist is not in code and cannot be.**
+   Changing domain requires updating Auth's Site URL and its Redirect URL
+   allowlist in the Supabase dashboard. Miss them and every invite link and
+   every password-reset link breaks silently, for everyone — the code half is
+   done (9.1), this half is a deploy-time step. Recorded in `.env.example`
+   beside the variable.
 
 Item 4 of this list in the Batch 7 compilation — `lib/sms.ts:24` metering every
 tenant against `DEFAULT_ORG_ID` — **closed in 8.4**.
@@ -375,6 +453,16 @@ studio creates work too, which they would not have.
    what "confirm above" means in a streaming UI. S0 §4 fixes the number; nothing
    fixes the mechanism.
 
+8. **How does a pre-auth page resolve its tenant?** New in Batch 9 (item 2's
+   stop-and-report). `/login`, `/reset-password` and `/set-password` render
+   before any session exists, so no membership, claim or company row is
+   available — yet they are the *first* client-facing surface, and they
+   currently show one studio's logo, name and copyright to every visitor. The
+   four candidate resolutions and their trade-offs are in the Batch 9 report;
+   `organizations.subdomain` already exists, `UNIQUE`, and is read by nothing
+   (`lib/types/database.ts:4` is its only mention). Answering this also decides
+   whether `components/McPrimeLogo.tsx` and `public/mcprime-logo.jpg` survive.
+
 Hours per week is answered — **30** — and is not carried forward.
 
 **Answered and removed in Batch 8:** the old question 7 — *claim-cut fan-out on
@@ -420,7 +508,20 @@ one is recognised rather than rediscovered.
    **Enumerate the kinds of live object that can hold a reference, then write the
    check.**
 
-3. **The column default is not the default.** `org_budgets.hard_stop` shipped
+3. **A fallback is not a smaller version of the bug — it is the bug at its
+   worst moment.** Nine of the portal's McPrime strings were not literals in
+   the naive sense: the code already read `business_settings.business_name`
+   and only *fell back* to `'McPrime Digital'` when the lookup missed. That
+   reads as defence-in-depth and is the opposite. A fallback fires exactly
+   when the tenant could not be resolved, which is precisely the moment
+   naming a *specific* tenant is most wrong (Batch 9.2). The same shape sat in
+   `AdminSidebar`'s default prop, `app/studio/layout.tsx`'s `let orgName =
+   'McPrime'`, and `lib/billing/plans.ts`'s id test. **Ask what a default
+   asserts when it fires, not what it prevents.** Where the answer is "a
+   specific tenant," the correct fallback is neutral — or no name at all, and
+   a sentence rewritten to not need one.
+
+4. **The column default is not the default.** `org_budgets.hard_stop` shipped
    `default false`, but nothing in the application inserts that table, so the
    real default was the app-side `?? false` (Batch 7.1). Two batches later the
    same table taught the converse: the McPrime row's value could not distinguish
