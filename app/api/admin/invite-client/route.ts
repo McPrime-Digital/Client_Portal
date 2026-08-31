@@ -35,12 +35,18 @@ export async function POST(request: NextRequest) {
 
     const cleanEmail = email.trim().toLowerCase()
 
-    // Check if client already exists
+    // Duplicate check, scoped to the CALLER'S tenant (T-2), matching
+    // create-client:60. Unscoped — which this was — it reports another studio's
+    // client as a collision, which both blocks a legitimate invite and lets an
+    // admin enumerate another studio's client roster one probe at a time. It
+    // also used `.single()`, which errors on zero rows rather than returning
+    // null; `.maybeSingle()` is the shape that answers the question asked.
     const { data: existing } = await supabaseAdmin
       .from('clients')
       .select('id')
+      .eq('organization_id', userOrgId(user))
       .eq('email', cleanEmail)
-      .single()
+      .maybeSingle()
 
     if (existing) {
       return NextResponse.json(

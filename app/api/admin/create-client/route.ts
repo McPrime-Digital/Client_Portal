@@ -127,7 +127,25 @@ export async function POST(req: NextRequest) {
       if (error) {
         console.error('[create-client] Create user error:', error)
         if (isEmailTakenError(error)) {
-          return NextResponse.json({ error: EMAIL_TAKEN }, { status: 409 })
+          // The address already has an account — commonly a company that was
+          // deleted, since AD-003 keeps the auth user.
+          //
+          // FLOW A HANDLES THIS AND FLOW B DELIBERATELY DOES NOT. The invite
+          // path mints a link the mailbox owner has to open, so the admin never
+          // learns or sets their password. Setting one here would let any admin
+          // take over an existing account — including one belonging to another
+          // studio's client — by "creating a client" at that address with a
+          // password they chose. That is account takeover with an ordinary UI
+          // in front of it, so the answer is to send them to the invite flow,
+          // not to call updateUserById.
+          return NextResponse.json(
+            {
+              error:
+                'That email already has an account. Use the invite-link option instead — ' +
+                'it lets them set their own password.',
+            },
+            { status: 409 }
+          )
         }
         return NextResponse.json(
           { error: error.message },
