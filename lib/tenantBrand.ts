@@ -46,6 +46,13 @@ export type TenantBrand = {
    * or unsold tenant shows the attribution, which is PI-4's stated default.
    */
   showsAttribution: boolean
+  /**
+   * Where a reply to this studio's outbound mail should go
+   * (`business_settings.business_email`), or null. Null is common and correct:
+   * the house org's value is `''` today, and an empty Reply-To header is worse
+   * than none (S-C §7).
+   */
+  replyTo: string | null
 }
 
 const NEUTRAL: TenantBrand = {
@@ -53,6 +60,7 @@ const NEUTRAL: TenantBrand = {
   logoUrl: null,
   resolved: false,
   showsAttribution: true,
+  replyTo: null,
 }
 
 /** Name and logo of one tenant. Never throws — branding must not take a page down. */
@@ -89,6 +97,7 @@ export async function tenantBrand(
       logoUrl: org?.logo_url?.trim() || null,
       resolved: name !== NEUTRAL_TENANT_NAME,
       showsAttribution: !planAllows(org?.plan, 'attribution.hide'),
+      replyTo: settings?.business_email?.trim() || null,
     }
   } catch (e) {
     captureError(e, { where: 'tenantBrand', organizationId })

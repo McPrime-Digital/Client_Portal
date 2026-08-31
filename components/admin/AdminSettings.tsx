@@ -8,12 +8,18 @@ import {
   CreditCard, Building2, Users, ChevronRight, Bell,
 } from 'lucide-react'
 import NotificationPreferences, { type PrefMap } from '@/components/shared/NotificationPreferences'
+import StudioLogoField from '@/components/admin/StudioLogoField'
 
-type Props = { user: User }
+type Props = {
+  user: User
+  /** The studio's own brand, resolved server-side (S-C §6). */
+  studioName: string
+  studioLogoUrl: string | null
+}
 
 type SectionKey = 'business' | 'payments' | 'notifications' | 'profile' | 'security' | 'team'
 
-export default function AdminSettings({ user }: Props) {
+export default function AdminSettings({ user, studioName, studioLogoUrl }: Props) {
   const supabase = createClient()
   const [section, setSection] = useState<SectionKey>('business')
 
@@ -206,6 +212,7 @@ export default function AdminSettings({ user }: Props) {
             <form onSubmit={savePayment} className="p-6 rounded-xl space-y-5" style={card}>
               <SectionHeader icon={Building2} tint="primary" title="Business Profile" subtitle="Identity shown to clients on invoices and receipts" />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <StudioLogoField studioName={studioName} initialLogoUrl={studioLogoUrl} />
                 {payField('Business name', 'business_name')}
                 {payField('Business email', 'business_email')}
                 {payField('Business address', 'business_address', true)}

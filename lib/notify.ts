@@ -5,6 +5,8 @@ import { getBusinessSettings } from '@/lib/businessSettings'
 import { DEFAULT_ORG_ID } from '@/lib/auth/role'
 import { appOriginOrNull } from '@/lib/appOrigin'
 import { tenantBrand } from '@/lib/tenantBrand'
+import { senderForTenant } from '@/lib/mailSender'
+import type { Sender } from '@/lib/mailSender'
 import { sendPushToUser, sendPushToAdmins } from '@/lib/push'
 import { sendSms } from '@/lib/sms'
 import { captureError } from '@/lib/errors'
@@ -144,15 +146,34 @@ function deepLink(recipient: 'admin' | 'client', category: NotifyCategory, proje
   return origin ? `${origin}${path}` : path
 }
 
-async function sendEmailAlert(to: string, subject: string, text: string): Promise<void> {
+// The SENDER is now resolved from the tenant, not read from configuration
+// (S-C CM-3). `NOTIFY_FROM_EMAIL` still supplies the address; the display name
+// is the sending studio's, so a client of Studio Two sees "Studio Two" in their
+// inbox instead of whichever company happened to be in the env var.
+//
+// Still plain text. The branded HTML body is the next piece of S-C §6 and lands
+// with the template; splitting it keeps this commit revertable on its own.
+async function sendEmailAlert(
+  to: string,
+  subject: string,
+  text: string,
+  sender: Sender | null
+): Promise<void> {
   const key = process.env.RESEND_API_KEY
-  const from = process.env.NOTIFY_FROM_EMAIL
-  if (!key || !from || !to) return
+  if (!key || !sender || !to) return
   try {
     await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to, subject, text }),
+      body: JSON.stringify({
+        from: sender.from,
+        to,
+        subject,
+        text,
+        // Resend omits the header when the field is absent. Never sent empty:
+        // business_settings.business_email is '' for the house org (S-C §7).
+        ...(sender.replyTo ? { reply_to: sender.replyTo } : {}),
+      }),
     })
   } catch {
     // best-effort
@@ -363,7 +384,12 @@ export async function notifyAwayRecipient(opts: {
     const subject = opts.title
     const text = opts.body ? `${opts.title}\n\n${opts.body}` : opts.title
     const url = deepLink(opts.recipient, opts.category, opts.projectId)
-    const icon = (await tenantBrand(away[0]?.orgId)).logoUrl ?? undefined
+    // One resolve for the whole fan-out — every recipient of this alert shares
+    // its tenant — and it now answers three questions at once: the push icon,
+    // the email From, and where a reply goes.
+    const brand = await tenantBrand(away[0]?.orgId)
+    const icon = brand.logoUrl ?? undefined
+    const sender = senderForTenant(brand)
     const push = { title: opts.title, body: opts.body ?? undefined, url, icon, tag: opts.category }
 
     // The X-6 ladder is unchanged — in-app → push → email → SMS, same payload,
@@ -389,7 +415,7 @@ export async function notifyAwayRecipient(opts: {
       }
       if (ch.email !== false && email && !sentEmail.has(email)) {
         sentEmail.add(email)
-        sends.push(sendEmailAlert(email, subject, text))
+        sends.push(sendEmailAlert(email, subject, text, sender))
       }
       if (ch.sms === true && phone && !sentSms.has(phone)) {
         sentSms.add(phone)

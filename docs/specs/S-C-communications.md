@@ -71,11 +71,12 @@ built when a studio asks, on the same code path.
 | **The studio** | its own crew | the studio, Genreline as context | crew invite, role change, project assignment |
 | **The studio** | a client company's teammates | the studio | teammate invite, approval request |
 
-**The hybrid, stated so it is not argued twice.** An invite reads *"Jane invited
-you to Studio Two on Genreline."* The studio is the subject; the product is
-context. The recipient is joining a studio's workspace, not buying software.
-This is the only place both names appear, and Genreline appears as a
-prepositional phrase, never in the From line.
+**The hybrid, stated so it is not argued twice.** An invite reads *"Studio Two
+invited you"*, with Genreline named once as context in the footer. The studio
+is the subject; the product is context. The recipient is joining a studio's
+workspace, not buying software. This is the only place both names appear, and
+Genreline never appears in the From line. The inviting *person* is not named —
+see §9 q2.
 
 **Not yet real:** there is no self-serve signup, so the Genreline welcome email
 has no trigger. `scripts/provision-tenant.ts` is the only path that creates a
@@ -224,9 +225,11 @@ Localisation.
 1. **Who owns `organizations.plan`, and does any of this gate on it?** HANDOFF
    §11 q9. Layer 2 is a plausible plan feature; if it is, it resolves through
    `planAllows()` like `attribution.hide`, never a boolean.
-2. **Does a crew invite come from the studio or from the person?**
-   *"Studio Two"* or *"Jane at Studio Two"*. The roster has the name; this is a
-   copy decision, not an architecture one.
+2. **ANSWERED 2026-08-31 — the studio, not the person.** A crew invite reads
+   *"Studio Two invited you"*. The roster carries the inviter's name and the
+   template does not use it: the invitation is to the studio's workspace, and
+   the person who happened to click the button is not the authority the
+   recipient is being asked to trust. It also survives that person leaving.
 3. **What is the Genreline vendor address?** `notifications@genreline.com` is
    assumed throughout and is already `lib/product.ts`'s VAPID contact. Billing
    mail may warrant a separate one, which S0-B §7's legal entity affects.
