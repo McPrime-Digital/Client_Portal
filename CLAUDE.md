@@ -34,6 +34,7 @@ order:
 | 6 | `S-V-film-os.md` | Full platform architecture + the v1 cap |
 | 7 | `S1-tenancy-and-entitlement.md` | Tenancy model; resolves T-1 … T-5 |
 | 8 | `S2-authorization.md` | Layered authorization; the RLS migration order |
+| 9 | `S-C-communications.md` | **DRAFT** — sender identity across email/SMS/push |
 
 **Where S0 and S0-A disagree, S0-A wins.** S0 entries were not edited in place — the original
 text stands as the record of what was believed at the time, and reading S0 alone will give you
@@ -72,8 +73,10 @@ Accurate notes on the dependency list — several packages are installed but not
   `app/api/activity/route.ts:1` (Batch 6.1, so the activity ledger stops accepting forged
   entries). **[VIOLATES S0 I-7 — one of 41 route handlers validates against a schema; the
   other 40 do not.]**
-- **`resend`** is a dependency but never imported. Email goes out as a raw `fetch` to
-  `https://api.resend.com/emails` (`lib/notify.ts:136`).
+- **`resend`** is a dependency but still never imported. Email goes out as a raw `fetch`
+  to `https://api.resend.com/emails` from **one place** — `lib/email/send.ts`. There
+  were briefly two (Batch 10.4); if you add a third, the second one's failures will
+  vanish the way that one's did.
 - **Stripe is not used for invoicing.** The Stripe SDK is used only for the AI-credit top-up
   flow: `app/api/studio/credits/checkout/route.ts` and `app/api/webhooks/stripe/route.ts`.
   Invoices are bank/wire transfer (`invoices.payment_method` defaults to `'bank_transfer'`;
@@ -117,9 +120,11 @@ import alias at the call site is what tells them apart.
   subject to RLS. This is the client every Realtime subscription uses.
 - `lib/supabase/admin.ts` → `supabaseAdmin` — service-role key, **bypasses RLS**. `server-only`.
 
-Two route handlers additionally construct their own service-role client inline rather than
-importing `supabaseAdmin`: `app/api/admin/create-client/route.ts:28` and
-`app/api/admin/resend-invite/route.ts:36`.
+**One** route handler constructs its own service-role client inline rather than importing
+`supabaseAdmin`: `app/api/admin/create-client/route.ts:48`. There were two until Batch
+10.3 rewrote `resend-invite` onto the shared client — the first time the I-8 ratchet has
+shrunk. An inline client imports nothing, so the import rule cannot see it; the
+`SUPABASE_SERVICE_ROLE_KEY` selector in `eslint.config.mjs` is what catches it.
 
 ## Authorization — how it actually works today
 
@@ -216,8 +221,10 @@ Walk each of these paths mentally before saving an edit to `proxy.ts`.
   `isAdmin`). Three spaces — Crew / Client / Workspace — declared in `lib/studio/spaces.ts`.
   Features without an implementation render a "Phase N · coming soon" card
   (`app/studio/[space]/[feature]/page.tsx:40-66`). Whether stubs stay advertised is owned by S4.
-- `app/api/` — 41 route handlers (files, portal, admin, studio, cron, presence, push,
-  Stripe webhook).
+- `app/api/` — **42** route handlers (files, portal, admin, studio, cron, presence, push,
+  Stripe webhook, and since Batch 10: `studio/organization/logo`, `auth/password-reset`).
+  This entry read 41 before Batch 10 added two, so it was already off by one — count it,
+  don't quote it.
 - `app/auth/callback/route.ts` — **implemented, not reserved.** It handles the PKCE
   `exchangeCodeForSession` flow and the `token_hash`/`verifyOtp` magic-link/invite flow, and
   marks clients onboarded. Its admin success path still redirects to `/admin/dashboard`
@@ -360,6 +367,51 @@ the link is dead — visible only to the person who cannot use it.
   updating them breaks every invite and reset link, silently, for everyone.
   No migration or build can catch it — it is a deploy-time checklist item.
 
+## Email — one system, one sender, one layout
+
+**Nothing uses Supabase's mailer.** As of Batch 10.3 there are zero callers of
+`inviteUserByEmail` and `resetPasswordForEmail`. The reason is structural: Supabase Auth's
+templates are **global per project**, so a message sent through that mailer can never carry
+the sending studio's name — not with better copy, not with more configuration. Invites and
+resets are minted with `auth.admin.generateLink()` and delivered by the application.
+
+Keep Supabase SMTP pointed at Resend anyway, so a misconfiguration produces a plain email
+rather than silence.
+
+The four modules, in the order a message passes through them:
+
+| Module | Job |
+|---|---|
+| `lib/tenantBrand.ts` | who the tenant is — name, logo, Reply-To, attribution flag |
+| `lib/mailSender.ts` | `senderForTenant()` / `senderForProduct()` → the `From` header |
+| `lib/email/messages.ts` | the catalogue — invite (×3 audiences), reset, notification, product |
+| `lib/email/layout.ts` | the one HTML layout, rendered per tenant |
+| `lib/email/send.ts` | **the only place a message reaches Resend** |
+
+**Rules that are not style preferences:**
+
+- **Two voices** (S-C CM-1). `voice: 'tenant'` is the studio speaking to its clients and
+  crew. `voice: 'product'` is Genreline speaking to the studio it sells to. A studio's
+  clients must never receive mail branded Genreline — that is S0-B §2's trap one layer out.
+- **The sender is resolved, never configured** (CM-3). `NOTIFY_FROM_EMAIL` supplies the
+  *address*; the display name comes from the tenant. Do not put an identity in an env var.
+- **Reply-To is omitted when absent, never sent empty** — `business_settings.business_email`
+  is `''` for the house org today.
+- **Escape everything.** The studio's name, project titles and message previews all reach
+  these templates and all three are user-supplied. `esc()` in `layout.ts`.
+- **Tables and inline styles, deliberately.** Outlook renders with Word's engine; flexbox,
+  grid and `<style>` blocks are unreliable. The file will look like 2005 HTML forever.
+- **`generateLink()` changed a failure mode.** The auth user is created *before* the send,
+  so a delivery failure leaves a correct account and roster row with an undelivered
+  message. `sendTenantInvite` returns `delivered` rather than throwing — do not tear down
+  an account over a failed send; `resend-invite` is the recovery path.
+- **SMS brands in the body**, and has to: the US and Canada do not allow alphanumeric
+  sender IDs, so the number cannot say who is writing.
+
+Templates exist only for flows that exist. There is no signup, email-change or phone-change
+flow in this app — do not add templates for them before the flows. Phone verification is
+SMS OTP through Supabase→Twilio, has no `generateLink` type, and is not part of this system.
+
 ## Error handling
 
 There is no error sink — no Sentry, no logging service. Failures surface as `console.error`
@@ -391,8 +443,16 @@ act on them; do not add another silent `catch {}`.
   brand asset. `components/ProductMark.tsx` — Genreline's mark, for the studio
   shell and the pre-auth pages, which have no tenant to resolve.
   The client's own avatar stays the portal sidebar's identity.
-  `components/McPrimeLogo.tsx` is **deleted**; `public/mcprime-logo.jpg`
-  survives only because McPrime's `organizations.logo_url` may point at it.
+  `components/McPrimeLogo.tsx` and `public/mcprime-logo.jpg` are both
+  **deleted** — a live read confirmed nothing referenced the path, and it was
+  being served publicly at `<origin>/mcprime-logo.jpg` to every tenant.
+- **The studio's logo has a writer now** (Batch 10.1):
+  `POST/DELETE /api/studio/organization/logo`, surfaced in Settings → Business
+  Profile. `organizations.logo_url` had existed since migration 0001 with
+  nothing writing it, which is why every row was null. That route also shows
+  the shape a NEW surface should take: the `organizations` row is written with
+  the **user client** so RLS is the tenant boundary, and the service role
+  touches **storage only** — the one reason it is on the I-8 allowlist.
 - **The pre-auth pages are deliberately tenant-neutral** (`/login`,
   `/reset-password`, `/set-password`). They run before a session exists, so no
   membership, claim or company row is available to resolve a studio from.
@@ -401,8 +461,12 @@ act on them; do not add another silent `catch {}`.
 ## Working rules
 
 - Verify claims against the code before writing them down — this file was previously wrong
-  about Stripe, shadcn/ui, React Hook Form + Zod, `/auth/callback`, the admin route group and
-  the proxy's redirect targets.
+  about Stripe, shadcn/ui, React Hook Form + Zod, `/auth/callback`, the admin route group,
+  the proxy's redirect targets, and its own route-handler count.
+- **A commit message is a claim, and the next document inherits it.** Batch 10.3's message
+  said `lib/email/send.ts` was "extracted from `notify.ts`". It was not — two send paths ran
+  for two commits, and only one reported failures. Before quoting a previous batch, run the
+  grep that would falsify it (HANDOFF §12.4).
 - Cite `path:line` when reporting a finding.
 - Do not paper over an RLS or authorization failure by switching to `supabaseAdmin`.
 - Remediation of anything marked **[VIOLATES S0]** above is sequenced in S6. Report it; do not

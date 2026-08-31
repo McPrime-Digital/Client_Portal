@@ -5,13 +5,15 @@ did not: the open list was kept outside the repo, drifted from the code with
 nothing able to contradict it, and four live defects fell off it entirely
 (recovered by Batch 6 item 0). Everything below was verified against the code
 and the live database on 2026-08-28 — nothing is quoted from memory of what a
-batch was supposed to do. Last compiled after **Batch 9**; Batch 8 was the
+batch was supposed to do. Last compiled after **Batch 10**; Batch 8 was the
 final foundation batch.
 
 After this, read `docs/specs/` in order: S0 → S0-A → **S0-B** → S0-conformance
-→ S1-P → S-V → S1 → S2. **Where S0 and S0-A disagree, S0-A wins**, and
-**S0-B supersedes the product name in all of them.** `CLAUDE.md` holds
-the working mechanics (commands, clients, route groups, env vars).
+→ S1-P → S-V → S1 → S2 → **S-C**. **Where S0 and S0-A disagree, S0-A wins**, and
+**S0-B supersedes the product name in all of them.** `S-C` (communications and
+sender identity) is **draft for approval** — the only spec in the stack that is
+not settled. `CLAUDE.md` holds the working mechanics (commands, clients, route
+groups, env vars).
 
 **The product is Genreline** (S0-B PI-1). "Throughline" was the working name
 through the spec phase; every batch entry below that says Throughline is left
@@ -83,6 +85,14 @@ paying"** (S-V §13).
   TENANT's brand, the studio wears the product's.** Replacing "McPrime Digital"
   with "Genreline" on a client-facing page swaps one wrong name for another —
   a client of McPrime bought from McPrime.
+- **S-C — communications (draft).** Two voices: Genreline speaks to the studio
+  it sells to; the studio speaks to everyone downstream of it. A studio's
+  clients never receive mail branded Genreline. Sender identity is **resolved
+  from the tenant, never read from configuration** — an environment variable
+  may supply the sending ADDRESS, it may never supply the IDENTITY. Layer 1
+  (display name + Reply-To + branded body on the product's verified domain)
+  serves every tenant with no per-tenant DNS; Layer 2 (a studio's own sending
+  domain) is a lookup on the same code path, built when a studio asks.
 
 - **AD-001 — RLS owns tenancy; the capability matrix owns capability;
   service role is an enumerated allowlist.** The deciding constraint is
@@ -197,9 +207,16 @@ The audited era, each batch with what it *found*:
 | 9.3 | Sender identity per tenant: 11 sites, plus the push icon | The nudge **cron** was the worst and no list ranked it: its GET half sweeps every tenant by design, so one hardcoded name signed the whole product's alerts. Also `sw.js` hardcoded one studio's logo as the push icon for every tenant — sender identity is the picture, not just the name |
 | 9.4 | Product renamed to Genreline; `lib/product.ts`; studio + admin chrome | `app/studio/layout.tsx` read the studio's own name with `.from('organizations').select('name').limit(1).single()` — **no predicate**, so the header rendered an arbitrary tenant's name. Three orgs exist; this was live. Found under a comment being renamed |
 | 9.5 | "Powered by Genreline" gated on a plan feature key | The badge already existed and shipped unconditionally to every client. Paid HANDOFF §8.3 item 5's price: `orgId === DEFAULT_ORG_ID` is gone from `lib/billing/plans.ts`, and the `orgId` parameter with it |
+| 9.6 | HANDOFF + CLAUDE.md recompiled | — |
+| 9.7 | Pre-auth pages tenant-neutral; `McPrimeLogo.tsx` deleted | The owner chose neutral-then-brand over subdomain / route segment / email lookup. The `mailto` and the © line were REMOVED rather than repointed: no correct value exists for either (S0-B §7's legal entity) |
+| 9.8 | Verified against the live database | **9.5's commit message overstated its own fix.** All three orgs read `plan = 'agency'` and nothing writes the column, so the house org's exemption — which 9.5 said "is now stated" — was never written. And `NOTIFY_FROM_EMAIL` held a McPrime address: every email the product sent, to every tenant's clients, arrived From one tenant |
+| 10.1 | Studio logo upload (`organizations.logo_url` gets its first writer); sender resolved from the tenant | The column had existed since 0001 with **no writer**, which is why 9.8's live read found all three rows null — 9.2 had wired the portal to read a logo no studio could set |
+| 10.2 | One email layout, ported from the studio's Supabase template, rendered per tenant | The ask included email-change, phone-change and confirm-signup templates. **None of those flows exist** — no `updateUser({email})`, no `updateUser({phone})`, no `signUp(`. They would have been templates for buttons nobody can press |
+| 10.3 | Six invite paths + password reset off Supabase's mailer onto `generateLink()` | `resend-invite` was **cross-tenant on both halves**: its `clients` read and write were keyed on email alone, and `clients.email` is org-scoped since 0018. Also the **first time the I-8 ratchet ever shrank** — its inline service-role client is gone |
+| 10.4 | Second Resend send path collapsed | 10.3's own commit message claimed `send.ts` was "extracted from notify.ts". It was not — `send.ts` was *added* and notify.ts kept its `fetch`, ending in `catch {}`. Every notification email since 10.2 went out through the copy **without** the error sink |
 
-## 7. Current state (verified 2026-08-28, after Batch 8; Batch 9 deltas
-verified 2026-08-30 from the code — no live read was taken in Batch 9)
+## 7. Current state (verified 2026-08-28 after Batch 8; Batch 9 deltas from the
+code 2026-08-30, with one live read; Batch 10 deltas from the code 2026-08-31)
 
 - **Branch:** `throughline` (main ⊆ throughline, fast-forward). Not renamed —
   S0-B §6 excludes the branch, and renaming it is a remote/CI change, not a
@@ -232,12 +249,29 @@ verified 2026-08-30 from the code — no live read was taken in Batch 9)
   `organization_id`) is the check that matters after applying it.
 - **Harness:** `npm run test:rls` → **10 pass / 0 fail / 0 vacuous / 0 error**;
   positive controls 3,3,2,2,2,2. Run after 8.1 and after 8.6, unchanged.
-- **`tsc --noEmit`:** clean. **Lint: 353** problems, unchanged across all six
-  Batch 8 commits and all five Batch 9 commits (failures do not fail the
-  build). **`npm run build`:** green — 7.6s at Batch 8, 8.8s at Batch 9.
-- **Batch 9 did not touch the database.** No migration was written, none was
-  needed, and no live read was taken. Every Batch 9 claim about data is marked
-  as unverified where it is (see §8.3 items 12 and 13).
+- **`tsc --noEmit`:** clean. **Lint: 352** — 353 through Batch 9, then **down
+  one** in 10.3 when the old `resend-invite` and its `catch (err: any)` were
+  rewritten. Verified by diffing the full finding list against committed HEAD,
+  not by reading the total. Failures do not fail the build.
+  **`npm run build`:** green — 7.6s at Batch 8, 8.8s at Batch 9, 9.0s at
+  Batch 10. **42 route handlers** (was 41; +logo, +password-reset, and the
+  earlier count was already off by one).
+- **Nothing in the application uses Supabase's mailer** (10.3). Zero callers of
+  `inviteUserByEmail` or `resetPasswordForEmail`. Supabase SMTP stays pointed
+  at Resend so a misconfiguration produces a plain email rather than silence.
+- **One place a message reaches Resend:** `lib/email/send.ts` (10.4). There
+  were two for the length of 10.2–10.3.
+- **The three sender configs are done** (owner, 2026-08-31): `genreline.com`
+  verified in Resend, `NOTIFY_FROM_EMAIL` switched in Vercel and `.env.local`,
+  Supabase SMTP pointed at Resend. The McPrime Resend domain is deliberately
+  retained — it is McPrime's Layer 2 domain, already verified, and costs
+  nothing idle.
+- **Neither Batch 9 nor Batch 10 touched the database.** No migration was
+  written and none was needed. Batch 9 ended with a live read (§8.3 items 7 and
+  12); Batch 10 needed none — `organizations.logo_url` already existed, and
+  `organizations.brand_color` was **deliberately not added**, because an
+  additive column must be applied before the code deploys (the 0025 ordering
+  lesson) and nobody asked for per-studio colour.
 - **After Batch 9, the ONLY hardcoded tenant identity left in the application
   is on the three pre-auth pages** — `app/(auth)/login`, `/reset-password`,
   `/set-password`. That is item 2's stop-and-report, not an oversight (§8.3
@@ -312,8 +346,23 @@ S2 §11 q4 close with it.
    **no copyright line at all**: "© McPrime Digital" was wrong for every
    tenant, and the correct replacement is not knowable until S0-B §7's legal
    entity is settled. An unowned © claim is worse than none.
-8. **Per-tenant email and SMS envelopes are blocked by provider configuration
-   — but the CURRENT value is a live P-1 defect, and that half is not S5.**
+8. **PARTLY CLOSED in Batch 10. The interim defect is fixed; the envelope is
+   still S5.**
+
+   **Closed:** `NOTIFY_FROM_EMAIL` no longer supplies an identity at all — it
+   supplies the ADDRESS, and `lib/mailSender.ts` composes the display name from
+   the sending tenant (S-C CM-3). A client of Studio Two now sees "Studio Two"
+   in their inbox list, with Reply-To pointing at that studio's own address.
+   SMS carries its sender in the body, which it must: the US and Canada do not
+   permit alphanumeric sender IDs, so the number cannot say who is writing.
+
+   **Still open, and genuinely S5:** the sending DOMAIN is `genreline.com` for
+   every tenant (Layer 1). A studio's own `notifications@studiotwo.com` needs
+   that studio to publish DNS records — Resend's domains API makes it a
+   self-serve flow, and `senderFor()` is already the single branch it plugs
+   into. No tenant has asked; there is one production studio.
+
+   The original entry, kept because it is what the code did until 2026-08-31:
    `lib/notify.ts:143` sends from a single `NOTIFY_FROM_EMAIL`; `lib/sms.ts:23`
    from a single `TWILIO_FROM`; the SMS body carries no sender prefix at all.
    Message *content* names the sending studio everywhere since 9.3; the
@@ -360,7 +409,8 @@ S2 §11 q4 close with it.
 
    **I-6, with the other write-path sites — but worth pulling forward rather
    than waiting for the full S2 §7 write pass**, because unlike the read-path
-   work it changes one expression per site.
+   work it changes one expression per site. Batch 10 did not touch either site;
+   it is still two expressions.
 10. **DECIDED, not merely skipped: `lib/stores/session-store.ts:31` keeps the
    key `'throughline-session'`.** It is a localStorage key already written in
    every existing user's browser, so renaming it does not migrate that state —
@@ -418,7 +468,41 @@ S2 §11 q4 close with it.
    Every plan-gated feature added from here resolves against whatever the
    default happens to be. Deciding which write path owns `plan` belongs with
    the billing work, and is now §11 question 9.
-13. **The Supabase Auth domain checklist is not in code and cannot be.**
+13. **Opened by Batch 10 — the untested paths.** Every Batch 10 change is
+   verified by `tsc`, the build, and reading; **none of it has been executed.**
+   There is no test framework and the agent does not run the app, so the
+   following are correct-by-inspection only and should be exercised once
+   deployed: a studio logo upload and its signed URL rendering in the portal
+   sidebar; an invite arriving branded; a password reset arriving; and the
+   `delivered: false` path, which no one has seen fire.
+
+14. **`generateLink()` changed a failure mode, and nothing has hit it yet.**
+   `inviteUserByEmail` created the user and sent the mail as one operation — no
+   mail meant no user. Now the link is minted first, so a delivery failure
+   leaves a **correct account and a correct roster row with an undelivered
+   message**. That is deliberate (tearing down a valid account over an SMTP
+   hiccup is worse, and `resend-invite` is the recovery path), and `delivered`
+   is returned rather than thrown. `resend-invite` surfaces it; the other five
+   callers currently ignore it. Whether they should show a soft warning is a UX
+   decision nobody has made.
+
+15. **The email catalogue covers only flows that exist.** No signup, no
+   email-change, no phone-change — verified by grep, not assumed. `generateLink`
+   supports `signup`, `email_change_current` and `email_change_new`, so the
+   email side is a few lines whenever those features are built. **Phone is not
+   email at all**: it is SMS OTP through Supabase→Twilio, has no `generateLink`
+   type, and its only template lives in the Supabase dashboard.
+   **Dashboard task, unowned:** the Supabase Auth email templates still carry
+   McPrime branding. Nothing sends them any more, but they would fire if a flow
+   were ever triggered outside the app.
+
+16. **`organizations.brand_color` does not exist**, so every tenant's email
+   renders the product accent (`#c8a24a`, `--primary`). Deliberate: an additive
+   column must be applied before the code deploys (0025's ordering lesson), and
+   per-studio colour was not asked for. `safeColor()` in `lib/email/layout.ts`
+   is the validated entry point when it lands — one argument changes.
+
+17. **The Supabase Auth domain checklist is not in code and cannot be.**
    Changing domain requires updating Auth's Site URL and its Redirect URL
    allowlist in the Supabase dashboard. Miss them and every invite link and
    every password-reset link breaks silently, for everyone — the code half is
@@ -614,7 +698,23 @@ one is recognised rather than rediscovered.
    specific tenant," the correct fallback is neutral — or no name at all, and
    a sentence rewritten to not need one.
 
-4. **The column default is not the default.** `org_budgets.hard_stop` shipped
+4. **A commit message is a claim, and the next document inherits it.**
+   Batch 10.3's message said `lib/email/send.ts` was "the single place a message
+   reaches Resend, extracted from `notify.ts`." It was not extracted — `send.ts`
+   was *added* and `notify.ts` kept its own `fetch`, ending in `catch {}`. So
+   every notification email for two commits went out through the copy **without**
+   the error sink, while the commit log said otherwise. It was caught by
+   grepping `api.resend.com` while gathering counts for this file — one query
+   away from being written into HANDOFF as fact.
+
+   This is the same shape as lesson 1 and as AD-004's wrong premise (S0-A §1):
+   a plausible claim, inherited rather than checked. The difference is that this
+   one was authored *in this repo, by the batch that quotes the lesson*.
+   **Verify the claim against the code before the next document quotes it** —
+   and prefer a grep that would falsify it over a re-read of the diff that
+   produced it.
+
+5. **The column default is not the default.** `org_budgets.hard_stop` shipped
    `default false`, but nothing in the application inserts that table, so the
    real default was the app-side `?? false` (Batch 7.1). Two batches later the
    same table taught the converse: the McPrime row's value could not distinguish
