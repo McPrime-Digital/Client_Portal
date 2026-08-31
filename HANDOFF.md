@@ -213,6 +213,9 @@ The audited era, each batch with what it *found*:
 | 10.1 | Studio logo upload (`organizations.logo_url` gets its first writer); sender resolved from the tenant | The column had existed since 0001 with **no writer**, which is why 9.8's live read found all three rows null — 9.2 had wired the portal to read a logo no studio could set |
 | 10.2 | One email layout, ported from the studio's Supabase template, rendered per tenant | The ask included email-change, phone-change and confirm-signup templates. **None of those flows exist** — no `updateUser({email})`, no `updateUser({phone})`, no `signUp(`. They would have been templates for buttons nobody can press |
 | 10.3 | Six invite paths + password reset off Supabase's mailer onto `generateLink()` | `resend-invite` was **cross-tenant on both halves**: its `clients` read and write were keyed on email alone, and `clients.email` is org-scoped since 0018. Also the **first time the I-8 ratchet ever shrank** — its inline service-role client is gone |
+| 11.1 | Re-invite unblocked; the portal's duplicated per-request work memoized; send bounded; mailer banned in lint | The site "getting stuck" was **a regression from 9.2**: `generateMetadata` plus the layout meant two `auth.getUser()` round trips, two roster lookups and up to four brand queries on every portal page, none memoized. `getCurrentUser()` already existed for exactly this and 9.2 did not use it |
+| 11.2 | One `AuthShell` for all three pre-auth screens; email logo centred at 48px | `/login` had the card; `/set-password` and `/reset-password` did not — an invited client's first screen looked like a different product from the one they signed into. Drift, not neglect: three near-identical layouts |
+| 11.3 | Flow B's refusal explained; `invite-client`'s duplicate check org-scoped | **The confirmation state is the variable, and an intermediate probe got it backwards.** `generateLink` type `invite` returns 422 `email_exists` for a CONFIRMED account and 200 for an unconfirmed one — so a probe on the wrong account "disproved" a fix that was correct. Verified by running the real `sendTenantInvite` against production auth |
 | 10.4 | Second Resend send path collapsed | 10.3's own commit message claimed `send.ts` was "extracted from notify.ts". It was not — `send.ts` was *added* and notify.ts kept its `fetch`, ending in `catch {}`. Every notification email since 10.2 went out through the copy **without** the error sink |
 
 ## 7. Current state (verified 2026-08-28 after Batch 8; Batch 9 deltas from the
@@ -468,13 +471,14 @@ S2 §11 q4 close with it.
    Every plan-gated feature added from here resolves against whatever the
    default happens to be. Deciding which write path owns `plan` belongs with
    the billing work, and is now §11 question 9.
-13. **Opened by Batch 10 — the untested paths.** Every Batch 10 change is
-   verified by `tsc`, the build, and reading; **none of it has been executed.**
-   There is no test framework and the agent does not run the app, so the
-   following are correct-by-inspection only and should be exercised once
-   deployed: a studio logo upload and its signed URL rendering in the portal
-   sidebar; an invite arriving branded; a password reset arriving; and the
-   `delivered: false` path, which no one has seen fire.
+13. **MOSTLY CLOSED by live use (2026-08-31).** The owner exercised the logo
+   upload (McPrime's `organizations.logo_url` is now SET — confirmed by live
+   read), branded invites arriving, and the re-invite of a deleted company.
+   **Still unexercised:** the `delivered: false` path — nothing has seen a
+   send fail — and the crew/teammate invite variants. Forcing `delivered:false`
+   is a five-minute check: point `RESEND_API_KEY` at a bad value on Preview,
+   run a resend-invite, confirm the response says "regenerated, but the email
+   could not be sent" and Sentry captures it.
 
 14. **`generateLink()` changed a failure mode, and nothing has hit it yet.**
    `inviteUserByEmail` created the user and sent the mail as one operation — no
@@ -484,7 +488,15 @@ S2 §11 q4 close with it.
    hiccup is worse, and `resend-invite` is the recovery path), and `delivered`
    is returned rather than thrown. `resend-invite` surfaces it; the other five
    callers currently ignore it. Whether they should show a soft warning is a UX
-   decision nobody has made.
+   decision nobody has made. **Still open after Batch 11.**
+
+   Related, and settled in 11.3: the manual-password flow (`create-client`
+   FLOW B) still refuses an address that already has an account, deliberately.
+   The obvious fix — `updateUserById` to set the password — is **account
+   takeover**: any admin could claim an existing account, including another
+   studio's client, by "creating a client" at that address with a password they
+   chose. Flow A is safe because the link goes to the mailbox and the admin
+   never learns the password. The error now points at the invite option.
 
 15. **The email catalogue covers only flows that exist.** No signup, no
    email-change, no phone-change — verified by grep, not assumed. `generateLink`

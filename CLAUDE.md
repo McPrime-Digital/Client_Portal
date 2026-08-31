@@ -405,6 +405,15 @@ The four modules, in the order a message passes through them:
   so a delivery failure leaves a correct account and roster row with an undelivered
   message. `sendTenantInvite` returns `delivered` rather than throwing — do not tear down
   an account over a failed send; `resend-invite` is the recovery path.
+- **An existing auth account is not a duplicate.** `generateLink` type `invite` returns
+  422 `email_exists` for a **confirmed** account and 200 for an unconfirmed one, so
+  `sendTenantInvite` falls back to a `recovery` link. A deleted company keeps its auth user
+  (AD-003), and S1 §2 allows a person in both trees — the in-tenant check against `clients`
+  / the rosters is what refuses a real duplicate, never the auth layer.
+- **Never set a password on an existing account from an admin path.** `updateUserById` there
+  is account takeover: an admin could claim another studio's client by "creating a client"
+  at that address. Send them to the invite flow, which mints a link only the mailbox owner
+  can open.
 - **SMS brands in the body**, and has to: the US and Canada do not allow alphanumeric
   sender IDs, so the number cannot say who is writing.
 
