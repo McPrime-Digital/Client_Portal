@@ -1,6 +1,7 @@
 import { isAdmin } from '@/lib/auth/role'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { rosterName } from '@/lib/team'
 import { deleteFromR2 } from '@/lib/r2'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -53,7 +54,11 @@ export async function DELETE(
         p_project_id: file.project_id,
         p_client_id: file.client_id,
         p_actor_id: user.id,
-        p_actor_name: user.user_metadata?.name ?? 'Admin',
+        // Roster first. A THIRD ledger site reading the forgeable field —
+        // the open list named two, because it was compiled from the sweep that
+        // fixed those two rather than from a grep. File deletion is exactly the
+        // action a ledger exists to attribute.
+        p_actor_name: (await rosterName(user)) ?? 'Admin',
         p_actor_role: 'admin',
         p_event_type: 'file_deleted',
         p_title: `${file.file_name} deleted`,

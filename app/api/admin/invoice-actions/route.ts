@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getBusinessSettings, upsertBusinessSettings } from '@/lib/businessSettings'
 import { tenantBrand } from '@/lib/tenantBrand'
+import { rosterName } from '@/lib/team'
+import type { User } from '@supabase/supabase-js'
 import { createNotification } from '@/lib/notify'
 
 // All invoice writes go through here (service role, admin-gated) — never
@@ -241,7 +243,9 @@ function formatUsd(n: number) {
 }
 
 async function logActivity(
-  user: { id: string; user_metadata?: { name?: string } },
+  // Was `{ id, user_metadata }` — a shape that existed only to reach the
+  // forgeable field. The real User type is what rosterName() needs.
+  user: User,
   studioName: string,
   projectId: string | null,
   clientId: string | null,
@@ -254,9 +258,14 @@ async function logActivity(
       p_project_id: projectId,
       p_client_id: clientId,
       p_actor_id: user.id,
-      // See the same note in files/commit: the user_metadata primary is a
-      // separate (I-6) defect; the hardcoded tenant fallback is this batch's.
-      p_actor_name: user.user_metadata?.name ?? studioName,
+      // ROSTER FIRST, NOT user_metadata. This read the token's metadata,
+      // which the signed-in person can rewrite with
+      // `auth.updateUser({ data })` — so they could choose the name recorded
+      // against "invoice issued" or "receipt verified" in the ledger S0 §1
+      // says settles disputes. Same forgery 7.8 closed for ownName(); this
+      // site survived because it calls log_activity directly. The studio-name
+      // fallback is unchanged, so attribution is the same, only trustworthy.
+      p_actor_name: (await rosterName(user)) ?? studioName,
       p_actor_role: 'admin',
       p_event_type: eventType,
       p_title: title,

@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { sendTenantInvite } from '@/lib/email/invite'
+import { rosterName } from '@/lib/team'
 
 export async function POST(request: NextRequest) {
   try {
@@ -153,8 +154,9 @@ export async function POST(request: NextRequest) {
         p_project_id: projectId ?? null,
         p_client_id: clientRecord.id,
         p_actor_id: user.id,
-        p_actor_name:
-          user.user_metadata?.name ?? 'Admin',
+        // Roster first — the FOURTH site reading the forgeable field. See
+        // invoice-actions for the full reasoning.
+        p_actor_name: (await rosterName(user)) ?? 'Admin',
         p_actor_role: 'admin',
         p_event_type: 'client_created',
         p_title:

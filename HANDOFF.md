@@ -393,27 +393,22 @@ S2 §11 q4 close with it.
    `lib/product.ts`'s `notifications@genreline.com`. That is a contact URI for
    push services rather than a deliverable address, so it is correct as a
    product value — but the mailbox does not necessarily exist.
-9. **Two ledger actor names still prefer `user_metadata`, and this is the
-   ledger — the thing S0 §1 says settles disputes.**
-   `app/api/admin/invoice-actions/route.ts:253` and
-   `app/api/files/commit/route.ts:161` both read
-   `user.user_metadata?.name ?? <studio name>`. 9.3 replaced only the hardcoded
-   tenant *fallback*; the primary is user-editable via
-   `supabase.auth.updateUser({ data })`, so a signed-in user can choose the
-   name that lands in `activity_log.actor_name` — invoice issued, receipt
-   verified, file delivered.
+9. **CLOSED in 11.5 — and the count in this entry was wrong.** It said two
+   ledger sites still read `user.user_metadata?.name`. A grep after fixing
+   those two found **four**: `invoice-actions:268`, `files/commit:166`,
+   `files/[id]:61` and `invite-client:159`. The entry was compiled from the
+   sweep that fixed the first two rather than from a search, which is HANDOFF
+   §12.2 again — *a guard proves what it looks at, and nothing else.*
 
-   This is the same defect 7.8 closed for `ownName()`, surviving at two sites
-   the 7.8 sweep did not cover because they write through `log_activity`
-   directly rather than through the display-name helper. The fix is the 7.8
-   fix: resolve the actor from the roster (`orgRolesOf` / `lib/team.ts`), not
-   from the token's metadata. Small, self-contained, and it does not need a
-   migration.
+   All four now resolve through `rosterName(user)` (`lib/team.ts`), which reads
+   the roster that owns the person — `organization_members` for crew,
+   `client_members` for portal users — and returns null rather than a fallback,
+   so each site keeps the attribution it had. The forgeable primary is gone
+   from every ledger write path in the codebase; the remaining
+   `user_metadata?.name` reads are DISPLAY only (studio chrome, an onboarding
+   form prefill, `ownName`'s own fallback chain), where a person renaming
+   themselves changes what they see and forges no record.
 
-   **I-6, with the other write-path sites — but worth pulling forward rather
-   than waiting for the full S2 §7 write pass**, because unlike the read-path
-   work it changes one expression per site. Batch 10 did not touch either site;
-   it is still two expressions.
 10. **DECIDED, not merely skipped: `lib/stores/session-store.ts:31` keeps the
    key `'throughline-session'`.** It is a localStorage key already written in
    every existing user's browser, so renaming it does not migrate that state —

@@ -200,6 +200,40 @@ export const clientMembershipOf = cache(async function clientMembershipOf(
   return m ? fromRow(user, m as MemberRow) : null
 })
 
+/**
+ * The signed-in person's name AS THE ROSTER RECORDS IT, or null when no roster
+ * row carries one.
+ *
+ * WHAT THIS IS FOR, and why null rather than a fallback: it feeds
+ * `activity_log.actor_name` — the ledger S0 §1 says settles disputes. Those
+ * call sites read `user.user_metadata?.name` first, which is user-editable via
+ * `supabase.auth.updateUser({ data })`, so a signed-in person could choose the
+ * name recorded against "invoice issued" or "receipt verified". That is the
+ * forgery Batch 7.8 closed for `ownName()` and it survived at two sites the
+ * sweep did not reach, because they write through `log_activity` directly
+ * rather than through the display-name helper.
+ *
+ * Returning null keeps each caller's existing fallback intact — the studio's
+ * name on an admin path, 'Client' on a portal one — so this replaces the
+ * untrustworthy primary without changing who an entry is attributed to.
+ *
+ * Crew are looked up in `organization_members`, portal users in
+ * `client_members`; the roster that owns the person is the one that names them.
+ */
+export const rosterName = cache(async (user: User): Promise<string | null> => {
+  const table = isAdmin(user) ? 'organization_members' : 'client_members'
+  const { data } = await supabaseAdmin
+    .from(table)
+    .select('name')
+    .eq('user_id', user.id)
+    .eq('status', 'active')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+  const name = (data as { name?: string | null } | null)?.name?.trim()
+  return name || null
+})
+
 // Matches no row — lookups against it behave exactly like today's failed
 // user_id lookup (no client found) without null-handling at every call site.
 const NO_CLIENT = '00000000-0000-0000-0000-000000000000'
