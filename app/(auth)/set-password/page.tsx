@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import type { Session } from '@supabase/supabase-js'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
-import ProductMark from '@/components/ProductMark'
+import AuthShell from '@/components/auth/AuthShell'
 
 export default function SetPasswordPage() {
   const router = useRouter()
@@ -142,19 +142,15 @@ export default function SetPasswordPage() {
   }
 
   return (
-    <div
-      className="min-h-screen flex items-center justify-center px-4"
-      style={{ backgroundColor: 'hsl(var(--background))' }}
-    >
-      <div className="w-full max-w-sm">
-        {/* Product mark — pre-auth, no tenant to resolve (S0-B §2). The
-            person WAS invited by a specific studio, but the invite token is
-            not exchanged until the form is submitted, so the studio is not
-            knowable here either. */}
-        <div className="mb-8">
-          <ProductMark size={52} showName />
-        </div>
-
+    // The mark sits centred ABOVE the card, and the form sits inside it — the
+    // same frame as /login. This screen used to put its content straight onto
+    // the page background, so an invited client's first impression was a
+    // different-looking product from the one they signed into a minute later.
+    //
+    // Still the PRODUCT's mark, not a studio's: the invite token is not
+    // exchanged until submit, so the tenant is unknowable here (S0-B §2).
+    <AuthShell>
+      <>
         {/* Page loading state */}
         {pageLoading && (
           <div className="flex flex-col items-center justify-center py-12">
@@ -377,7 +373,7 @@ export default function SetPasswordPage() {
             </form>
           </>
         )}
-      </div>
-    </div>
+      </>
+    </AuthShell>
   )
 }

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { Eye, EyeOff } from 'lucide-react'
-import ProductMark from '@/components/ProductMark'
+import AuthShell from '@/components/auth/AuthShell'
 
 export default function ResetPasswordPage() {
   const router = useRouter()
@@ -80,16 +80,10 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <div
-      className="min-h-screen flex items-center justify-center px-4"
-      style={{ backgroundColor: 'hsl(var(--background))' }}
-    >
-      <div className="w-full max-w-sm">
-        {/* Product mark — pre-auth, no tenant to resolve (S0-B §2). */}
-        <div className="mb-8">
-          <ProductMark size={52} showName />
-        </div>
-
+    // Same frame as /login and /set-password (S0-B §2 — the mark is the
+    // product's; these pages run before a session exists).
+    <AuthShell>
+      <>
         {updated ? (
           <div
             className="p-4 rounded-lg text-sm"
@@ -287,7 +281,7 @@ export default function ResetPasswordPage() {
             </form>
           </>
         )}
-      </div>
-    </div>
+      </>
+    </AuthShell>
   )
 }

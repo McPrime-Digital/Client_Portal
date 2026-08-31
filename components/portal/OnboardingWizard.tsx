@@ -107,7 +107,14 @@ export default function OnboardingWizard({
     <div className="min-h-screen flex items-center justify-center px-4 py-10"
       style={{ backgroundColor: 'hsl(var(--background))' }}>
       <div className="w-full max-w-md">
-        <div className="mb-6"><TenantLogo name={studioName} logoUrl={studioLogoUrl} height={48} rounded="rounded-2xl" /></div>
+        {/* Centred, matching the pre-auth screens the invitee just came
+            through. This is the FIRST authenticated page, so it is also the
+            first place the tenant is knowable — the mark switches from the
+            product's to the studio's here, and it should not also jump
+            alignment in the same step. */}
+        <div className="mb-6 flex justify-center">
+          <TenantLogo name={studioName} logoUrl={studioLogoUrl} height={56} rounded="rounded-2xl" />
+        </div>
 
         {/* Step indicator */}
         <div className="flex items-center gap-1.5 mb-8">

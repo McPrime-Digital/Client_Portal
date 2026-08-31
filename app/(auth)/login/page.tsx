@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import ProductMark from '@/components/ProductMark'
+import AuthShell from '@/components/auth/AuthShell'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -35,24 +35,20 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-brand-bg flex items-center justify-center px-4 py-12">
-      {/* Subtle radial glow behind the card */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-brand-gold/[0.03] rounded-full blur-[120px]" />
-      </div>
-
-      <div className="relative w-full max-w-[420px] flex flex-col items-center">
-        {/* The PRODUCT's mark, not a tenant's. This page runs before any
-            session exists, so there is no membership, claim or company row to
-            resolve a studio from — and rendering ONE studio's logo to every
-            visitor is what it used to do (S0-B §2). Branding begins at
-            /dashboard, where the tenant is known. */}
-        <div className="mb-8">
-          <ProductMark size={64} showName />
-        </div>
-
-        {/* Card */}
-        <div className="w-full bg-brand-surface border border-brand-border rounded-2xl p-8 shadow-2xl shadow-black/40">
+    // This page already had the right frame; AuthShell is that frame extracted,
+    // so /set-password and /reset-password stop being a different product.
+    <AuthShell
+      footer={
+        <Link
+          href="/reset-password"
+          className="text-sm text-muted-foreground transition-colors hover:text-primary"
+        >
+          Forgot your password?
+        </Link>
+      }
+    >
+      <>
+        <div>
           {/* Header */}
           <div className="text-center mb-8">
             <h1 className="font-display text-[28px] font-bold text-brand-text tracking-tight">
@@ -139,25 +135,18 @@ export default function LoginPage() {
               </div>
             )}
           </form>
-
-          {/* Forgot password */}
-          <div className="mt-6 text-center">
-            <Link
-              href="/reset-password"
-              className="text-sm text-brand-muted hover:text-brand-gold transition-colors duration-200"
-            >
-              Forgot your password?
-            </Link>
-          </div>
         </div>
 
-        {/* No copyright line. It said "© McPrime Digital" to every tenant's
+        {/* "Forgot your password?" moved to AuthShell's footer — a secondary
+            action belongs under the card, not inside it.
+
+            No copyright line. It said "© McPrime Digital" to every tenant's
             clients, and the correct replacement is not knowable yet: S0-B §7
             leaves the legal entity unresolved and names the copyright line on
             product surfaces as a consequence to settle when it lands. An
             unowned © claim is worse than none. */}
-      </div>
-    </div>
+      </>
+    </AuthShell>
   )
 }
 
