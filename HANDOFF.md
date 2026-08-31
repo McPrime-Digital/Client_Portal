@@ -496,10 +496,33 @@ S2 §11 q4 close with it.
    McPrime branding. Genreline-voiced replacements are in `docs/email/`, one
    file per template, matching `lib/email/layout.ts` so a fallback is
    indistinguishable from a real message. They are **product-voiced, not
-   tenant-voiced, and deliberately so** — Supabase templates are global per
-   project, so a studio's name cannot appear in one without appearing in all of
-   them; same reasoning as the pre-auth pages (9.7). **Remaining step is
-   pasting them into the dashboard**, which no code change can do.
+   tenant-voiced, and that is forced rather than chosen** — Supabase templates
+   are global per project, so a studio's name cannot appear in one without
+   appearing in all of them; same conclusion as the pre-auth pages (9.7).
+   **Remaining step is pasting them into the dashboard**, which no code change
+   can do.
+
+   **THE SMTP TRADE-OFF, and the first version of this note had it backwards.**
+   It was suggested in conversation that deleting Supabase's custom SMTP once
+   real invites are verified would make a bypassed path "fail loudly". **It
+   would not.** Supabase Auth always has a mailer: custom SMTP *replaces* the
+   built-in sender, it does not gate it. Remove the SMTP config and auth email
+   reverts to Supabase's own service — unbranded, from a `supabase.io` address,
+   and severely rate-limited. That is strictly worse than the fallback it was
+   meant to prevent.
+
+   | | Keep SMTP → Resend | Delete SMTP |
+   |---|---|---|
+   | A bypassed path sends | the `docs/email/` template, Genreline-voiced, from `genreline.com` | Supabase's default, from `supabase.io`, rate-limited |
+   | Fails loudly | no | no |
+
+   **So keep the SMTP config pointed at Resend.** The thing that actually
+   prevents a bypass is a lint ratchet, not a missing mailer: nothing in the
+   application calls `inviteUserByEmail` or `resetPasswordForEmail` any more
+   (10.3), so the only way one returns is somebody adding a call. Banning those
+   two identifiers in `eslint.config.mjs` is the same shape as `NO_GET_SESSION`,
+   `NO_SERVICE_ROLE_KEY` and `NO_RAW_APP_URL`, and it is the mechanism CM-5
+   currently lacks. **Not built** — offered and not yet asked for.
 
 16. **`organizations.brand_color` does not exist**, so every tenant's email
    renders the product accent (`#c8a24a`, `--primary`). Deliberate: an additive
