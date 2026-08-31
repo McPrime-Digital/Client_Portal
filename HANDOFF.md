@@ -492,9 +492,14 @@ S2 §11 q4 close with it.
    email side is a few lines whenever those features are built. **Phone is not
    email at all**: it is SMS OTP through Supabase→Twilio, has no `generateLink`
    type, and its only template lives in the Supabase dashboard.
-   **Dashboard task, unowned:** the Supabase Auth email templates still carry
-   McPrime branding. Nothing sends them any more, but they would fire if a flow
-   were ever triggered outside the app.
+   **Dashboard task, now owned:** the six Supabase Auth email templates carried
+   McPrime branding. Genreline-voiced replacements are in `docs/email/`, one
+   file per template, matching `lib/email/layout.ts` so a fallback is
+   indistinguishable from a real message. They are **product-voiced, not
+   tenant-voiced, and deliberately so** — Supabase templates are global per
+   project, so a studio's name cannot appear in one without appearing in all of
+   them; same reasoning as the pre-auth pages (9.7). **Remaining step is
+   pasting them into the dashboard**, which no code change can do.
 
 16. **`organizations.brand_color` does not exist**, so every tenant's email
    renders the product accent (`#c8a24a`, `--primary`). Deliberate: an additive
