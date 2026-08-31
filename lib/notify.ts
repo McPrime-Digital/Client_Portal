@@ -6,6 +6,7 @@ import { DEFAULT_ORG_ID } from '@/lib/auth/role'
 import { appOriginOrNull } from '@/lib/appOrigin'
 import { tenantBrand } from '@/lib/tenantBrand'
 import { senderForTenant } from '@/lib/mailSender'
+import { notificationEmail } from '@/lib/email/messages'
 import type { Sender } from '@/lib/mailSender'
 import { sendPushToUser, sendPushToAdmins } from '@/lib/push'
 import { sendSms } from '@/lib/sms'
@@ -151,13 +152,16 @@ function deepLink(recipient: 'admin' | 'client', category: NotifyCategory, proje
 // is the sending studio's, so a client of Studio Two sees "Studio Two" in their
 // inbox instead of whichever company happened to be in the env var.
 //
-// Still plain text. The branded HTML body is the next piece of S-C §6 and lands
-// with the template; splitting it keeps this commit revertable on its own.
+// The body is now the studio's branded layout (lib/email), with `text` kept as
+// the plain-text alternative rather than replaced — a multipart message is what
+// keeps it readable in a client that refuses HTML, and it is what spam filters
+// expect from transactional mail.
 async function sendEmailAlert(
   to: string,
   subject: string,
   text: string,
-  sender: Sender | null
+  sender: Sender | null,
+  html?: string
 ): Promise<void> {
   const key = process.env.RESEND_API_KEY
   if (!key || !sender || !to) return
@@ -170,6 +174,7 @@ async function sendEmailAlert(
         to,
         subject,
         text,
+        ...(html ? { html } : {}),
         // Resend omits the header when the field is absent. Never sent empty:
         // business_settings.business_email is '' for the house org (S-C §7).
         ...(sender.replyTo ? { reply_to: sender.replyTo } : {}),
@@ -390,6 +395,10 @@ export async function notifyAwayRecipient(opts: {
     const brand = await tenantBrand(away[0]?.orgId)
     const icon = brand.logoUrl ?? undefined
     const sender = senderForTenant(brand)
+    // Rendered once for the whole fan-out: the layout is per TENANT, and every
+    // recipient of this alert shares one.
+    const mail = notificationEmail(brand, { title: opts.title, body: opts.body, url })
+    const smsText = brand.resolved ? `${brand.name}: ${text}` : text
     const push = { title: opts.title, body: opts.body ?? undefined, url, icon, tag: opts.category }
 
     // The X-6 ladder is unchanged — in-app → push → email → SMS, same payload,
@@ -415,11 +424,15 @@ export async function notifyAwayRecipient(opts: {
       }
       if (ch.email !== false && email && !sentEmail.has(email)) {
         sentEmail.add(email)
-        sends.push(sendEmailAlert(email, subject, text, sender))
+        sends.push(sendEmailAlert(email, subject, mail.text, sender, mail.html))
       }
       if (ch.sms === true && phone && !sentSms.has(phone)) {
         sentSms.add(phone)
-        sends.push(sendSms(phone, text, orgId))
+        // SMS carries its sender in the BODY, and has to (S-C §5). The US and
+        // Canada do not allow alphanumeric sender IDs, so the number cannot say
+        // who is writing — an unbranded text from an unknown number reads as
+        // spam. Prefixed only when the tenant resolved, per CM-4.
+        sends.push(sendSms(phone, smsText, orgId))
       }
     }
 
