@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 import { createClient as createServerClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
-import { appUrl } from '@/lib/appOrigin'
+import { sendTenantInvite } from '@/lib/email/invite'
 
 // ONE message for every "this address is taken" outcome, whether the address
 // belongs to this tenant's client, to another tenant's, or to an auth user we
@@ -73,19 +73,17 @@ export async function POST(req: NextRequest) {
 
     if (useInviteLink) {
       // ── FLOW A: Invite link (DEFAULT) ──
-      // Supabase sends branded invite email via Resend
-      // Client clicks link → lands on /set-password → sets own password
-      const { data, error } =
-        await supabaseAdmin.auth.admin.inviteUserByEmail(
+      // The account is created and the STUDIO-BRANDED invite goes out through
+      // Resend (S-C CM-5). Supabase's mailer is no longer involved: its
+      // templates are global per project and could never carry this studio's
+      // name. Client clicks the link → /set-password → sets their own password.
+      const { user: invitedUser, error } =
+        await sendTenantInvite({
           email,
-          {
-            data: {
-              name,
-              role: 'client',
-            },
-            redirectTo: appUrl('/set-password'),
-          }
-        )
+          orgId: userOrgId(user),
+          audience: 'client_owner',
+          data: { name, role: 'client' },
+        })
 
       if (error) {
         console.error('[create-client] Invite error:', error)
@@ -100,8 +98,11 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         )
       }
+      if (!invitedUser) {
+        return NextResponse.json({ error: 'Could not create the account.' }, { status: 500 })
+      }
 
-      userId = data.user.id
+      userId = invitedUser.id
     } else {
       // ── FLOW B: Manual password (fallback) ──
       // Admin sets password and shares it directly

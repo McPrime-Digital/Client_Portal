@@ -5,7 +5,7 @@ import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { orgRolesOf, canManageOrg } from '@/lib/team'
 import { cutMemberAccess, restoreOrgAccess, statusCutsAccess } from '@/lib/memberAccess'
 import { recordUsage } from '@/lib/usage'
-import { appUrl } from '@/lib/appOrigin'
+import { sendTenantInvite } from '@/lib/email/invite'
 
 // Org crew management. GET roster · POST invite · PATCH role · DELETE revoke.
 // Gates read organization_members (table is truth), never the JWT.
@@ -57,11 +57,15 @@ export async function POST(req: NextRequest) {
     .maybeSingle()
   if (existing) return NextResponse.json({ error: 'That email is already on the team.' }, { status: 409 })
 
-  const { data: invite, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(cleanEmail, {
+  const invite = await sendTenantInvite({
+    email: cleanEmail,
+    orgId: userOrgId(user),
+    audience: 'crew',
     data: { name: name.trim() },
-    redirectTo: appUrl('/set-password'),
   })
-  if (inviteError) return NextResponse.json({ error: inviteError.message }, { status: 500 })
+  if (invite.error || !invite.user) {
+    return NextResponse.json({ error: invite.error?.message ?? 'Could not invite.' }, { status: 500 })
+  }
 
   // ROSTER ROW FIRST, CLAIMS SECOND. This order is load-bearing, and it used to
   // be the other way round: app_metadata was stamped before the insert, so any

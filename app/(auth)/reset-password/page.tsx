@@ -32,15 +32,21 @@ export default function ResetPasswordPage() {
     e.preventDefault()
     setLoading(true)
     setError('')
-    const supabase = createClient()
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    })
-    if (error) {
-      setError(error.message)
-    } else {
-      setSent(true)
+    // Posts to our own route rather than calling Supabase directly, so the
+    // email can be resolved to the person's studio and sent with that studio's
+    // branding (S-C CM-5). The endpoint answers identically whether or not the
+    // address has an account, so there is no error branch to render — showing
+    // one would turn this form into an account-existence oracle.
+    try {
+      await fetch('/api/auth/password-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+    } catch {
+      // Same outcome either way — see above.
     }
+    setSent(true)
     setLoading(false)
   }
 

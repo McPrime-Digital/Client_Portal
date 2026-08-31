@@ -5,7 +5,7 @@ import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { orgRolesOf, canManageOrg } from '@/lib/team'
 import { createNotification } from '@/lib/notify'
 import { cutMemberAccess, restoreClientAccess, statusCutsAccess } from '@/lib/memberAccess'
-import { appUrl } from '@/lib/appOrigin'
+import { sendTenantInvite } from '@/lib/email/invite'
 
 // Org oversight of a client company's team: full roster, approve pending
 // invites, invite directly, change roles, revoke, set the invite policy.
@@ -72,11 +72,15 @@ export async function POST(req: NextRequest) {
       .eq('id', member.client_id)
       .eq('organization_id', orgId)
       .single()
-    const { data: invite, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(member.email, {
+    const invite = await sendTenantInvite({
+      email: member.email,
+      orgId: company?.organization_id ?? orgId,
+      audience: 'client_teammate',
       data: { name: member.name },
-      redirectTo: appUrl('/set-password'),
     })
-    if (inviteError) return NextResponse.json({ error: inviteError.message }, { status: 500 })
+    if (invite.error || !invite.user) {
+      return NextResponse.json({ error: invite.error?.message ?? 'Could not invite.' }, { status: 500 })
+    }
     await supabaseAdmin.auth.admin.updateUserById(invite.user.id, {
       app_metadata: { role: 'client', client_id: member.client_id, organization_id: company?.organization_id },
     })

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
-import { appUrl } from '@/lib/appOrigin'
+import { sendTenantInvite } from '@/lib/email/invite'
 
 export async function POST(request: NextRequest) {
   try {
@@ -49,23 +49,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 1. Send the Supabase invite email
-    const { data: inviteData, error: inviteError } =
-      await supabaseAdmin.auth.admin.inviteUserByEmail(
-        cleanEmail,
-        {
-          data: {
-            role: 'client',
-            name: name.trim(),
-          },
-          redirectTo: appUrl('/set-password'),
-        }
-      )
+    // 1. Create the account and send the STUDIO-BRANDED invite (S-C CM-5).
+    const { user: invitedUser, error: inviteError } =
+      await sendTenantInvite({
+        email: cleanEmail,
+        orgId: userOrgId(user),
+        audience: 'client_owner',
+        data: { role: 'client', name: name.trim() },
+      })
 
-    if (inviteError) {
+    if (inviteError || !invitedUser) {
       console.error('[invite-client] Invite error:', inviteError)
       return NextResponse.json(
-        { error: inviteError.message },
+        { error: inviteError?.message ?? 'Could not create the account.' },
         { status: 500 }
       )
     }
@@ -109,7 +105,7 @@ export async function POST(request: NextRequest) {
       .insert({
         client_id: clientRecord.id,
         organization_id: clientRecord.organization_id,
-        user_id: inviteData.user.id,
+        user_id: invitedUser.id,
         name: name.trim(),
         email: cleanEmail,
         role: 'owner',
@@ -133,7 +129,7 @@ export async function POST(request: NextRequest) {
 
     // 2b. Bind the invited auth user to its client + role in app_metadata
     // (service-role only, never user-editable) so authorization is secure.
-    await supabaseAdmin.auth.admin.updateUserById(inviteData.user.id, {
+    await supabaseAdmin.auth.admin.updateUserById(invitedUser.id, {
       app_metadata: { role: 'client', client_id: clientRecord.id, organization_id: clientRecord.organization_id },
     })
 

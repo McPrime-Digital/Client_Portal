@@ -27,9 +27,10 @@ const NO_GET_SESSION = {
  *
  *   · importing `supabaseAdmin` — 67 modules, handled by NO_ADMIN_IMPORT below;
  *   · naming SUPABASE_SERVICE_ROLE_KEY to build a client inline — which imports
- *     nothing, so an import rule cannot see it. Two handlers already do this
- *     (`create-client:46`, `resend-invite:37`); without this selector a third
- *     could be added tomorrow with the import rule fully green.
+ *     nothing, so an import rule cannot see it. ONE handler still does this
+ *     (`create-client:48`); `resend-invite` was the second until Batch 10.3
+ *     rewrote it onto the shared client. Without this selector a third could be
+ *     added tomorrow with the import rule fully green.
  */
 const NO_SERVICE_ROLE_KEY = [
   {
