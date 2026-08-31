@@ -33,7 +33,14 @@ export type InviteAudience =
 export function inviteEmail(
   brand: TenantBrand,
   audience: InviteAudience,
-  actionUrl: string
+  actionUrl: string,
+  /**
+   * How long the link lasts, stated because it differs by how the link was
+   * minted: a fresh `invite` lasts 24 hours, the `recovery` link used for an
+   * address that already has an account lasts 60 minutes. Printing "24 hours"
+   * on a 60-minute link is a support ticket waiting to happen.
+   */
+  expiresIn: string = '24 hours'
 ): RenderedEmail {
   const studio = brand.resolved ? brand.name : PRODUCT_NAME
 
@@ -76,7 +83,7 @@ export function inviteEmail(
     notice: {
       title: 'Security notice',
       body:
-        'This link is unique to your account and expires in 24 hours. Do not forward or share it. ' +
+        `This link is unique to your account and expires in ${expiresIn}. Do not forward or share it. ` +
         'If you were not expecting this invitation, you can safely ignore this message.',
     },
     signOff: 'If you have any questions before setting up your account, just reply to this email.',

@@ -1,5 +1,7 @@
 import 'server-only'
 
+import { cache } from 'react'
+
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getBusinessSettings } from '@/lib/businessSettings'
 import { captureError } from '@/lib/errors'
@@ -63,8 +65,16 @@ const NEUTRAL: TenantBrand = {
   replyTo: null,
 }
 
-/** Name and logo of one tenant. Never throws — branding must not take a page down. */
-export async function tenantBrand(
+/**
+ * Name and logo of one tenant. Never throws — branding must not take a page down.
+ *
+ * REQUEST-SCOPED MEMO, and it is not an optimisation — it repairs a regression
+ * this module caused. Batch 9.2 put a `tenantBrand()` call on 22 server paths,
+ * and a single portal page renders several of them: the layout, the page, and
+ * `generateMetadata`, each paying two queries. React `cache()` collapses them
+ * to one per render pass, keyed on the argument.
+ */
+export const tenantBrand = cache(async function tenantBrand(
   organizationId: string | null | undefined
 ): Promise<TenantBrand> {
   if (!organizationId) return NEUTRAL
@@ -103,7 +113,7 @@ export async function tenantBrand(
     captureError(e, { where: 'tenantBrand', organizationId })
     return NEUTRAL
   }
-}
+})
 
 /**
  * The studio that owns a client company. Resolved from the company row, not
@@ -112,7 +122,7 @@ export async function tenantBrand(
  * claim is missing would silently resolve to no tenant at all rather than
  * erroring — the empty-result failure AD-001 exists to prevent.
  */
-export async function tenantBrandForClient(
+export const tenantBrandForClient = cache(async function tenantBrandForClient(
   clientId: string | null | undefined
 ): Promise<TenantBrand> {
   if (!clientId) return NEUTRAL
@@ -131,4 +141,4 @@ export async function tenantBrandForClient(
     captureError(e, { where: 'tenantBrandForClient', clientId })
     return NEUTRAL
   }
-}
+})

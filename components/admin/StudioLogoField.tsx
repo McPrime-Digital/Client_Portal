@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Loader2, Upload, Trash2, AlertCircle } from 'lucide-react'
 import TenantLogo from '@/components/TenantLogo'
 
@@ -19,6 +20,7 @@ type Props = {
  * (`/api/portal/avatar`) — different owner, different table.
  */
 export default function StudioLogoField({ studioName, initialLogoUrl }: Props) {
+  const router = useRouter()
   const [logoUrl, setLogoUrl] = useState<string | null>(initialLogoUrl)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -36,6 +38,12 @@ export default function StudioLogoField({ studioName, initialLogoUrl }: Props) {
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Upload failed.')
       setLogoUrl(json.logo_url)
+      // The field updates from local state, but the sidebar, the topbar and
+      // every email preview read the logo from the SERVER on render — so
+      // without this the new mark only appeared after a manual reload.
+      // router.refresh() re-runs the server components in place, keeping the
+      // page and its scroll position.
+      router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed.')
     } finally {
@@ -52,6 +60,7 @@ export default function StudioLogoField({ studioName, initialLogoUrl }: Props) {
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Could not remove the logo.')
       setLogoUrl(null)
+      router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not remove the logo.')
     } finally {

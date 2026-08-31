@@ -163,7 +163,15 @@ function fromRow(user: User, m: MemberRow): ClientMembership {
   }
 }
 
-export async function clientMembershipOf(user: User): Promise<ClientMembership | null> {
+/**
+ * REQUEST-SCOPED MEMO. The portal layout resolves membership, and since Batch
+ * 9.2 so does its `generateMetadata` — Next runs both, so an uncached call
+ * meant two roster lookups on every portal page. `cache()` keys on the `user`
+ * object, which is the same reference within one render pass.
+ */
+export const clientMembershipOf = cache(async function clientMembershipOf(
+  user: User
+): Promise<ClientMembership | null> {
   const claimed = userClientId(user as never)
   if (claimed) {
     const { data: m } = await supabaseAdmin
@@ -190,7 +198,7 @@ export async function clientMembershipOf(user: User): Promise<ClientMembership |
     .limit(1)
     .maybeSingle()
   return m ? fromRow(user, m as MemberRow) : null
-}
+})
 
 // Matches no row — lookups against it behave exactly like today's failed
 // user_id lookup (no client found) without null-handling at every call site.

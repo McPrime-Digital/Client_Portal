@@ -78,6 +78,35 @@ const NO_RAW_APP_URL = {
     "Read the application origin through appOrigin()/appUrl() from @/lib/appOrigin, never process.env directly. Unset, the raw variable interpolates to the string 'undefined' and ships a dead link (S0-B §5, I-11).",
 }
 
+/**
+ * S-C CM-5. Supabase Auth's email templates are GLOBAL PER PROJECT, so anything
+ * sent through its mailer can never name the sending studio — not with better
+ * copy, not with more configuration. Batch 10.3 moved every invite and the
+ * password reset onto `generateLink()` + `lib/email`, and nothing calls these
+ * two any more.
+ *
+ * The ban is what keeps it that way. Deleting Supabase's SMTP config does NOT:
+ * custom SMTP replaces the built-in sender rather than gating it, so removing
+ * it reverts to Supabase's own service — unbranded, from a supabase.io address,
+ * rate-limited. Neither option fails loudly, so the loud failure has to happen
+ * here, at the call site, before the code ships.
+ *
+ * `lib/email/invite.ts` is exempt: it is the module that legitimately mints the
+ * links, via generateLink, and sends them itself.
+ */
+const NO_SUPABASE_MAILER = [
+  {
+    selector: "CallExpression[callee.property.name='inviteUserByEmail']",
+    message:
+      "Do not send through Supabase's mailer — its templates are global per project and cannot carry the sending studio's name. Use sendTenantInvite() from @/lib/email/invite, which mints the link with generateLink() and sends it studio-branded (S-C CM-5).",
+  },
+  {
+    selector: "CallExpression[callee.property.name='resetPasswordForEmail']",
+    message:
+      "Do not send through Supabase's mailer — its templates are global per project. Post to /api/auth/password-reset, which resolves the account's tenant and sends a studio-branded reset (S-C CM-5).",
+  },
+]
+
 const eslintConfig = [
   ...nextCoreWebVitals,
   ...nextTypescript,
@@ -94,7 +123,7 @@ const eslintConfig = [
   },
   {
     rules: {
-      'no-restricted-syntax': ['error', NO_GET_SESSION, ...NO_SERVICE_ROLE_KEY, NO_RAW_APP_URL],
+      'no-restricted-syntax': ['error', NO_GET_SESSION, ...NO_SERVICE_ROLE_KEY, NO_RAW_APP_URL, ...NO_SUPABASE_MAILER],
       'no-restricted-imports': ['error', NO_ADMIN_IMPORT],
     },
   },
@@ -106,7 +135,7 @@ const eslintConfig = [
     files: SERVICE_ROLE_ALLOWLIST,
     rules: {
       'no-restricted-imports': 'off',
-      'no-restricted-syntax': ['error', NO_GET_SESSION, NO_RAW_APP_URL],
+      'no-restricted-syntax': ['error', NO_GET_SESSION, NO_RAW_APP_URL, ...NO_SUPABASE_MAILER],
     },
   },
   {
@@ -123,7 +152,15 @@ const eslintConfig = [
     // others are restated, for the reason given on the allowlist block above.
     files: ['lib/appOrigin.ts'],
     rules: {
-      'no-restricted-syntax': ['error', NO_GET_SESSION, ...NO_SERVICE_ROLE_KEY],
+      'no-restricted-syntax': ['error', NO_GET_SESSION, ...NO_SERVICE_ROLE_KEY, ...NO_SUPABASE_MAILER],
+    },
+  },
+  {
+    // The module that legitimately mints auth links and sends them itself.
+    // Only the mailer ban is lifted here; the rest are restated.
+    files: ['lib/email/invite.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', NO_GET_SESSION, NO_RAW_APP_URL],
     },
   },
 ]

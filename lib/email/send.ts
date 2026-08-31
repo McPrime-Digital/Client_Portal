@@ -17,6 +17,14 @@ import type { Sender } from '@/lib/mailSender'
 
 const ENDPOINT = 'https://api.resend.com/emails'
 
+// A send sits on the critical path of the request that triggered it — it has
+// to, because `void`ing it loses the work when the lambda freezes (Batch 6.5).
+// So it needs a ceiling: without one, a slow or unreachable Resend held the
+// whole invite request open until the platform's own timeout, which reads to
+// the person clicking "Invite" as a spinner that never resolves. Ten seconds is
+// far above Resend's normal latency and far below anything a user will wait.
+const TIMEOUT_MS = 10_000
+
 /**
  * Deliver one message. Returns whether it was accepted.
  *
@@ -37,6 +45,7 @@ export async function sendMail(
   try {
     const res = await fetch(ENDPOINT, {
       method: 'POST',
+      signal: AbortSignal.timeout(TIMEOUT_MS),
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         from: sender.from,
@@ -63,6 +72,9 @@ export async function sendMail(
     }
     return true
   } catch (err) {
+    // Includes the timeout above, which surfaces as a TimeoutError. It reaches
+    // the sink like any other failure — a message that was never accepted must
+    // not read as one that was.
     captureError(err, { where: 'email/send', to })
     return false
   }

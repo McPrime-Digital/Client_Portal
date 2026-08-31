@@ -80,11 +80,22 @@ function senderName(brand: TenantBrand, voice: EmailVoice): string {
   return brand.resolved ? brand.name : PRODUCT_NAME
 }
 
-/** Wordmark, or the studio's logo when it has uploaded one. */
+/**
+ * Wordmark, or the studio's logo when it has uploaded one.
+ *
+ * CENTRED, and the logo is 48px rather than 28. The first version inherited the
+ * left-aligned wordmark treatment from the ported template and applied it to an
+ * image, which rendered the studio's mark small and shoved into the corner —
+ * a wordmark and a logo do not want the same alignment or the same weight.
+ *
+ * `max-width` matters as much as height: a wide lockup at a fixed height still
+ * overflows a 560px card on a phone, and Outlook honours the attribute rather
+ * than the style, so both are set.
+ */
 function identityBlock(name: string, logoUrl: string | null, accent: string): string {
   if (logoUrl) {
-    return `<img src="${esc(logoUrl)}" alt="${esc(name)}" height="28"
-      style="height:28px;width:auto;display:block;border:0;outline:none;text-decoration:none;" />`
+    return `<img src="${esc(logoUrl)}" alt="${esc(name)}" height="48"
+        style="height:48px;width:auto;max-width:240px;display:inline-block;border:0;outline:none;text-decoration:none;" />`
   }
   return `<div style="display:inline-block;width:3px;height:22px;background:${accent};vertical-align:middle;margin-right:10px;"></div>
         <span style="font-size:15px;font-weight:700;color:${INK};letter-spacing:0.04em;text-transform:uppercase;vertical-align:middle;">${esc(name)}</span>`
@@ -161,10 +172,8 @@ export function renderEmail(
 <tr><td align="center">
 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
 
-  <tr><td align="left" style="padding:0 0 28px 0;">
-    <table cellpadding="0" cellspacing="0" border="0"><tr><td>
-      ${identityBlock(name, logo, accent)}
-    </td></tr></table>
+  <tr><td align="center" style="padding:0 0 28px 0;">
+    ${identityBlock(name, logo, accent)}
   </td></tr>
 
   <tr><td style="background:${CARD};border-radius:4px;border:1px solid ${LINE};overflow:hidden;">

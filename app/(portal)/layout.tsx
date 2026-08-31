@@ -1,6 +1,6 @@
 import { clientMembershipOf } from '@/lib/team'
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { getCurrentUser } from '@/lib/auth/currentUser'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { tenantBrand, tenantBrandForClient } from '@/lib/tenantBrand'
 import type { Metadata } from 'next'
@@ -15,8 +15,12 @@ import PresencePulse from '@/components/shared/PresencePulse'
 // is the only place a per-tenant title can be resolved, because it is the only
 // one of the three that has a session to resolve it from.
 export async function generateMetadata(): Promise<Metadata> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  // getCurrentUser(), not a second auth.getUser(): it IS getUser(), memoized
+  // for the render pass (lib/auth/currentUser.ts). Next runs generateMetadata
+  // and the layout together, so the raw call here paid a second full network
+  // round trip to GoTrue on every portal page — introduced by 9.2 and fixed
+  // here rather than left as the cost of a page title.
+  const user = await getCurrentUser()
   if (!user) return { title: 'Client Portal' }
 
   const membership = await clientMembershipOf(user)
@@ -31,16 +35,16 @@ export default async function PortalLayout({
 }: {
   children: React.ReactNode
 }) {
-  const supabase = await createClient()
-
   // 1. Establish the session — getUser(), never getSession() (S2 §2).
   // getSession() decodes the cookie locally and hands back whatever it says;
   // it does not ask the auth server whether that token is still good. This is
   // the gate for the whole client portal, so it revalidates.
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  // Still a revalidating getUser() — getCurrentUser() wraps exactly that and
+  // only memoizes it, so the gate is unchanged.
+  const user = await getCurrentUser()
 
   // 2. Redirect to login if unauthenticated
-  if (authError || !user) {
+  if (!user) {
     redirect('/login')
   }
 
