@@ -6,8 +6,8 @@ import { DEFAULT_ORG_ID } from '@/lib/auth/role'
 import { appOriginOrNull } from '@/lib/appOrigin'
 import { tenantBrand } from '@/lib/tenantBrand'
 import { senderForTenant } from '@/lib/mailSender'
+import { sendMail } from '@/lib/email/send'
 import { notificationEmail } from '@/lib/email/messages'
-import type { Sender } from '@/lib/mailSender'
 import { sendPushToUser, sendPushToAdmins } from '@/lib/push'
 import { sendSms } from '@/lib/sms'
 import { captureError } from '@/lib/errors'
@@ -147,43 +147,6 @@ function deepLink(recipient: 'admin' | 'client', category: NotifyCategory, proje
   return origin ? `${origin}${path}` : path
 }
 
-// The SENDER is now resolved from the tenant, not read from configuration
-// (S-C CM-3). `NOTIFY_FROM_EMAIL` still supplies the address; the display name
-// is the sending studio's, so a client of Studio Two sees "Studio Two" in their
-// inbox instead of whichever company happened to be in the env var.
-//
-// The body is now the studio's branded layout (lib/email), with `text` kept as
-// the plain-text alternative rather than replaced — a multipart message is what
-// keeps it readable in a client that refuses HTML, and it is what spam filters
-// expect from transactional mail.
-async function sendEmailAlert(
-  to: string,
-  subject: string,
-  text: string,
-  sender: Sender | null,
-  html?: string
-): Promise<void> {
-  const key = process.env.RESEND_API_KEY
-  if (!key || !sender || !to) return
-  try {
-    await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: sender.from,
-        to,
-        subject,
-        text,
-        ...(html ? { html } : {}),
-        // Resend omits the header when the field is absent. Never sent empty:
-        // business_settings.business_email is '' for the house org (S-C §7).
-        ...(sender.replyTo ? { reply_to: sender.replyTo } : {}),
-      }),
-    })
-  } catch {
-    // best-effort
-  }
-}
 
 type RecipientState = {
   email: string | null
@@ -386,7 +349,6 @@ export async function notifyAwayRecipient(opts: {
     const away = states.filter((s) => awayFrom(s.lastSeen))
     if (away.length === 0) return false
 
-    const subject = opts.title
     const text = opts.body ? `${opts.title}\n\n${opts.body}` : opts.title
     const url = deepLink(opts.recipient, opts.category, opts.projectId)
     // One resolve for the whole fan-out — every recipient of this alert shares
@@ -424,7 +386,7 @@ export async function notifyAwayRecipient(opts: {
       }
       if (ch.email !== false && email && !sentEmail.has(email)) {
         sentEmail.add(email)
-        sends.push(sendEmailAlert(email, subject, mail.text, sender, mail.html))
+        sends.push(sendMail(email, mail, sender))
       }
       if (ch.sms === true && phone && !sentSms.has(phone)) {
         sentSms.add(phone)
