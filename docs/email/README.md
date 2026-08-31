@@ -16,12 +16,20 @@ methods directly, or a misconfiguration. The old contents were one tenant's
 branding ("McPrime Digital"), so that fallback shipped the wrong company's name
 to whoever received it.
 
-**They carry the PRODUCT's voice, not a studio's, and that is deliberate.**
-Supabase Auth templates are **global per project** — one template serves every
-tenant, so a studio's name cannot appear in them without appearing in all of
-them. The same reasoning settled the pre-auth pages in Batch 9.7: where no
-tenant can be resolved, the honest answer is the product, never a guess. See
-`docs/specs/S-C-communications.md` §3 and CM-5.
+**They carry the PRODUCT's voice, not a studio's, and that is forced rather
+than chosen.** Supabase Auth templates are **global per project** — one template
+serves every tenant, so a studio's name cannot appear in one without appearing
+in all of them. There is no configuration that changes this; it is the whole
+reason CM-5 moved real invites off this mailer. Where no tenant can be resolved,
+the honest answer is the product, never a guess — the same conclusion the
+pre-auth pages reached in Batch 9.7.
+
+**Tenant-neutral is not the same as thin, and the first draft got that wrong.**
+It stripped the substance out of the copy along with the studio's name, which
+nothing required. These now carry the same weight as the real templates in
+`lib/email/messages.ts` — what the portal does, what the link is for, what to do
+if you did not expect it — with the studio's name simply absent. If one of these
+ever fires it is the first thing someone sees, so being brief is not a virtue.
 
 ## Mapping
 
