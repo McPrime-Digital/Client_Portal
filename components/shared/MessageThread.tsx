@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
 import {
   Send,
   Loader2,
@@ -269,11 +269,29 @@ export default function MessageThread({
   }
   const attachMenuRef = useRef<HTMLDivElement>(null)
 
+  // Opening a chat lands AT the latest message — an instant, before-paint
+  // jump, never a visible top-to-bottom ride. Smooth scrolling is reserved
+  // for messages that arrive while you are already reading at the tail.
+  const didInitialScrollRef = useRef(false)
   useEffect(() => {
+    didInitialScrollRef.current = false
+  }, [projectId])
+  useLayoutEffect(() => {
+    if (messages.length === 0) {
+      didInitialScrollRef.current = false
+      return
+    }
+    const el = scrollBoxRef.current
+    if (!didInitialScrollRef.current) {
+      if (el) el.scrollTop = el.scrollHeight
+      didInitialScrollRef.current = true
+      nearBottomRef.current = true
+      return
+    }
     if (nearBottomRef.current && !fetchingOlderRef.current) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [messages])
+  }, [messages, projectId])
 
   async function handleScroll() {
     const el = scrollBoxRef.current
