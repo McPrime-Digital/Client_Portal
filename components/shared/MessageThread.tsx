@@ -258,7 +258,15 @@ export default function MessageThread({
   const imageInputRef = useRef<HTMLInputElement>(null)
   const videoInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  // Auto-grow the composer with its content, up to ~5 lines.
+  const autosize = () => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`
+  }
   const attachMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -305,6 +313,10 @@ export default function MessageThread({
   // never blocks or disables the input — so chatting stays continuous.
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    doSubmit()
+  }
+
+  function doSubmit() {
     if ((!newMessage.trim() && !attachment) || uploading) return
     const body = materializeMentions(newMessage.trim())
     // Never send a reply that points at an unsent (optimistic) message —
@@ -315,7 +327,13 @@ export default function MessageThread({
     setNewMessage('')
     setReplyTo(null)
     setAttachment(null)
-    requestAnimationFrame(() => inputRef.current?.focus())
+    requestAnimationFrame(() => {
+      const el = inputRef.current
+      if (el) {
+        el.style.height = 'auto'
+        el.focus()
+      }
+    })
 
     void onSendMessage(body, replyId, att?.url, att?.name, att?.fileId).catch((err) => {
       console.error(err)
@@ -1169,7 +1187,7 @@ export default function MessageThread({
           </div>
         )}
         {!readOnly && (
-        <form onSubmit={handleSubmit} className="flex items-center gap-2">
+        <form onSubmit={handleSubmit} className="flex items-end gap-2">
           {recording ? (
             <VoiceRecorder
               onComplete={handleRecordingComplete}
@@ -1333,35 +1351,42 @@ export default function MessageThread({
             )}
           </div>
 
-          {/* Text input */}
-          <input
+          {/* Text input — multi-line: Enter sends, Shift+Enter breaks the line */}
+          <textarea
             ref={inputRef}
-            type="text"
+            rows={1}
             value={newMessage}
             onChange={(e) => {
               setNewMessage(e.target.value)
+              autosize()
               if (onTyping) onTyping()
               const q = mentionQueryOf(e.target.value)
               setMentionQuery(mentionCandidates && q != null ? q : null)
               setMentionIndex(0)
             }}
             onKeyDown={(e) => {
-              if (mentionQuery == null || mentionMatches.length === 0) return
-              if (e.key === 'ArrowDown') {
+              if (mentionQuery != null && mentionMatches.length > 0) {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault()
+                  setMentionIndex((i) => (i + 1) % mentionMatches.length)
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  setMentionIndex((i) => (i - 1 + mentionMatches.length) % mentionMatches.length)
+                } else if (e.key === 'Enter' || e.key === 'Tab') {
+                  e.preventDefault()
+                  applyMention(mentionMatches[mentionIndex])
+                } else if (e.key === 'Escape') {
+                  setMentionQuery(null)
+                }
+                return
+              }
+              if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
-                setMentionIndex((i) => (i + 1) % mentionMatches.length)
-              } else if (e.key === 'ArrowUp') {
-                e.preventDefault()
-                setMentionIndex((i) => (i - 1 + mentionMatches.length) % mentionMatches.length)
-              } else if (e.key === 'Enter' || e.key === 'Tab') {
-                e.preventDefault()
-                applyMention(mentionMatches[mentionIndex])
-              } else if (e.key === 'Escape') {
-                setMentionQuery(null)
+                doSubmit()
               }
             }}
             placeholder={uploading ? 'Uploading…' : recording ? 'Recording…' : 'Write a message'}
-            className="flex-1 px-3.5 py-2.5 rounded-xl text-[13px] outline-none transition-all focus:border-[hsl(var(--primary))] focus:shadow-[0_0_0_3px_hsl(var(--primary)/0.12)]"
+            className="flex-1 px-3.5 py-2.5 rounded-xl text-[13px] leading-snug outline-none transition-all resize-none overflow-y-auto scrollbar-thin focus:border-[hsl(var(--primary))] focus:shadow-[0_0_0_3px_hsl(var(--primary)/0.12)]"
             style={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}
             disabled={uploading || recording}
           />
