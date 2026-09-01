@@ -298,8 +298,9 @@ into new code.
 
 `supabase/migrations/` holds one numbering scheme (`00NN`); the retired `2026*` scheme is fenced in `_archive/`:
 
-- `0000_baseline_schema.sql` … `0023_overdue_predicate.sql` — the current source of truth.
-  `0000` is a full captured baseline that **drops and recreates** the core tables.
+- `0000_baseline_schema.sql` … `0030_messages_room_constraints.sql` — the current source of
+  truth, all applied. `0000` is a full captured baseline that **drops and recreates** the
+  core tables.
 - `_archive/20260531_*.sql` … `_archive/20260606_*.sql` (phase1–12 + invoicing) — historical,
   already baked into `0000`, moved to `supabase/migrations/_archive/` (Batch 6.9). Read
   `_archive/README.md` before touching them; nothing in that directory is ever applied.
