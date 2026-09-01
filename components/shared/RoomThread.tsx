@@ -31,6 +31,7 @@ import {
 } from '@/lib/soundClient'
 import { Pin, Bookmark, Settings2, Users, MoreVertical, Search as SearchIcon } from 'lucide-react'
 import { mentionTrigger, setMentionTrigger, type MentionTrigger } from '@/lib/mentionClient'
+import { projectColor } from '@/lib/projectColor'
 import type { ThreadMessagePayload } from '@/lib/realtimeBus'
 
 export type RoomFilter =
@@ -123,6 +124,15 @@ export default function RoomThread({
   const [focusOn, setFocusOn] = useState(() => focusModeEnabled())
   const [people, setPeople] = useState<{ name: string; role: string; side: 'client' | 'crew' }[]>([])
   const [trigger, setTrigger] = useState<MentionTrigger>(() => mentionTrigger())
+  // Project colour-bonding (Batch 16): title + deterministic colour per tag,
+  // built from the candidates roster the room already fetches.
+  const projectMeta = (mentionCandidates?.projects ?? []).reduce<Record<string, { title: string; color: string }>>(
+    (acc, p) => {
+      acc[p.id] = { title: p.title, color: projectColor(p.id) }
+      return acc
+    },
+    {}
+  )
   const threadRootRef = useRef<string | null>(null)
   useEffect(() => { threadRootRef.current = threadRoot?.id ?? null }, [threadRoot])
 
@@ -917,6 +927,7 @@ export default function RoomThread({
             highlightId={highlightId}
             mentionTargets={mentionTargets}
             mentionCandidates={mentionCandidates}
+            projectMeta={projectMeta}
           />
           {/* The room menu — ONE control, extreme right (Batch 16) */}
           {showMenuButton && (
@@ -1220,6 +1231,7 @@ export default function RoomThread({
                   onRecordingChange={handleRecordingChange}
                   mentionTargets={mentionTargets}
                   mentionCandidates={mentionCandidates}
+                  projectMeta={projectMeta}
                 />
               </div>
             </div>

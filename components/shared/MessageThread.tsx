@@ -65,6 +65,8 @@ type Props = {
   mentionCandidates?: { users: { id: string; name: string }[]; projects: { id: string; title: string }[] } | null
   /** live composer state for presence (Batch 16): recording on/off */
   onRecordingChange?: (recording: boolean) => void
+  /** project colour-bonding (Batch 16): tagged bubbles carry their project's colour */
+  projectMeta?: Record<string, { title: string; color: string }>
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -145,6 +147,7 @@ export default function MessageThread({
   mentionTargets = null,
   mentionCandidates = null,
   onRecordingChange,
+  projectMeta = {},
 }: Props) {
   const [newMessage, setNewMessage] = useState('')
   const [replyTo, setReplyTo] = useState<Message | null>(null)
@@ -602,8 +605,32 @@ export default function MessageThread({
 
                 <div className="max-w-[75%] min-w-[120px] flex flex-col">
                   {!isMe && !prevSame && (
-                    <p className="text-[10px] font-semibold uppercase tracking-wider mb-1 ml-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider mb-1 ml-1 flex items-center gap-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
                       {msg.sender_name}
+                      {msg.project_id && projectMeta[msg.project_id] && (
+                        <span
+                          className="normal-case tracking-normal font-medium px-1.5 rounded-full text-[9px]"
+                          style={{
+                            color: projectMeta[msg.project_id].color,
+                            border: `1px solid ${projectMeta[msg.project_id].color}`,
+                          }}
+                        >
+                          {projectMeta[msg.project_id].title}
+                        </span>
+                      )}
+                    </p>
+                  )}
+                  {isMe && !prevSame && msg.project_id && projectMeta[msg.project_id] && (
+                    <p className="text-[9px] font-medium mb-1 mr-1 self-end">
+                      <span
+                        className="px-1.5 rounded-full"
+                        style={{
+                          color: projectMeta[msg.project_id].color,
+                          border: `1px solid ${projectMeta[msg.project_id].color}`,
+                        }}
+                      >
+                        {projectMeta[msg.project_id].title}
+                      </span>
                     </p>
                   )}
 
@@ -616,9 +643,16 @@ export default function MessageThread({
                         : 'none',
                       color: isMe ? 'hsl(var(--background))' : 'hsl(var(--foreground))',
                       border: isMe ? 'none' : '1px solid hsl(var(--border))',
-                      boxShadow: isMe
-                        ? '0 1px 2px hsl(var(--background) / 0.25)'
-                        : '0 1px 2px hsl(var(--background) / 0.15)',
+                      boxShadow: [
+                        isMe
+                          ? '0 1px 2px hsl(var(--background) / 0.25)'
+                          : '0 1px 2px hsl(var(--background) / 0.15)',
+                        // The project's colour BINDS to every message that
+                        // carries its tag (Batch 16 / S-F §2.2).
+                        msg.project_id && projectMeta[msg.project_id]
+                          ? `inset ${isMe ? '-3px' : '3px'} 0 0 ${projectMeta[msg.project_id].color}`
+                          : '',
+                      ].filter(Boolean).join(', '),
                       borderRadius: 18,
                       borderTopRightRadius: isMe && prevSame ? 6 : 18,
                       borderBottomRightRadius: isMe ? (nextSame ? 6 : 5) : 18,

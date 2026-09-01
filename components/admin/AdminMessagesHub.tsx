@@ -18,6 +18,7 @@ import { Volume2, VolumeX, MessageSquare, ChevronLeft, MoreVertical } from 'luci
 import RoomThread, { type RoomFilter, type ExternalRow } from '@/components/shared/RoomThread'
 import type { Message } from '@/lib/types/database'
 import { messagePreview } from '@/lib/messagePreview'
+import { projectColor } from '@/lib/projectColor'
 import {
   playMessageChime,
   messageSoundEnabled,
@@ -514,7 +515,7 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                     <button
                       key={c.key}
                       onClick={() => setFilter(c.f)}
-                      className="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all flex-shrink-0"
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-all duration-150 flex-shrink-0 active:scale-95"
                       style={{
                         backgroundColor: isOn ? 'hsl(var(--primary))' : 'hsl(var(--background))',
                         color: isOn ? 'hsl(var(--primary-foreground))' : 'hsl(var(--foreground))',
@@ -526,10 +527,16 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                     >
                       {c.general && (
                         <MessageSquare
-                          size={11}
+                          size={10}
                           style={{
                             color: isOn ? 'hsl(var(--primary-foreground))' : 'hsl(var(--primary))',
                           }}
+                        />
+                      )}
+                      {c.f.kind === 'project' && (
+                        <span
+                          className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: projectColor(c.f.projectId) }}
                         />
                       )}
                       {c.label}
@@ -551,7 +558,7 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
 
               <div className="flex-1 min-h-0">
                 <RoomThread
-                  key={`${active.clientId}:${filter.kind === 'project' ? filter.projectId : filter.kind}`}
+                  key={active.clientId}
                   role="admin"
                   clientId={active.clientId}
                   orgId={orgId}

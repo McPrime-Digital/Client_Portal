@@ -21,6 +21,7 @@ import {
 } from '@/lib/soundClient'
 import { usePresenceStore, isAdminOnline } from '@/lib/stores/presence-store'
 import { acquireHub, releaseHub } from '@/lib/realtimeBus'
+import { projectColor } from '@/lib/projectColor'
 
 type ProjectChip = { id: string; title: string; status: string | null }
 
@@ -133,12 +134,13 @@ export default function MessagesHub({
     active: boolean,
     count: number,
     onClick: () => void,
-    isGeneral = false
+    isGeneral = false,
+    dotColor: string | null = null
   ) => (
     <button
       key={key}
       onClick={onClick}
-      className="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all flex-shrink-0"
+      className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-all duration-150 flex-shrink-0 active:scale-95"
       style={{
         backgroundColor: active ? 'hsl(var(--primary))' : 'hsl(var(--card))',
         color: active ? 'hsl(var(--primary-foreground))' : 'hsl(var(--foreground))',
@@ -148,9 +150,12 @@ export default function MessagesHub({
     >
       {isGeneral && (
         <MessageSquare
-          size={11}
+          size={10}
           style={{ color: active ? 'hsl(var(--primary-foreground))' : 'hsl(var(--primary))' }}
         />
+      )}
+      {dotColor && (
+        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: dotColor }} />
       )}
       {label}
       {count > 0 && !active && (
@@ -308,7 +313,9 @@ export default function MessagesHub({
             p.title,
             filter.kind === 'project' && filter.projectId === p.id,
             chipUnread.byProject[p.id] ?? 0,
-            () => selectFilter({ kind: 'project', projectId: p.id })
+            () => selectFilter({ kind: 'project', projectId: p.id }),
+            false,
+            projectColor(p.id)
           )
         )}
       </div>
