@@ -1,9 +1,10 @@
 /**
  * scripts/test-rls.ts — S2 §6, Part B. The RLS test harness.
  *
- * Fourteen assertions (10 from S2 §6; 11–14 from S3-core §7, Batch 13 item 7 —
- * rooms tenant-scoped, untagged visibility, sibling-tag isolation, history in
- * the room). Most are a row count that must be zero; 12 is deliberately a
+ * Fifteen assertions (10 from S2 §6; 11–14 from S3-core §7, Batch 13 item 7; 15 —
+ * the watermark privacy assertion, Batch 14 item 6 — rooms tenant-scoped,
+ * untagged visibility, sibling-tag isolation, history in the room, private
+ * read state). Most are a row count that must be zero; 12 is deliberately a
  * POSITIVE assertion, because the room model's failure mode is hiding messages
  * it must show. Every one runs through a
  * REAL user session obtained with signInWithPassword against the anon key.
@@ -407,6 +408,23 @@ async function main() {
     const control = await countRows(c1mate, 'messages',
       [{ op: 'is_null', col: 'project_id' }, { op: 'gte', col: 'created_at', val: cutoff }])
     judge(14, 'history_from holds inside the company room (untagged messages)', leaks, control)
+  }
+
+  // ── 15 · the watermark is private (S3-core §7 assertion 8) ────────────────
+  // A read watermark records when a person opened a message. A colleague who
+  // can read it has a surveillance surface nobody asked for — Class C means
+  // user_id = auth.uid() for EVERYONE, org owners included.
+  {
+    const leaks: string[] = []
+    const colleague = await countRows(c1mate, 'message_read_state',
+      [{ op: 'eq', col: 'user_id', val: manifest.userIds.c1own }])
+    if (colleague > 0) leaks.push(`message_read_state(c1mate→c1own)=${colleague}`)
+    const ownerPeek = await countRows(owner, 'message_read_state',
+      [{ op: 'eq', col: 'user_id', val: manifest.userIds.c1mate }])
+    if (ownerPeek > 0) leaks.push(`message_read_state(org-owner→c1mate)=${ownerPeek}`)
+    const control = await countRows(c1mate, 'message_read_state',
+      [{ op: 'eq', col: 'user_id', val: manifest.userIds.c1mate }])
+    judge(15, 'a member cannot read another member\'s message_read_state', leaks, control)
   }
 
   // ── report ────────────────────────────────────────────────────────────────

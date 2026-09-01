@@ -367,6 +367,22 @@ async function main() {
   ]
   await seedRows(admin, 'messages', messageRows)
 
+  // Watermark rows for assertion 15 (S3-core §7.8). Written directly rather
+  // than through seedRows: message_read_state has no organization_id column
+  // for assertHarnessOnly to check — its tenancy is inherited through the
+  // room FK, and both rows key to the harness room + harness persona ids.
+  record(`\n-- ═══ message_read_state (assertion 15: the watermark is private) ═══`)
+  if (APPLY) {
+    const { error: wmErr } = await admin.from('message_read_state').upsert([
+      { room_id: roomC1, user_id: userIds.c1own,
+        last_read_message_id: '0f0f0f0f-0005-4000-8000-000000000003', last_read_at: at(1 * DAY) },
+      { room_id: roomC1, user_id: userIds.c1mate,
+        last_read_message_id: '0f0f0f0f-0005-4000-8000-000000000004', last_read_at: at(2 * 3_600_000) },
+    ], { onConflict: 'room_id,user_id' })
+    if (wmErr) throw new Error(`message_read_state: ${wmErr.message}`)
+    console.log(`  ✓ ${'message_read_state'.padEnd(28)} 2 row(s)`)
+  }
+
   record(`\n-- ═══ tasks (visible_to_client so the client policy can match) ═══`)
   await seedRows(admin, 'tasks', projects.flatMap((p, i) => [
     { id: `0f0f0f0f-0006-4000-8000-00000000${i}001`, organization_id: HARNESS_ORG_ID, project_id: p.id,
