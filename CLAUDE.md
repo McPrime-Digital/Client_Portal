@@ -32,9 +32,10 @@ order:
 | 4 | `S0-conformance.md` | Where the code violates S0; input to sequencing |
 | 5 | `S1-P-personas-and-segments.md` | Who signs up, and what each needs |
 | 6 | `S-V-film-os.md` | Full platform architecture + the v1 cap |
-| 7 | `S1-tenancy-and-entitlement.md` | Tenancy model; resolves T-1 … T-5 |
-| 8 | `S2-authorization.md` | Layered authorization; the RLS migration order |
-| 9 | `S-C-communications.md` | **DRAFT** — sender identity across email/SMS/push |
+| 7 | `S-F-feature-scope.md` | **DRAFT** — **Supersedes `S-V` §13 (the v1 cap) in full**; market baseline and per-feature scope |
+| 8 | `S1-tenancy-and-entitlement.md` | Tenancy model; resolves T-1 … T-5 |
+| 9 | `S2-authorization.md` | Layered authorization; the RLS migration order |
+| 10 | `S-C-communications.md` | **DRAFT** — sender identity across email/SMS/push |
 
 **Where S0 and S0-A disagree, S0-A wins.** S0 entries were not edited in place — the original
 text stands as the record of what was believed at the time, and reading S0 alone will give you

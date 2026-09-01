@@ -28,7 +28,7 @@ There are **two identities in this product and they are not the same rename.**
 | **Product identity** | Genreline. The SaaS the studio bought. | The studio |
 | **Tenant identity** | McPrime Digital, Studio Two, etc. The studio's own brand. | The studio's clients |
 
-The live site currently shows tenant identity hardcoded: `genreline.com/login` renders "McPrime Digital — Client Portal", the McPrime logo, and "© 2026 McPrime Digital." `S0` P-1 already calls this a defect — *hardcoded McPrime identity is a defect, not a shortcut* — and `S-V` §13.1 lists per-tenant identity as v1 foundation work.
+The live site currently shows tenant identity hardcoded: `genreline.com/login` renders "McPrime Digital — Client Portal", the McPrime logo, and "© 2026 McPrime Digital." `S0` P-1 already calls this a defect — *hardcoded McPrime identity is a defect, not a shortcut* — and `S-V` §13.1 — now `S-F` §6 — lists per-tenant identity as v1 foundation work.
 
 **The trap to avoid.** Replacing "McPrime Digital" with "Genreline" on the portal would swap one wrong name for another. A client of McPrime bought from McPrime. They have no relationship with Genreline beyond the attribution line in PI-4.
 

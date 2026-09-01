@@ -42,7 +42,8 @@ leaving McPrime there — `S0-B` §2's trap, one layer out.
 resolver answers "who is this from" for every channel, from the tenant. An
 environment variable may supply the *sending address*; it may never supply the
 *identity*. `NOTIFY_FROM_EMAIL` holding `"McPrime Digital <…>"` is the current
-counter-example and is a live `S-V` §13.1 violation.
+counter-example and is a live violation of `S-F` §6 (`S-V` §13.1 before the cap
+was redrawn).
 
 **CM-4 — Branding degrades, it does not fall back to a tenant.** Where the
 studio cannot be resolved, the message is neutral or is not sent. It is never

@@ -9,11 +9,13 @@ batch was supposed to do. Last compiled after **Batch 10**; Batch 8 was the
 final foundation batch.
 
 After this, read `docs/specs/` in order: S0 → S0-A → **S0-B** → S0-conformance
-→ S1-P → S-V → S1 → S2 → **S-C**. **Where S0 and S0-A disagree, S0-A wins**, and
-**S0-B supersedes the product name in all of them.** `S-C` (communications and
-sender identity) is **draft for approval** — the only spec in the stack that is
-not settled. `CLAUDE.md` holds the working mechanics (commands, clients, route
-groups, env vars).
+→ S1-P → S-V → **S-F** → S1 → S2 → **S-C**. **Where S0 and S0-A disagree, S0-A
+wins**, and **S0-B supersedes the product name in all of them.** **`S-F`
+(feature scope and market position) supersedes `S-V` §13 — the v1 cap — in
+full**; `S-V` §1–§12 stand as the destination, and the redrawn cap is `S-F` §7.
+`S-F` and `S-C` (communications and sender identity) are **draft for approval**
+— the only two specs in the stack that are not settled. `CLAUDE.md` holds the
+working mechanics (commands, clients, route groups, env vars).
 
 **The product is Genreline** (S0-B PI-1). "Throughline" was the working name
 through the spec phase; every batch entry below that says Throughline is left
@@ -383,7 +385,7 @@ S2 §11 q4 close with it.
    **What is live now (checked 2026-08-30, `.env.local`):**
    `NOTIFY_FROM_EMAIL` = `"McPrime Digital <notifications@mcprimedigital.com>"`.
    So every notification email the product sends — to every tenant's clients —
-   arrives From one tenant. `S-V` §13.1 forbids exactly this, and the interim
+   arrives From one tenant. `S-F` §6 forbids exactly this, and the interim
    fix is one variable, not a project: a neutral Genreline sender until
    per-tenant sending exists.
 
@@ -617,7 +619,7 @@ Independent of S3-core and available any time: the `$2` per-call ceiling
 exists), and the I-8 read-path migration proper (portal dashboard first, paired
 with I-11, shrinking `admin-allowlist.mjs` one surface at a time).
 
-The v1 cap (S-V §13) is the boundary: nothing outside it before studio two is
+The v1 cap (S-F §7) is the boundary: nothing outside it before studio two is
 live and paying. Studio two is *possible* — `npm run provision:tenant` creates an
 organization and a working owner (7.5) — and as of 8.1 the client companies that
 studio creates work too, which they would not have.
