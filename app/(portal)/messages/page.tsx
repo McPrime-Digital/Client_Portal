@@ -128,6 +128,7 @@ export default async function MessagesPage() {
     <MessagesHub
       threads={threads}
       clientId={client.id}
+      roomId={unread.roomId}
       clientName={access?.name ?? client.name}
       studioName={brand.name}
       canSend={clientCan(access?.role ?? 'owner', 'message', access?.extraCaps)}

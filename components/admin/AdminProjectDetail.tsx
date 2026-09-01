@@ -13,6 +13,7 @@ import { uploadFileToR2 } from '@/lib/uploadClient'
 import ProgressBar from '@/components/shared/ProgressBar'
 import ProgressSlider from '@/components/shared/ProgressSlider'
 import { computeProjectProgress, phaseColor } from '@/lib/projectProgress'
+import { playMessageChime } from '@/lib/soundClient'
 import {
   ArrowLeft,
   LayoutDashboard,
@@ -131,6 +132,11 @@ export default function AdminProjectDetail({
   // The single subscribed typing channel. handleTyping() used to call
   // supabase.channel(...) per keystroke — see the note on the send below.
   const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+  // Who am I — so a chime never plays for your own message.
+  const ownIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => { ownIdRef.current = data.user?.id ?? null })
+  }, [])
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const refreshMessages = useCallback(async () => {
@@ -252,6 +258,7 @@ export default function AdminProjectDetail({
           if (prev.some((m) => m.id === payload.new.id)) return prev
           return [...prev, payload.new]
         })
+        if (payload.new.sender_id !== ownIdRef.current) playMessageChime()
         // Acknowledge delivery of incoming client messages.
         if (payload.new.sender_role === 'client') {
           fetch('/api/admin/messages', {
@@ -282,16 +289,23 @@ export default function AdminProjectDetail({
     }).catch(() => {})
   }, [project.id])
 
-  // Typing indicator — listen for client typing broadcasts
+  // The thread bus — same topic as the hubs on both sides (Batch 14 item 9);
+  // see the note in ProjectDetail.tsx. This is what makes the client's hub
+  // hear a studio project-page send instantly, and typing work across
+  // hub↔page pairs.
   useEffect(() => {
     const ch = supabase
-      .channel(`typing:${project.id}`)
+      .channel(`thread:${project.id}`, { config: { broadcast: { self: false } } })
       .on('broadcast', { event: 'typing' }, (payload) => {
         if (payload.payload?.role === 'client') {
           setClientTyping(true)
           if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
           typingTimeoutRef.current = setTimeout(() => setClientTyping(false), 3000)
         }
+      })
+      .on('broadcast', { event: 'message' }, (p) => {
+        if (p.payload?.senderId && p.payload.senderId === ownIdRef.current) return
+        playMessageChime()
       })
       .subscribe()
     typingChannelRef.current = ch
@@ -542,6 +556,24 @@ export default function AdminProjectDetail({
           m.id === optimistic.id ? message : m
         )
       )
+      // Tell the client INSTANTLY — their hub listens on this topic and has
+      // no replication subscription of its own (Batch 14 item 9).
+      if (message) {
+        typingChannelRef.current?.send({
+          type: 'broadcast',
+          event: 'message',
+          payload: {
+            projectId: project.id,
+            messageId: message.id,
+            senderRole: 'admin',
+            senderId: message.sender_id,
+            senderName: message.sender_name,
+            body: message.body,
+            attachmentName: message.attachment_name,
+            createdAt: message.created_at,
+          },
+        })
+      }
 
       // Plain chat is intentionally NOT written to the activity log / recent
       // activity feed — only task-related events appear there.

@@ -17,6 +17,7 @@ import MessageThread from '@/components/shared/MessageThread'
 import TaskBoard from '@/components/shared/TaskBoard'
 import { useNotifications } from '@/lib/hooks/useNotifications'
 import { uploadFileToR2 } from '@/lib/uploadClient'
+import { playMessageChime } from '@/lib/soundClient'
 import ProgressBar from '@/components/shared/ProgressBar'
 import { computeProjectProgress, phaseColor } from '@/lib/projectProgress'
 import {
@@ -141,6 +142,11 @@ export default function ProjectDetail({
   // The single subscribed typing channel. handleTyping() used to call
   // supabase.channel(...) per keystroke — see the note on the send below.
   const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+  // Who am I — so a chime never plays for your own message.
+  const ownIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => { ownIdRef.current = data.user?.id ?? null })
+  }, [])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const clientUploadRef = useRef<HTMLInputElement>(null)
@@ -236,6 +242,7 @@ export default function ProjectDetail({
             if (prev.some((m) => m.id === (payload.new as Message).id)) return prev
             return [...prev, payload.new as Message]
           })
+          if ((payload.new as Message).sender_id !== ownIdRef.current) playMessageChime()
           // Acknowledge delivery of incoming admin messages.
           if ((payload.new as Message).sender_role === 'admin') {
             fetch('/api/portal/messages', {
@@ -274,16 +281,26 @@ export default function ProjectDetail({
     }).catch(() => {})
   }, [project.id])
 
-  // Typing indicator — subscribe to broadcast events from admin
+  // The thread bus — ONE topic (`thread:<id>`) shared with the hubs on both
+  // sides (Batch 14 item 9). Before this, typing rode `typing:<id>` and hubs
+  // listened on `thread:<id>`, so hub↔page pairs were deaf to each other; and
+  // page SENDS never broadcast at all, which is why the studio hub learned of
+  // a portal project-page message only on its 60s poll — the "3 minute" bug.
   useEffect(() => {
     const ch = supabase
-      .channel(`typing:${project.id}`)
+      .channel(`thread:${project.id}`, { config: { broadcast: { self: false } } })
       .on('broadcast', { event: 'typing' }, (payload) => {
         if (payload.payload?.role === 'admin') {
           setAdminTyping(true)
           if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
           typingTimeoutRef.current = setTimeout(() => setAdminTyping(false), 3000)
         }
+      })
+      .on('broadcast', { event: 'message' }, (p) => {
+        // The row itself arrives via postgres_changes; the broadcast is the
+        // instant signal — and the chime.
+        if (p.payload?.senderId && p.payload.senderId === ownIdRef.current) return
+        playMessageChime()
       })
       .subscribe()
     typingChannelRef.current = ch
@@ -456,6 +473,22 @@ export default function ProjectDetail({
             return prev.filter((m) => m.id !== optimistic.id)
           }
           return prev.map((m) => (m.id === optimistic.id ? json.message : m))
+        })
+        // Tell the studio INSTANTLY — their hub listens on this topic and has
+        // no replication subscription of its own (Batch 14 item 9).
+        typingChannelRef.current?.send({
+          type: 'broadcast',
+          event: 'message',
+          payload: {
+            projectId: project.id,
+            messageId: json.message.id,
+            senderRole: 'client',
+            senderId: json.message.sender_id,
+            senderName: json.message.sender_name,
+            body: json.message.body,
+            attachmentName: json.message.attachment_name,
+            createdAt: json.message.created_at,
+          },
         })
       }
 

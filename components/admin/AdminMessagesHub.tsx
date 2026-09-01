@@ -16,6 +16,7 @@ import MessageThread from '@/components/shared/MessageThread'
 import type { Message } from '@/lib/types/database'
 import { uploadFileToR2 } from '@/lib/uploadClient'
 import { messagePreview } from '@/lib/messagePreview'
+import { playMessageChime } from '@/lib/soundClient'
 import { usePresenceStore, isClientOnline } from '@/lib/stores/presence-store'
 import { acquireHub, releaseHub, type ThreadMessagePayload } from '@/lib/realtimeBus'
 
@@ -39,6 +40,8 @@ type Thread = {
 type Props = {
   threads: Thread[]
   adminName: string
+  /** the org id — powers the replication fallback subscription */
+  orgId?: string | null
 }
 
 // Returns true if the persisted message set is unchanged (ignoring optimistic
@@ -79,7 +82,7 @@ function timeAgo(date: string) {
 
 export default function AdminMessagesHub({
   threads: initialThreads,
-  adminName,
+  adminName, orgId,
 }: Props) {
   const supabase = createClient()
   const [threads, setThreads] = useState(initialThreads)
@@ -90,6 +93,7 @@ export default function AdminMessagesHub({
   const [sendError, setSendError] = useState<string | null>(null)
   // Own auth uid — echo suppression compares sender identity, never role.
   const ownIdRef = useRef<string | null>(null)
+  const seenIdsRef = useRef<Set<string>>(new Set())
   useEffect(() => {
     createClient().auth.getUser().then(({ data }) => { ownIdRef.current = data.user?.id ?? null })
   }, [])
@@ -217,6 +221,14 @@ export default function AdminMessagesHub({
       // Our own outgoing message is already reflected locally on send.
       // Compare IDENTITY, never role — crew members share the admin role.
       if (payload.senderId ? payload.senderId === ownIdRef.current : payload.senderRole === 'admin') return
+      // Broadcast + replication fallback can both deliver one message; the
+      // first one wins so the badge never counts it twice.
+      if (payload.messageId) {
+        if (seenIdsRef.current.has(payload.messageId)) return
+        if (seenIdsRef.current.size > 400) seenIdsRef.current.clear()
+        seenIdsRef.current.add(payload.messageId)
+      }
+      playMessageChime()
 
       const open =
         activeThreadIdRef.current === projectId &&
@@ -260,6 +272,37 @@ export default function AdminMessagesHub({
     },
     [refetchMessages, broadcastSync]
   )
+
+  // Replication fallback (Batch 14 item 9): admin replication was assumed
+  // "RLS-starved" when these hubs were built on broadcast alone — the Batch 13
+  // probe disproved that (delivery ~2s under the room policies). One
+  // org-filtered subscription backstops any send surface that forgets to
+  // broadcast; untagged rows skip (General threads live in hubs, which always
+  // broadcast). handleIncoming dedupes against the broadcast copy.
+  useEffect(() => {
+    if (!orgId) return
+    const ch = supabase
+      .channel(`hub-fallback:${orgId}`)
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'messages',
+        filter: `organization_id=eq.${orgId}`,
+      }, (p) => {
+        const r = p.new as Message
+        if (!r.project_id) return
+        handleIncoming({
+          projectId: r.project_id,
+          messageId: r.id,
+          senderRole: r.sender_role,
+          senderId: r.sender_id,
+          senderName: r.sender_name,
+          body: r.body,
+          attachmentName: r.attachment_name,
+          createdAt: r.created_at,
+        })
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [orgId, handleIncoming])
 
   // Persistent per-thread broadcast bus — one channel per thread, for ALL
   // threads (not just the open one). Each carries new-message, read/delivered

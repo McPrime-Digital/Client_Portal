@@ -125,6 +125,7 @@ export default async function AdminMessagesPage() {
     <AdminMessagesHub
       threads={threads}
       adminName={brand.name}
+      orgId={orgId}
     />
   )
 }

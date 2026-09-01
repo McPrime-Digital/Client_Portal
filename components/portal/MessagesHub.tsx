@@ -17,6 +17,7 @@ import MessageThread from '@/components/shared/MessageThread'
 import type { Message } from '@/lib/types/database'
 import { uploadFileToR2 } from '@/lib/uploadClient'
 import { messagePreview } from '@/lib/messagePreview'
+import { playMessageChime } from '@/lib/soundClient'
 import { usePresenceStore, isAdminOnline } from '@/lib/stores/presence-store'
 import { acquireHub, releaseHub, type ThreadMessagePayload } from '@/lib/realtimeBus'
 
@@ -37,6 +38,8 @@ type Props = {
   clientName: string
   /** The studio on the other side of these threads (S0-B §3). */
   studioName: string
+  /** the company room's id — powers the replication fallback subscription */
+  roomId?: string | null
   // view-only members read the thread but get no composer
   canSend?: boolean
 }
@@ -82,6 +85,7 @@ export default function MessagesHub({
   clientId,
   clientName,
   studioName,
+  roomId,
   canSend = true,
 }: Props) {
   const supabase = createClient()
@@ -93,6 +97,7 @@ export default function MessagesHub({
   const [sendError, setSendError] = useState<string | null>(null)
   // Own auth uid — echo suppression compares sender identity, never role.
   const ownIdRef = useRef<string | null>(null)
+  const seenIdsRef = useRef<Set<string>>(new Set())
   useEffect(() => {
     createClient().auth.getUser().then(({ data }) => { ownIdRef.current = data.user?.id ?? null })
   }, [])
@@ -227,6 +232,14 @@ export default function MessagesHub({
       // IDENTITY — another teammate's message must come through even though
       // they share our role.
       if (payload.senderId ? payload.senderId === ownIdRef.current : payload.senderRole === 'client') return
+      // One message can arrive twice — broadcast AND the replication
+      // fallback. First one wins; the badge must not count it twice.
+      if (payload.messageId) {
+        if (seenIdsRef.current.has(payload.messageId)) return
+        if (seenIdsRef.current.size > 400) seenIdsRef.current.clear()
+        seenIdsRef.current.add(payload.messageId)
+      }
+      playMessageChime()
 
       const open =
         activeThreadIdRef.current === projectId &&
@@ -270,6 +283,36 @@ export default function MessagesHub({
     },
     [refetchMessages, broadcastSync]
   )
+
+  // Replication fallback (Batch 14 item 9): the database itself confirms
+  // delivery works in ~2s (the Batch 13 probe), so one room-filtered
+  // postgres_changes subscription backstops any send surface that forgets to
+  // broadcast. Untagged rows are skipped — General threads exist only in the
+  // hubs, which always broadcast. handleIncoming dedupes against broadcast.
+  useEffect(() => {
+    if (!roomId) return
+    const ch = supabase
+      .channel(`hub-fallback:${roomId}`)
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'messages',
+        filter: `room_id=eq.${roomId}`,
+      }, (p) => {
+        const r = p.new as Message
+        if (!r.project_id) return
+        handleIncoming({
+          projectId: r.project_id,
+          messageId: r.id,
+          senderRole: r.sender_role,
+          senderId: r.sender_id,
+          senderName: r.sender_name,
+          body: r.body,
+          attachmentName: r.attachment_name,
+          createdAt: r.created_at,
+        })
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [roomId, handleIncoming])
 
   // Persistent per-thread broadcast bus — one channel per thread, for ALL
   // threads (not just the open one). Each carries new-message, read/delivered
