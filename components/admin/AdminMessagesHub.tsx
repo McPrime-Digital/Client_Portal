@@ -244,7 +244,7 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
           style={{ borderColor: 'hsl(var(--border))' }}
         >
           <div
-            className="px-4 h-[60px] flex items-center justify-between flex-shrink-0 border-b"
+            className="px-3.5 h-[52px] flex items-center justify-between flex-shrink-0 border-b"
             style={{ borderColor: 'hsl(var(--border))' }}
           >
             <p
@@ -289,7 +289,7 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                 <button
                   key={room.clientId}
                   onClick={() => selectRoom(room.clientId)}
-                  className="w-full text-left px-4 py-3.5 transition-all border-b"
+                  className="w-full text-left px-3 py-2.5 transition-all border-b"
                   style={{
                     backgroundColor: isActive ? 'hsl(var(--primary) / 0.07)' : 'transparent',
                     boxShadow: isActive ? 'inset 2px 0 0 hsl(var(--primary))' : 'none',
@@ -299,7 +299,7 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                   <div className="flex items-center gap-3">
                     <div className="relative flex-shrink-0">
                       <div
-                        className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center"
+                        className="w-9 h-9 rounded-xl overflow-hidden flex items-center justify-center"
                         style={{
                           backgroundColor: 'hsl(var(--primary) / 0.1)',
                           border: '1px solid hsl(var(--border))',
@@ -398,7 +398,7 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
             <>
               {/* Room header */}
               <div
-                className="flex items-center gap-3 px-4 h-[60px] flex-shrink-0 border-b"
+                className="flex items-center gap-2.5 px-3.5 h-[52px] flex-shrink-0 border-b"
                 style={{ borderColor: 'hsl(var(--border))' }}
               >
                 <button
@@ -483,7 +483,7 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
 
               {/* Filter chips: views over the ONE room */}
               <div
-                className="flex items-center gap-2 px-4 py-2.5 border-b overflow-x-auto scrollbar-thin flex-shrink-0"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 border-b overflow-x-auto scrollbar-thin flex-shrink-0"
                 style={{
                   backgroundColor: 'hsl(var(--card) / 0.6)',
                   borderColor: 'hsl(var(--border))',

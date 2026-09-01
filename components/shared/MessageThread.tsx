@@ -430,7 +430,7 @@ export default function MessageThread({
       )}
 
       {/* Messages Area */}
-      <div ref={scrollBoxRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-5 min-h-0 scrollbar-thin relative">
+      <div ref={scrollBoxRef} onScroll={handleScroll} className="tl-chat-bg flex-1 overflow-y-auto px-4 py-3 min-h-0 scrollbar-thin relative">
         {loadingOlder && (
           <div className="flex justify-center py-2">
             <Loader2 size={14} className="animate-spin" style={{ color: 'hsl(var(--text-faint))' }} />
@@ -438,7 +438,7 @@ export default function MessageThread({
         )}
         {!hasMore && messages.length > 0 && (
           <p
-            className="text-center text-[10px] uppercase tracking-[0.14em] py-2"
+            className="text-center text-[9px] uppercase tracking-[0.14em] py-1.5"
             style={{ color: 'hsl(var(--text-faint))' }}
           >
             Beginning of conversation
@@ -490,18 +490,19 @@ export default function MessageThread({
             <div
               key={msg.id}
               id={`msg-${msg.id}`}
-              className={`tl-msg-in ${showDate ? '' : prevSame ? 'mt-[3px]' : 'mt-4'} ${highlightId === msg.id ? 'rounded-2xl' : ''}`}
+              className={`tl-msg-in ${showDate ? '' : prevSame ? 'mt-[2px]' : 'mt-3'} ${highlightId === msg.id ? 'rounded-2xl' : ''}`}
               style={highlightId === msg.id ? { boxShadow: '0 0 0 2px hsl(var(--primary) / 0.6)', transition: 'box-shadow 0.4s' } : undefined}
             >
               {showDate && (
-                <div className="flex items-center gap-3 my-6">
+                <div className="flex items-center gap-3 my-4">
                   <div className="flex-1 h-px" style={{ backgroundColor: 'hsl(var(--border))' }} />
                   <span
-                    className="text-[10px] font-semibold uppercase tracking-[0.14em] flex-shrink-0 px-3 py-1 rounded-full"
+                    className="text-[9px] font-semibold uppercase tracking-[0.14em] flex-shrink-0 px-2.5 py-0.5 rounded-full"
                     style={{
                       color: 'hsl(var(--muted-foreground))',
-                      backgroundColor: 'hsl(var(--card))',
+                      backgroundColor: 'hsl(var(--card) / 0.9)',
                       border: '1px solid hsl(var(--border))',
+                      backdropFilter: 'blur(4px)',
                     }}
                   >
                     {dayLabel(msg.created_at)}
@@ -511,7 +512,7 @@ export default function MessageThread({
               )}
 
               <div className={`flex group ${isMe ? 'justify-end' : 'justify-start'}`}>
-                <div className="max-w-[75%] min-w-[120px] flex flex-col relative">
+                <div className="max-w-[78%] md:max-w-[66%] min-w-[110px] flex flex-col relative">
                   {/* Horizontal action bar (Batch 16): floats over the group
                       on hover — react · quote · thread · more. */}
                   <div
@@ -628,7 +629,7 @@ export default function MessageThread({
                     </div>
                   )}
                   {!isMe && !prevSame && (
-                    <p className="text-[10px] font-semibold uppercase tracking-wider mb-1 ml-1 flex items-center gap-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                    <p className="text-[9px] font-semibold uppercase tracking-wider mb-0.5 ml-1 flex items-center gap-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
                       {msg.sender_name}
                       {msg.project_id && projectMeta[msg.project_id] && (
                         <span
@@ -686,7 +687,7 @@ export default function MessageThread({
                     {/* Replied Context */}
                     {repliedMsg && (
                       <div
-                        className="mx-3 mt-3 p-2 rounded-lg text-xs border-l-2 cursor-pointer opacity-90"
+                        className="mx-2 mt-2 p-1.5 rounded-lg text-[11px] border-l-2 cursor-pointer opacity-90"
                         style={{
                           backgroundColor: isMe ? 'hsl(var(--background) / 0.1)' : 'hsl(var(--background) / 0.3)',
                           borderColor: isMe ? 'hsl(var(--background))' : 'hsl(var(--primary))'
@@ -851,7 +852,7 @@ export default function MessageThread({
                         </div>
                       </div>
                     ) : msg.body ? (
-                      <div className={`${isJumboEmoji(msg.body) ? 'text-4xl leading-tight px-3 py-2' : 'text-sm leading-relaxed px-4 py-3'} whitespace-pre-wrap`}>
+                      <div className={`${isJumboEmoji(msg.body) ? 'text-4xl leading-tight px-2.5 py-1.5' : 'text-[13px] leading-[1.45] px-3 py-2'} whitespace-pre-wrap`}>
                         {splitBody(msg.body).map((part: BodyPart, pi: number) => {
                           if (part.type === 'text') return <span key={pi}>{part.text}</span>
                           const resolved = mentionTargets?.[part.kind]?.[part.id]
@@ -921,7 +922,7 @@ export default function MessageThread({
                         <button
                           key={emoji}
                           onClick={() => onToggleReaction?.(msg, emoji)}
-                          className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] transition-colors"
+                          className="flex items-center gap-0.5 px-1.5 py-[1px] rounded-full text-[10px] transition-colors"
                           style={{
                             backgroundColor: agg.mine ? 'hsl(var(--primary) / 0.15)' : 'hsl(var(--card))',
                             border: agg.mine
@@ -952,7 +953,7 @@ export default function MessageThread({
 
                   {/* Meta row — once per group; the run reads as one utterance */}
                   {(!nextSame || msg.edited_at) && (
-                    <div className={`text-[10px] mt-1 flex items-center gap-1.5 ${isMe ? 'justify-end mr-1' : 'justify-start ml-1'}`} style={{ color: 'hsl(var(--text-faint))' }}>
+                    <div className={`text-[9px] mt-0.5 flex items-center gap-1 ${isMe ? 'justify-end mr-1' : 'justify-start ml-1'}`} style={{ color: 'hsl(var(--text-faint))' }}>
                       {new Date(msg.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                       {msg.edited_at && <span className="italic">• edited</span>}
                       {isMe && <MessageTicks msg={msg} />}
@@ -969,7 +970,7 @@ export default function MessageThread({
 
       {/* ── Input Area — glass bar, the shell's material ───── */}
       <div
-        className="flex-shrink-0 p-4"
+        className="flex-shrink-0 p-3"
         style={{
           borderTop: '1px solid hsl(var(--border))',
           backgroundColor: 'hsl(var(--card) / 0.85)',
@@ -1086,7 +1087,7 @@ export default function MessageThread({
                 type="button"
                 onClick={() => setShowAttachMenu(!showAttachMenu)}
                 disabled={uploading}
-                className="w-10 h-10 rounded-xl flex items-center justify-center transition-all disabled:opacity-50"
+                className="w-9 h-9 rounded-xl flex items-center justify-center transition-all disabled:opacity-50"
                 style={{
                   backgroundColor: showAttachMenu ? 'hsl(var(--primary))' : 'hsl(var(--border))',
                   color: showAttachMenu ? 'hsl(var(--background))' : 'hsl(var(--muted-foreground))',
@@ -1152,7 +1153,7 @@ export default function MessageThread({
             <button
               type="button"
               onClick={() => setEmojiOpen((v) => !v)}
-              className="w-10 h-10 rounded-xl flex items-center justify-center transition-all"
+              className="w-9 h-9 rounded-xl flex items-center justify-center transition-all"
               style={{
                 backgroundColor: emojiOpen ? 'hsl(var(--primary))' : 'hsl(var(--border))',
                 color: emojiOpen ? 'hsl(var(--background))' : 'hsl(var(--muted-foreground))',
@@ -1220,7 +1221,7 @@ export default function MessageThread({
               }
             }}
             placeholder={uploading ? 'Uploading…' : recording ? 'Recording…' : 'Write a message'}
-            className="flex-1 px-4 py-3 rounded-xl text-sm outline-none transition-all focus:border-[hsl(var(--primary))] focus:shadow-[0_0_0_3px_hsl(var(--primary)/0.12)]"
+            className="flex-1 px-3.5 py-2.5 rounded-xl text-[13px] outline-none transition-all focus:border-[hsl(var(--primary))] focus:shadow-[0_0_0_3px_hsl(var(--primary)/0.12)]"
             style={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}
             disabled={uploading || recording}
           />
@@ -1231,7 +1232,7 @@ export default function MessageThread({
               type="button"
               onClick={() => { setRecording(true); onRecordingChange?.(true) }}
               disabled={uploading}
-              className="w-10 h-10 rounded-xl flex items-center justify-center transition-all disabled:opacity-50"
+              className="w-9 h-9 rounded-xl flex items-center justify-center transition-all disabled:opacity-50"
               style={{ backgroundColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}
               title="Voice note"
             >
@@ -1243,7 +1244,7 @@ export default function MessageThread({
           <button
             type="submit"
             disabled={(!newMessage.trim() && !attachment) || uploading || recording}
-            className="w-10 h-10 rounded-xl flex items-center justify-center transition-all disabled:opacity-40 hover:shadow-[0_0_14px_hsl(var(--primary)/0.35)]"
+            className="w-9 h-9 rounded-xl flex items-center justify-center transition-all disabled:opacity-40 hover:shadow-[0_0_14px_hsl(var(--primary)/0.35)]"
             style={{ backgroundColor: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
             title="Send"
           >

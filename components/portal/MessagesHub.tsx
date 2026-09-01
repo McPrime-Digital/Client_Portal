@@ -176,11 +176,11 @@ export default function MessagesHub({
     <div className="h-[calc(100vh-120px)] flex flex-col w-full min-h-0">
       {/* ── Room header: who you are talking to ── */}
       <div
-        className="flex items-center gap-3 px-4 py-3 rounded-t-2xl border border-b-0"
+        className="flex items-center gap-2.5 px-3.5 py-2 rounded-t-2xl border border-b-0"
         style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
       >
         <div
-          className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center flex-shrink-0"
+          className="w-9 h-9 rounded-xl overflow-hidden flex items-center justify-center flex-shrink-0"
           style={{
             backgroundColor: 'hsl(var(--primary) / 0.1)',
             border: '1px solid hsl(var(--primary) / 0.3)',
@@ -295,7 +295,7 @@ export default function MessagesHub({
 
       {/* ── Filter chips: views over one room ── */}
       <div
-        className="flex items-center gap-2 px-4 py-2.5 border border-b-0 border-t-0 overflow-x-auto scrollbar-thin"
+        className="flex items-center gap-1.5 px-3.5 py-1.5 border border-b-0 border-t-0 overflow-x-auto scrollbar-thin"
         style={{ backgroundColor: 'hsl(var(--card) / 0.6)', borderColor: 'hsl(var(--border))' }}
       >
         {chip('all', 'All', filter.kind === 'all', 0, () => selectFilter({ kind: 'all' }))}
