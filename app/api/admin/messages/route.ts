@@ -77,7 +77,7 @@ export async function GET(req: NextRequest) {
   if (threadRoot) {
     const { data: replies, error: thErr } = await supabaseAdmin
       .from('messages')
-      .select('*, message_attachments(file_id)')
+      .select('*, message_attachments(file_id), message_reactions(user_id, emoji)')
       .eq('room_id', room.id)
       .eq('thread_root_id', threadRoot)
       .order('created_at', { ascending: true })
@@ -85,8 +85,15 @@ export async function GET(req: NextRequest) {
       .limit(200)
     if (thErr) return NextResponse.json({ error: thErr.message }, { status: 500 })
     const thRows = (replies ?? []).map((row) => {
-      const { message_attachments, ...m } = row as Record<string, unknown> & { message_attachments?: { file_id: string }[] }
-      return { ...m, attachment_file_id: message_attachments?.[0]?.file_id ?? null }
+      const { message_attachments, message_reactions, ...m } = row as Record<string, unknown> & {
+        message_attachments?: { file_id: string }[]
+        message_reactions?: { user_id: string; emoji: string }[]
+      }
+      return {
+        ...m,
+        attachment_file_id: message_attachments?.[0]?.file_id ?? null,
+        reactions: message_reactions ?? [],
+      }
     }).map((m: Record<string, unknown>) =>
       m.deleted_at || m.is_deleted
         ? { ...m, body: '', attachment_url: null, attachment_name: null, attachment_file_id: null }
@@ -96,7 +103,7 @@ export async function GET(req: NextRequest) {
   }
   let msgQ = supabaseAdmin
     .from('messages')
-    .select('*, message_attachments(file_id)')
+    .select('*, message_attachments(file_id), message_reactions(user_id, emoji)')
     .eq('room_id', room.id)
     .is('thread_root_id', null) // replies live in their panel (item 3)
     .order('created_at', { ascending: false })
@@ -126,7 +133,7 @@ export async function GET(req: NextRequest) {
     const half = Math.floor(limit / 2)
     let olderQ = supabaseAdmin
       .from('messages')
-      .select('*, message_attachments(file_id)')
+      .select('*, message_attachments(file_id), message_reactions(user_id, emoji)')
       .eq('room_id', room.id)
       .or(`created_at.lt.${target.created_at},and(created_at.eq.${target.created_at},id.lte.${target.id})`)
       .order('created_at', { ascending: false })
@@ -134,7 +141,7 @@ export async function GET(req: NextRequest) {
       .limit(half + 1)
     let newerQ = supabaseAdmin
       .from('messages')
-      .select('*, message_attachments(file_id)')
+      .select('*, message_attachments(file_id), message_reactions(user_id, emoji)')
       .eq('room_id', room.id)
       .or(`created_at.gt.${target.created_at},and(created_at.eq.${target.created_at},id.gt.${target.id})`)
       .order('created_at', { ascending: true })
@@ -174,14 +181,53 @@ export async function GET(req: NextRequest) {
   // Batch 14 item 5: deleted rows keep their place (tombstone) but their
   // content does not leave the server.
   const withFk = messages.map((row) => {
-    const { message_attachments, ...m } = row
-    return { ...m, attachment_file_id: message_attachments?.[0]?.file_id ?? null }
+    const { message_attachments, message_reactions, ...m } = row as typeof row & {
+      message_reactions?: { user_id: string; emoji: string }[]
+    }
+    return {
+      ...m,
+      attachment_file_id: message_attachments?.[0]?.file_id ?? null,
+      reactions: message_reactions ?? [],
+    }
   })
   const scrubbed = withFk.map((m: Record<string, unknown>) =>
     m.deleted_at || m.is_deleted
       ? { ...m, body: '', attachment_url: null, attachment_name: null, attachment_file_id: null }
       : m
   )
+
+  // Pins (item 4): ids ride every page; ?pins=full returns the panel rows.
+  if (req.nextUrl.searchParams.get('pins') === 'full') {
+    const { data: pinRows } = await supabaseAdmin
+      .from('message_pins')
+      .select('pinned_at, pinned_by, messages(*, message_attachments(file_id))')
+      .eq('room_id', room.id)
+      .order('pinned_at', { ascending: false })
+      .limit(100)
+    const pinned = (pinRows ?? [])
+      .map((p) => {
+        const raw = (Array.isArray(p.messages) ? p.messages[0] : p.messages) as
+          | (Record<string, unknown> & { message_attachments?: { file_id: string }[] })
+          | null
+        if (!raw) return null
+        const { message_attachments, ...m } = raw
+        const withId: Record<string, unknown> = {
+          ...m,
+          attachment_file_id: message_attachments?.[0]?.file_id ?? null,
+        }
+        return withId.deleted_at || withId.is_deleted
+          ? { ...withId, body: '', attachment_url: null, attachment_name: null, attachment_file_id: null }
+          : withId
+      })
+      .filter((m) => m != null)
+    return NextResponse.json({ messages: pinned, roomId: room.id, nextCursor: null, hasMore: false })
+  }
+  const { data: pinIdRows } = await supabaseAdmin
+    .from('message_pins')
+    .select('message_id')
+    .eq('room_id', room.id)
+    .limit(200)
+  const pinnedIds = (pinIdRows ?? []).map((p) => p.message_id as string)
 
   // Reply meta per root on this page — count + last reply time (item 3).
   const rootIds = scrubbed.map((m) => m.id as string)
@@ -202,7 +248,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ messages: scrubbed, roomId: room.id, nextCursor, hasMore: !!hasMore, replyMeta })
+  return NextResponse.json({ messages: scrubbed, roomId: room.id, nextCursor, hasMore: !!hasMore, replyMeta, pinnedIds })
 }
 
 // Mark a thread read (advances THIS admin's room watermark) or delivered.

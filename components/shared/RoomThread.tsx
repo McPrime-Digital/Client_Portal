@@ -21,6 +21,7 @@ import MessageThread from '@/components/shared/MessageThread'
 import type { Message } from '@/lib/types/database'
 import { uploadFileToR2 } from '@/lib/uploadClient'
 import { playMessageChime, primeAudio } from '@/lib/soundClient'
+import { Pin, Bookmark } from 'lucide-react'
 import type { ThreadMessagePayload } from '@/lib/realtimeBus'
 
 export type RoomFilter =
@@ -87,6 +88,13 @@ export default function RoomThread({
   const [replyMeta, setReplyMeta] = useState<Record<string, { count: number; lastAt: string }>>({})
   const [threadRoot, setThreadRoot] = useState<Message | null>(null)
   const [threadReplies, setThreadReplies] = useState<Message[]>([])
+  // Reactions/pins/saves (item 4). Reactions ride on message rows; pins are
+  // room-wide; saves are private (user_id = auth.uid() by RLS construction).
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set())
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set())
+  const [panel, setPanel] = useState<'pins' | 'saves' | null>(null)
+  const [panelRows, setPanelRows] = useState<Message[]>([])
+  const [highlightId, setHighlightId] = useState<string | null>(null)
   const threadRootRef = useRef<string | null>(null)
   useEffect(() => { threadRootRef.current = threadRoot?.id ?? null }, [threadRoot])
 
@@ -104,8 +112,17 @@ export default function RoomThread({
 
   useEffect(() => {
     primeAudio()
-    createClient().auth.getUser().then(({ data }) => {
+    createClient().auth.getUser().then(async ({ data }) => {
       ownIdRef.current = data.user?.id ?? null
+      if (!data.user) return
+      // Saves are read with the USER client under RLS — the policy is
+      // user_id = auth.uid(), so this cannot see anyone else's by construction.
+      const { data: saves } = await createClient()
+        .from('message_saves')
+        .select('message_id')
+        .eq('user_id', data.user.id)
+        .limit(500)
+      if (saves) setSavedIds(new Set(saves.map((r) => r.message_id as string)))
     })
   }, [])
 
@@ -177,6 +194,7 @@ export default function RoomThread({
       setPageCursor(json.nextCursor ?? null)
       setHasMore(!!json.hasMore)
       if (json.replyMeta) setReplyMeta(json.replyMeta)
+      if (json.pinnedIds) setPinnedIds(new Set(json.pinnedIds as string[]))
       if (json.roomId) roomIdRef.current = json.roomId
       for (const r of rows) seenIdsRef.current.add(r.id)
     } catch {
@@ -223,6 +241,26 @@ export default function RoomThread({
       if (json.replyMeta) setReplyMeta((prev) => ({ ...prev, ...json.replyMeta }))
     } catch {}
   }, [listUrl, mergeRows])
+
+  // ── Reactions (item 4): optimistic, user-client RLS write, bus reconcile ──
+  const applyReaction = useCallback(
+    (messageId: string, userId: string, emoji: string, op: 'add' | 'remove') => {
+      const patch = (m: Message): Message => {
+        if (m.id !== messageId) return m
+        const cur = m.reactions ?? []
+        const without = cur.filter((r) => !(r.user_id === userId && r.emoji === emoji))
+        return {
+          ...m,
+          reactions: op === 'add' ? [...without, { user_id: userId, emoji }] : without,
+        }
+      }
+      setMessages((prev) => prev.map(patch))
+      setThreadReplies((prev) => prev.map(patch))
+      setThreadRoot((prev) => (prev ? patch(prev) : prev))
+    },
+    []
+  )
+
 
   // ── One incoming path for broadcast AND replication ──────────────────────
   const handleIncomingRow = useCallback(
@@ -302,6 +340,12 @@ export default function RoomThread({
         if (typingClearRef.current) clearTimeout(typingClearRef.current)
         typingClearRef.current = setTimeout(() => onTypingChange?.(false), 3000)
       })
+      .on('broadcast', { event: 'reaction' }, (p) => {
+        const pl = p.payload as { messageId?: string; userId?: string; emoji?: string; op?: 'add' | 'remove' }
+        if (!pl?.messageId || !pl.userId || !pl.emoji || !pl.op) return
+        if (pl.userId === ownIdRef.current) return
+        applyReaction(pl.messageId, pl.userId, pl.emoji, pl.op)
+      })
       .on('broadcast', { event: 'sync' }, () => void refetch())
       .subscribe()
     channelRef.current = ch
@@ -309,7 +353,7 @@ export default function RoomThread({
       channelRef.current = null
       supabase.removeChannel(ch)
     }
-  }, [threadKey, role]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [threadKey, role, applyReaction]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Standalone surfaces: replication fallback, filtered to this room, so a
   // send surface that forgets to broadcast still lands here in ~2s.
@@ -354,6 +398,115 @@ export default function RoomThread({
         if (res.ok && json.messages) {
           for (const r of json.messages as Message[]) seenIdsRef.current.add(r.id)
           setThreadReplies(json.messages as Message[])
+        }
+      } catch {}
+    },
+    [listUrl]
+  )
+
+  const toggleReaction = useCallback(
+    async (msg: Message, emoji: string) => {
+      const me = ownIdRef.current
+      if (!me || msg.id.startsWith('temp-')) return
+      const mine = (msg.reactions ?? []).some((r) => r.user_id === me && r.emoji === emoji)
+      applyReaction(msg.id, me, emoji, mine ? 'remove' : 'add')
+      channelRef.current?.send({
+        type: 'broadcast',
+        event: 'reaction',
+        payload: { messageId: msg.id, userId: me, emoji, op: mine ? 'remove' : 'add' },
+      })
+      const db = createClient()
+      if (mine) {
+        await db.from('message_reactions').delete().match({ message_id: msg.id, user_id: me, emoji })
+      } else {
+        await db.from('message_reactions').insert({ message_id: msg.id, user_id: me, emoji })
+      }
+    },
+    [applyReaction]
+  )
+
+  // ── Pins: room furniture; anyone in the room sees them ───────────────────
+  const togglePin = useCallback(async (msg: Message) => {
+    const me = ownIdRef.current
+    const roomId = roomIdRef.current
+    if (!me || !roomId || msg.id.startsWith('temp-')) return
+    const pinned = pinnedIds.has(msg.id)
+    setPinnedIds((prev) => {
+      const next = new Set(prev)
+      if (pinned) next.delete(msg.id)
+      else next.add(msg.id)
+      return next
+    })
+    const db = createClient()
+    if (pinned) {
+      await db.from('message_pins').delete().match({ room_id: roomId, message_id: msg.id })
+    } else {
+      await db.from('message_pins').insert({ room_id: roomId, message_id: msg.id, pinned_by: me })
+    }
+  }, [pinnedIds])
+
+  // ── Saves: private per user ───────────────────────────────────────────────
+  const toggleSave = useCallback(async (msg: Message) => {
+    const me = ownIdRef.current
+    if (!me || msg.id.startsWith('temp-')) return
+    const saved = savedIds.has(msg.id)
+    setSavedIds((prev) => {
+      const next = new Set(prev)
+      if (saved) next.delete(msg.id)
+      else next.add(msg.id)
+      return next
+    })
+    const db = createClient()
+    if (saved) {
+      await db.from('message_saves').delete().match({ user_id: me, message_id: msg.id })
+    } else {
+      await db.from('message_saves').insert({ user_id: me, message_id: msg.id })
+    }
+  }, [savedIds])
+
+  const openPanel = useCallback(
+    async (which: 'pins' | 'saves') => {
+      setPanel(which)
+      setPanelRows([])
+      if (which === 'pins') {
+        try {
+          const res = await fetch(`${listUrl()}&pins=full`)
+          const json = await res.json()
+          if (res.ok && json.messages) setPanelRows(json.messages as Message[])
+        } catch {}
+      } else {
+        const me = ownIdRef.current
+        if (!me) return
+        const { data } = await createClient()
+          .from('message_saves')
+          .select('saved_at, messages(*, message_attachments(file_id))')
+          .eq('user_id', me)
+          .order('saved_at', { ascending: false })
+          .limit(100)
+        const rows = (data ?? [])
+          .map((r) => (Array.isArray(r.messages) ? r.messages[0] : r.messages))
+          .filter((m): m is NonNullable<typeof m> => m != null) as unknown as Message[]
+        setPanelRows(rows)
+      }
+    },
+    [listUrl]
+  )
+
+  // Jump-to-message: a window around the target (item 2's `around`).
+  const jumpTo = useCallback(
+    async (id: string) => {
+      setPanel(null)
+      try {
+        const res = await fetch(`${listUrl()}&around=${id}`)
+        const json = await res.json()
+        if (res.ok && json.messages) {
+          const rows = json.messages as Message[]
+          for (const r of rows) seenIdsRef.current.add(r.id)
+          setMessages(rows)
+          setPageCursor(json.nextCursor ?? null)
+          setHasMore(!!json.nextCursor)
+          setHighlightId(id)
+          setTimeout(() => setHighlightId(null), 2500)
         }
       } catch {}
     },
@@ -580,7 +733,97 @@ export default function RoomThread({
             loadingOlder={loadingOlder}
             replyMeta={replyMeta}
             onOpenThread={openThread}
+            ownUserId={ownIdRef.current}
+            onToggleReaction={toggleReaction}
+            onTogglePin={togglePin}
+            onToggleSave={toggleSave}
+            pinnedIds={pinnedIds}
+            savedIds={savedIds}
+            highlightId={highlightId}
           />
+          {/* Room utilities: pinned + saved (item 4) */}
+          <div className="absolute top-2 right-2 z-20 flex gap-1">
+            <button
+              onClick={() => (panel === 'pins' ? setPanel(null) : void openPanel('pins'))}
+              className="p-1.5 rounded-lg transition-colors"
+              style={{
+                backgroundColor: panel === 'pins' ? 'hsl(var(--primary) / 0.15)' : 'hsl(var(--card) / 0.8)',
+                border: '1px solid hsl(var(--border))',
+                color: panel === 'pins' ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))',
+                backdropFilter: 'blur(8px)',
+              }}
+              title="Pinned messages"
+            >
+              <Pin size={13} />
+            </button>
+            <button
+              onClick={() => (panel === 'saves' ? setPanel(null) : void openPanel('saves'))}
+              className="p-1.5 rounded-lg transition-colors"
+              style={{
+                backgroundColor: panel === 'saves' ? 'hsl(var(--primary) / 0.15)' : 'hsl(var(--card) / 0.8)',
+                border: '1px solid hsl(var(--border))',
+                color: panel === 'saves' ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))',
+                backdropFilter: 'blur(8px)',
+              }}
+              title="Saved messages"
+            >
+              <Bookmark size={13} />
+            </button>
+          </div>
+          {panel && (
+            <div
+              className="absolute inset-y-0 right-0 z-30 w-full md:w-[360px] flex flex-col border-l shadow-2xl"
+              style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
+            >
+              <div
+                className="flex items-center gap-2 px-4 h-[52px] flex-shrink-0 border-b"
+                style={{ borderColor: 'hsl(var(--border))' }}
+              >
+                <p
+                  className="text-xs font-semibold uppercase tracking-widest flex-1"
+                  style={{ color: 'hsl(var(--text-faint))' }}
+                >
+                  {panel === 'pins' ? 'Pinned' : 'Saved for you'}
+                </p>
+                <button
+                  onClick={() => setPanel(null)}
+                  className="p-1.5 rounded-lg hover:bg-[hsl(var(--border))] text-sm"
+                  style={{ color: 'hsl(var(--muted-foreground))' }}
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto scrollbar-thin p-3 space-y-2">
+                {panelRows.length === 0 && (
+                  <p className="text-xs text-center py-8" style={{ color: 'hsl(var(--text-faint))' }}>
+                    {panel === 'pins'
+                      ? 'Nothing pinned yet. Pin a message from its hover menu.'
+                      : 'Nothing saved yet. Save a message from its hover menu — only you see this list.'}
+                  </p>
+                )}
+                {panelRows.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => void jumpTo(m.id)}
+                    className="w-full text-left p-3 rounded-xl border transition-colors hover:border-[hsl(var(--primary))]"
+                    style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))' }}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[11px] font-semibold truncate" style={{ color: 'hsl(var(--primary))' }}>
+                        {m.sender_name}
+                      </p>
+                      <span className="text-[10px] flex-shrink-0" style={{ color: 'hsl(var(--text-faint))' }}>
+                        {new Date(m.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                    </div>
+                    <p className="text-xs mt-1 line-clamp-2" style={{ color: 'hsl(var(--foreground))' }}>
+                      {m.body || (m.attachment_name ? `📎 ${m.attachment_name}` : '…')}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {threadRoot && (
             <div
               className="absolute inset-y-0 right-0 z-30 w-full md:w-[400px] flex flex-col border-l shadow-2xl"

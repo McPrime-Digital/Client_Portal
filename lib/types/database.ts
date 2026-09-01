@@ -90,6 +90,7 @@ export type Message = {
   attachment_url: string | null
   attachment_name: string | null
   attachment_file_id?: string | null
+  reactions?: { user_id: string; emoji: string }[]
   is_deleted: boolean
   edited_at: string | null
   deleted_at: string | null

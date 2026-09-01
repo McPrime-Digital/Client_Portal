@@ -20,6 +20,9 @@ import {
   CheckCheck,
   Clock,
   MessagesSquare,
+  SmilePlus,
+  Pin,
+  Bookmark,
 } from 'lucide-react'
 import type { Message } from '@/lib/types/database'
 import FileViewer from './FileViewer'
@@ -47,6 +50,15 @@ type Props = {
   /** threads (Batch 15 item 3): reply meta per root + open-panel action */
   replyMeta?: Record<string, { count: number; lastAt: string }>
   onOpenThread?: (msg: Message) => void
+  /** reactions / pins / saves (Batch 15 item 4) */
+  ownUserId?: string | null
+  onToggleReaction?: (msg: Message, emoji: string) => void
+  onTogglePin?: (msg: Message) => void
+  onToggleSave?: (msg: Message) => void
+  pinnedIds?: Set<string>
+  savedIds?: Set<string>
+  /** jump-to-message flash target */
+  highlightId?: string | null
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -117,6 +129,13 @@ export default function MessageThread({
   loadingOlder = false,
   replyMeta = {},
   onOpenThread,
+  ownUserId = null,
+  onToggleReaction,
+  onTogglePin,
+  onToggleSave,
+  pinnedIds,
+  savedIds,
+  highlightId = null,
 }: Props) {
   const [newMessage, setNewMessage] = useState('')
   const [replyTo, setReplyTo] = useState<Message | null>(null)
@@ -127,6 +146,14 @@ export default function MessageThread({
   const [viewerSource, setViewerSource] = useState<{ url: string; name: string } | null>(null)
   const [editingMsg, setEditingMsg] = useState<Message | null>(null)
   const [editText, setEditText] = useState('')
+  const [pickerFor, setPickerFor] = useState<string | null>(null)
+
+  // Jump-to-message: scroll the flash target into view when it arrives.
+  useEffect(() => {
+    if (!highlightId) return
+    const el = document.getElementById(`msg-${highlightId}`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [highlightId, messages])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollBoxRef = useRef<HTMLDivElement>(null)
@@ -401,7 +428,12 @@ export default function MessageThread({
           const deletable = isMe && canDelete(msg.created_at) && onDeleteMessage
 
           return (
-            <div key={msg.id} className={`tl-msg-in ${showDate ? '' : prevSame ? 'mt-[3px]' : 'mt-4'}`}>
+            <div
+              key={msg.id}
+              id={`msg-${msg.id}`}
+              className={`tl-msg-in ${showDate ? '' : prevSame ? 'mt-[3px]' : 'mt-4'} ${highlightId === msg.id ? 'rounded-2xl' : ''}`}
+              style={highlightId === msg.id ? { boxShadow: '0 0 0 2px hsl(var(--primary) / 0.6)', transition: 'box-shadow 0.4s' } : undefined}
+            >
               {showDate && (
                 <div className="flex items-center gap-3 my-6">
                   <div className="flex-1 h-px" style={{ backgroundColor: 'hsl(var(--border))' }} />
@@ -437,6 +469,100 @@ export default function MessageThread({
                         title="Reply in thread"
                       >
                         <MessagesSquare size={13} />
+                      </button>
+                    )}
+                    {onToggleReaction && (
+                      <div className="relative">
+                        <button
+                          onClick={() => setPickerFor(pickerFor === msg.id ? null : msg.id)}
+                          className="p-1.5 rounded-full hover:bg-[hsl(var(--border))] text-[hsl(var(--text-faint))] hover:text-[hsl(var(--primary))] transition-colors"
+                          title="React"
+                        >
+                          <SmilePlus size={13} />
+                        </button>
+                        {pickerFor === msg.id && (
+                          <div
+                            className="absolute z-30 flex gap-1 p-1.5 rounded-xl shadow-xl right-0"
+                            style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
+                          >
+                            {['👍', '❤️', '😂', '🎉', '👀', '✅'].map((e) => (
+                              <button
+                                key={e}
+                                onClick={() => { onToggleReaction(msg, e); setPickerFor(null) }}
+                                className="text-sm hover:scale-125 transition-transform px-0.5"
+                              >
+                                {e}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {onTogglePin && (
+                      <button
+                        onClick={() => onTogglePin(msg)}
+                        className="p-1.5 rounded-full hover:bg-[hsl(var(--border))] transition-colors"
+                        style={{ color: pinnedIds?.has(msg.id) ? 'hsl(var(--primary))' : 'hsl(var(--text-faint))' }}
+                        title={pinnedIds?.has(msg.id) ? 'Unpin' : 'Pin to room'}
+                      >
+                        <Pin size={13} />
+                      </button>
+                    )}
+                    {onToggleSave && (
+                      <button
+                        onClick={() => onToggleSave(msg)}
+                        className="p-1.5 rounded-full hover:bg-[hsl(var(--border))] transition-colors"
+                        style={{ color: savedIds?.has(msg.id) ? 'hsl(var(--primary))' : 'hsl(var(--text-faint))' }}
+                        title={savedIds?.has(msg.id) ? 'Unsave' : 'Save for me'}
+                      >
+                        <Bookmark size={13} />
+                      </button>
+                    )}
+                    {onToggleReaction && (
+                      <div className="relative">
+                        <button
+                          onClick={() => setPickerFor(pickerFor === msg.id ? null : msg.id)}
+                          className="p-1.5 rounded-full hover:bg-[hsl(var(--border))] text-[hsl(var(--text-faint))] hover:text-[hsl(var(--primary))] transition-colors"
+                          title="React"
+                        >
+                          <SmilePlus size={13} />
+                        </button>
+                        {pickerFor === msg.id && (
+                          <div
+                            className="absolute z-30 flex gap-1 p-1.5 rounded-xl shadow-xl left-0"
+                            style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
+                          >
+                            {['👍', '❤️', '😂', '🎉', '👀', '✅'].map((e) => (
+                              <button
+                                key={e}
+                                onClick={() => { onToggleReaction(msg, e); setPickerFor(null) }}
+                                className="text-sm hover:scale-125 transition-transform px-0.5"
+                              >
+                                {e}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {onTogglePin && (
+                      <button
+                        onClick={() => onTogglePin(msg)}
+                        className="p-1.5 rounded-full hover:bg-[hsl(var(--border))] transition-colors"
+                        style={{ color: pinnedIds?.has(msg.id) ? 'hsl(var(--primary))' : 'hsl(var(--text-faint))' }}
+                        title={pinnedIds?.has(msg.id) ? 'Unpin' : 'Pin to room'}
+                      >
+                        <Pin size={13} />
+                      </button>
+                    )}
+                    {onToggleSave && (
+                      <button
+                        onClick={() => onToggleSave(msg)}
+                        className="p-1.5 rounded-full hover:bg-[hsl(var(--border))] transition-colors"
+                        style={{ color: savedIds?.has(msg.id) ? 'hsl(var(--primary))' : 'hsl(var(--text-faint))' }}
+                        title={savedIds?.has(msg.id) ? 'Unsave' : 'Save for me'}
+                      >
+                        <Bookmark size={13} />
                       </button>
                     )}
                   </div>
@@ -638,6 +764,34 @@ export default function MessageThread({
                       <div className="h-1" /> 
                     )}
                   </div>
+
+                  {/* Reactions (item 4): aggregated chips, yours in gold */}
+                  {(msg.reactions?.length ?? 0) > 0 && (
+                    <div className={`flex flex-wrap gap-1 mt-1 ${isMe ? 'justify-end mr-1' : 'justify-start ml-1'}`}>
+                      {Object.entries(
+                        (msg.reactions ?? []).reduce<Record<string, { count: number; mine: boolean }>>((acc, r) => {
+                          const cur = acc[r.emoji] ?? { count: 0, mine: false }
+                          acc[r.emoji] = { count: cur.count + 1, mine: cur.mine || r.user_id === ownUserId }
+                          return acc
+                        }, {})
+                      ).map(([emoji, agg]) => (
+                        <button
+                          key={emoji}
+                          onClick={() => onToggleReaction?.(msg, emoji)}
+                          className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] transition-colors"
+                          style={{
+                            backgroundColor: agg.mine ? 'hsl(var(--primary) / 0.15)' : 'hsl(var(--card))',
+                            border: agg.mine
+                              ? '1px solid hsl(var(--primary) / 0.5)'
+                              : '1px solid hsl(var(--border))',
+                            color: 'hsl(var(--foreground))',
+                          }}
+                        >
+                          {emoji} <span className="font-semibold">{agg.count}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Thread affordance (item 3): replies live in a panel */}
                   {onOpenThread && replyMeta[msg.id] && (
