@@ -42,12 +42,12 @@ export default function Topbar({ clientName, clientId, memberRole = 'owner', rol
     (pathname.startsWith('/projects/') ? 'Project Detail' : 'Portal')
 
   return (
-    <header className="flex items-center justify-between px-6 lg:px-8 flex-shrink-0 h-[60px] bg-card border-b border-border">
+    <header className="glass-panel squircle-lg flex h-14 flex-shrink-0 items-center justify-between px-4 sm:px-6">
       {/* Left — current section */}
       <div className="flex items-center gap-3 min-w-0">
         <button
           onClick={toggle}
-          className="lg:hidden p-2 -ml-2 rounded-md transition-colors text-muted-foreground hover:text-foreground"
+          className="lg:hidden grid h-9 w-9 -ml-1 place-items-center squircle-sm transition-colors text-muted-foreground hover:bg-secondary hover:text-foreground"
           aria-label="Open menu"
         >
           <Menu size={18} />

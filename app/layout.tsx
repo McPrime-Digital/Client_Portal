@@ -1,18 +1,21 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
-import { Space_Grotesk } from 'next/font/google'
+import { Geist, Schibsted_Grotesk } from 'next/font/google'
 import { Toaster } from '@/components/ui/sonner'
 import { ThemeProvider } from '@/components/ThemeProvider'
 import './globals.css'
 import { PRODUCT_NAME } from '@/lib/product'
 
-const inter = Inter({
+// Enterprise type pairing: Geist carries every UI surface (body, controls,
+// data); Schibsted Grotesk is the display voice (headings, the wordmark, the
+// space deck's caps). Both flow through the same --font-* variables the
+// tokens already reference, so no component needed to change for the swap.
+const geist = Geist({
   subsets: ['latin'],
   variable: '--font-body',
   display: 'swap',
 })
 
-const spaceGrotesk = Space_Grotesk({
+const schibstedGrotesk = Schibsted_Grotesk({
   subsets: ['latin'],
   variable: '--font-display',
   display: 'swap',
@@ -38,7 +41,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} ${spaceGrotesk.variable} font-body antialiased`}>
+      <body className={`${geist.variable} ${schibstedGrotesk.variable} font-body antialiased`}>
         <ThemeProvider
           attribute="class"
           defaultTheme="light"

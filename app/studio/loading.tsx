@@ -1,5 +1,7 @@
-// Instant navigation feedback for the client portal — see app/studio/loading.tsx.
-export default function PortalLoading() {
+// Paints the instant a navigation starts, inside the main panel, while the
+// destination's server work streams in — the difference between "4 seconds of
+// nothing" and a shell that answers in under a frame.
+export default function StudioLoading() {
   return (
     <div className="animate-pulse space-y-6" aria-busy="true" aria-label="Loading">
       <div className="space-y-3">

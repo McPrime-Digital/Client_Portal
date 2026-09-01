@@ -6,7 +6,7 @@ import {
   UsersRound, Handshake, Clapperboard,
   MessageSquare, ListChecks, GitBranchPlus, Radar, Gauge, Video, Contact,
   LayoutDashboard, FolderOpen, ScanEye, Files, MessageCircle, Receipt, Link2, Building2,
-  Film, Workflow, Aperture, Sparkles, Wand2, Fingerprint, Swords, Library, ShieldCheck, NotebookPen, SlidersHorizontal,
+  Film, Workflow, Aperture, MonitorPlay, ImageUpscale, Fingerprint, Scale, Library, ShieldCheck, NotebookPen, SlidersHorizontal,
   CalendarDays, Settings, Palette, FileText, Package,
 } from 'lucide-react'
 
@@ -76,14 +76,16 @@ const SPACES_LITERAL = defineSpaces([
       // persona lives in one; a side-by-side toggle inside either brings up the other.
       { slug: 'storyboard', label: 'Storyboard', icon: Film, phase: 2 },
       { slug: 'workflow', label: 'Workflow', icon: Workflow, phase: 2, badge: 'CORE' },
-      { slug: 'generation', label: 'The Stage', icon: Sparkles, phase: 3 },
-      { slug: 'remaster', label: 'Remaster', icon: Wand2, phase: 3 },
+      // Icon notes: MonitorPlay/ImageUpscale/Scale replaced Sparkles/Wand2/Swords —
+      // the retired three read consumer-AI/game, not enterprise chrome.
+      { slug: 'generation', label: 'The Stage', icon: MonitorPlay, phase: 3 },
+      { slug: 'remaster', label: 'Remaster', icon: ImageUpscale, phase: 3 },
       // Finishing Suite: AI-native post — edit assist, sound, VO, mastering, color.
       { slug: 'finishing', label: 'Finishing Suite', icon: SlidersHorizontal, phase: 3 },
       // PrimeOS AI: brainstorm → draft → architect scripts, automations, and film. Switchable model mid-chat.
       { slug: 'ai-chat', label: 'PrimeOS', icon: Aperture, phase: 3 },
       { slug: 'continuity', label: 'Continuity', icon: Fingerprint, phase: 2, badge: 'NEW' },
-      { slug: 'arena', label: 'Model Arena', icon: Swords, phase: 3 },
+      { slug: 'arena', label: 'Model Arena', icon: Scale, phase: 3 },
       { slug: 'studio-kits', label: 'Studio Kits', icon: Package, phase: 4 },
       { slug: 'library', label: 'Asset Library · DAM', icon: Library, phase: 4 },
       { slug: 'provenance', label: 'Provenance & Rights', icon: ShieldCheck, phase: 4 },

@@ -35,9 +35,6 @@ export default async function StudioLayout({ children }: { children: React.React
   // failure lib/businessSettings.ts warns about in prose ("a .limit(1).single()
   // anywhere else silently reads whichever tenant Postgres returns first") —
   // T-3, found while renaming the comment above it.
-  const brand = await tenantBrand(userOrgId(user))
-  const orgName = brand.name
-
   const userName =
     (user.user_metadata?.name as string | undefined) ?? user.email?.split('@')[0] ?? 'Owner'
 
@@ -49,12 +46,21 @@ export default async function StudioLayout({ children }: { children: React.React
     .eq('user_id', user.id)
     .eq('status', 'invited')
 
-  // A paused crew member sees a hold screen — nothing else in the studio.
-  const { data: crewRow } = await supabaseAdmin
-    .from('organization_members')
-    .select('status')
-    .eq('user_id', user.id)
-    .maybeSingle()
+  // Brand, hold-status and roles are independent of each other (only the flip
+  // above must precede them) — one parallel batch instead of three round
+  // trips in sequence. This runs on every studio request, so it's the
+  // difference the navigation timer feels.
+  const [brand, { data: crewRow }, orgAccess] = await Promise.all([
+    tenantBrand(userOrgId(user)),
+    // A paused crew member sees a hold screen — nothing else in the studio.
+    supabaseAdmin
+      .from('organization_members')
+      .select('status')
+      .eq('user_id', user.id)
+      .maybeSingle(),
+    orgAccessOf(user),
+  ])
+  const orgName = brand.name
   if (crewRow && crewRow.status === 'paused') {
     return (
       <div className="flex h-screen items-center justify-center bg-background px-6">
@@ -67,8 +73,6 @@ export default async function StudioLayout({ children }: { children: React.React
       </div>
     )
   }
-
-  const orgAccess = await orgAccessOf(user)
 
   // NO ROSTER ROW, NO STUDIO. This used to read
   // `orgAccess.roles.length ? orgAccess.roles : ['member']` — the same fallback
@@ -93,7 +97,7 @@ export default async function StudioLayout({ children }: { children: React.React
   const roleLabel = orgAccess.title ?? roles[0][0].toUpperCase() + roles[0].slice(1)
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="app-canvas flex h-screen gap-2 overflow-hidden p-2 sm:gap-3 sm:p-3">
       {/* admin presence heartbeat — without it clients get false "away" alerts.
           orgId scopes the presence room to this tenant (C-3). */}
       <PresencePulse role="admin" userId={user.id} clientId={null} orgId={userOrgId(user)} />
@@ -102,9 +106,13 @@ export default async function StudioLayout({ children }: { children: React.React
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       <link rel="stylesheet" href={GOOGLE_FONTS_HREF} />
       <StudioSidebar userName={userName} orgName={orgName} orgRoles={[...roles]} orgExtra={orgAccess.extraCaps} roleLabel={roleLabel} />
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col gap-2 overflow-hidden sm:gap-3">
         <StudioTopbar />
-        <main className="flex-1 overflow-y-auto p-6 lg:p-8">{children}</main>
+        {/* Every page renders into this squircle panel; the panel clips, the
+            inner main scrolls, so the rounded corners survive scrolling. */}
+        <div className="main-panel squircle-xl min-h-0 flex-1 overflow-hidden">
+          <main className="h-full overflow-y-auto p-4 sm:p-6 lg:p-8 scrollbar-thin">{children}</main>
+        </div>
       </div>
       {/* Persistent page-in-view session — survives navigation across the studio. */}
       <SessionDock />

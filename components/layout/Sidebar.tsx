@@ -147,13 +147,13 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
         }`}
       />
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex flex-col w-[260px] h-screen bg-card border-r border-border transition-transform duration-200 ease-out lg:static lg:z-auto lg:w-[240px] lg:flex-shrink-0 lg:translate-x-0 ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
+        className={`fixed inset-y-0 left-0 z-50 flex w-[276px] flex-col gap-3 bg-background p-3 transition-transform duration-200 ease-out lg:static lg:z-auto lg:h-full lg:w-[256px] lg:flex-shrink-0 lg:translate-x-0 lg:bg-transparent lg:p-0 ${
+          isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
-      {/* Brand — the client's own company (their logo if uploaded); fixed 60px
-          height so its bottom border aligns with the topbar's */}
-      <div className="flex items-center gap-3 px-5 h-[60px] flex-shrink-0 border-b border-border">
+      {/* Brand — the client's own company (their logo if uploaded), on its
+          own floating card, lifted off the rail below. */}
+      <div className="glass-panel squircle-lg flex flex-shrink-0 items-center gap-3 px-4 py-3">
         <div
           className="grid h-10 w-10 flex-shrink-0 place-items-center overflow-hidden rounded-xl border border-border bg-background"
           aria-label={`${brandName} Portal`}
@@ -177,8 +177,10 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
         </div>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-6 scrollbar-thin">
+      {/* The rail — navigation, co-brand and sign-out in one squircle card
+          running to the bottom edge. */}
+      <div className="glass-panel squircle-xl flex min-h-0 flex-1 flex-col p-3">
+      <nav className="glass-inset squircle min-h-0 flex-1 space-y-5 overflow-y-auto p-2 scrollbar-thin">
         {navItems.map((section) => (
           <div key={section.section}>
             <p className="text-[11px] font-semibold uppercase tracking-widest px-3 mb-2 text-faint">
@@ -195,13 +197,13 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
                     key={item.href}
                     href={item.href}
                     onClick={close}
-                    className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-all duration-150 ${
+                    className={`group flex items-center gap-3 px-3 py-2 squircle-sm text-sm transition-all duration-150 ${
                       isActive
                         ? 'bg-primary/10 text-primary font-medium'
-                        : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                        : 'text-muted-foreground hover:bg-glow/[0.06] hover:text-foreground'
                     }`}
                   >
-                    <Icon size={16} />
+                    <Icon size={16} className="icon-live flex-shrink-0" />
                     {item.label}
 
                     {item.href === '/messages' && unreadMessages > 0 && (
@@ -231,8 +233,8 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
 
       {/* Co-brand — the studio's platform, with the PI-4 attribution beneath
           it when the tenant's plan has not bought its removal. */}
-      <div className="px-4 pt-4 pb-1">
-        <div className="rounded-xl border border-border bg-background px-4 py-3">
+      <div className="flex-shrink-0 pt-3">
+        <div className="glass-inset squircle-sm px-4 py-3">
           <div className="flex items-center gap-2">
             {orgLogoUrl && (
               /* eslint-disable-next-line @next/next/no-img-element */
@@ -258,14 +260,16 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
       </div>
 
       {/* Sign out (extreme bottom-left) */}
-      <div className="px-3 py-4 border-t border-border">
+      <div className="flex-shrink-0 pt-3">
+        <div className="glow-divider-x mb-2" />
         <button
           onClick={handleLogout}
-          className="flex w-full items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors text-muted-foreground hover:text-destructive hover:bg-secondary"
+          className="group flex w-full items-center gap-3 px-3 py-2.5 squircle-sm text-sm font-medium transition-colors text-muted-foreground hover:text-destructive hover:bg-secondary"
         >
-          <LogOut size={16} />
+          <LogOut size={16} className="icon-live" />
           Sign out
         </button>
+      </div>
       </div>
       </aside>
     </>

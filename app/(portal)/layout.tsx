@@ -136,7 +136,7 @@ export default async function PortalLayout({
   const brand = await tenantBrand(orgId)
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="app-canvas flex h-screen gap-2 overflow-hidden p-2 sm:gap-3 sm:p-3">
       <PresencePulse
         role="client"
         userId={user.id}
@@ -154,11 +154,14 @@ export default async function PortalLayout({
         memberRole={memberRole}
         memberExtra={memberExtra}
       />
-      <div className="flex flex-col flex-1 overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col gap-2 overflow-hidden sm:gap-3">
         <Topbar clientName={memberName} clientId={(activeClient as any).id} memberRole={memberRole} roleTitle={memberTitle} />
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-          {children}
-        </main>
+        {/* Squircle content panel; the panel clips, the inner main scrolls. */}
+        <div className="main-panel squircle-xl min-h-0 flex-1 overflow-hidden">
+          <main className="h-full overflow-y-auto p-4 sm:p-6 lg:p-8 scrollbar-thin">
+            {children}
+          </main>
+        </div>
       </div>
     </div>
   )
