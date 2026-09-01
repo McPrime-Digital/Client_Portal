@@ -523,3 +523,15 @@ button:hover > .icon-live { transform: translateX(1.5px) scale(1.06); }
    the element, not the canvas. */
 svg .gl-rise, svg .gl-pop, svg .gl-fill, svg .gl-pulse { transform-box: fill-box; }
 svg .gl-rise, svg .gl-pop { transform-origin: 50% 50%; }
+
+/* ── Messaging (Batch 14 item 10) ─────────────────────────────────────────
+   One deliberate entrance: a message rises 4px as it lands — the thread
+   breathes without ever performing. */
+@keyframes tl-msg-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.tl-msg-in { animation: tl-msg-in 0.16s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .tl-msg-in { animation: none; }
+}

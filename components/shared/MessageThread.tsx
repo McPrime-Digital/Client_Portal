@@ -42,6 +42,17 @@ type Props = {
 }
 
 // ── Helpers ──────────────────────────────────────────────────
+// Today / Yesterday / date — the divider speaks the reader's calendar.
+function dayLabel(dateStr: string): string {
+  const d = new Date(dateStr)
+  const today = new Date()
+  const yesterday = new Date(today)
+  yesterday.setDate(today.getDate() - 1)
+  if (d.toDateString() === today.toDateString()) return 'Today'
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday'
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
 // Classifies an attachment by name. Voice notes are recorded as
 // `voice-*.webm` (or .m4a on Safari); since .webm is *also* a video
 // container, voice notes must be matched as audio BEFORE the video
@@ -293,19 +304,39 @@ export default function MessageThread({
       )}
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-5 space-y-4 min-h-0 scrollbar-thin relative">
+      <div className="flex-1 overflow-y-auto p-5 min-h-0 scrollbar-thin relative">
         {messages.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <p className="text-sm italic" style={{ color: 'hsl(var(--text-faint))' }}>
-              No messages yet. Start the conversation!
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 pointer-events-none">
+            <div
+              className="w-12 h-12 rounded-2xl flex items-center justify-center"
+              style={{
+                backgroundColor: 'hsl(var(--primary) / 0.08)',
+                border: '1px solid hsl(var(--primary) / 0.25)',
+              }}
+            >
+              <Send size={18} style={{ color: 'hsl(var(--primary))' }} />
+            </div>
+            <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              {otherName ? `This is the beginning of your conversation with ${otherName}.` : 'This is the beginning of the conversation.'}
             </p>
           </div>
         )}
 
-        {messages.filter(m => !m.is_deleted).map((msg, index, filtered) => {
+        {messages.filter(m => !m.is_deleted && !m.deleted_at).map((msg, index, filtered) => {
           const isMe = msg.sender_role === currentRole
           const prevMsg = filtered[index - 1]
+          const nextMsg = filtered[index + 1]
           const showDate = !prevMsg || new Date(msg.created_at).toDateString() !== new Date(prevMsg.created_at).toDateString()
+          // WhatsApp-style grouping: a run of messages from one person within
+          // four minutes reads as one utterance — name once, tail once, time once.
+          const GROUP_MS = 4 * 60_000
+          const prevSame = !!prevMsg && !showDate &&
+            prevMsg.sender_id === msg.sender_id &&
+            new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime() < GROUP_MS
+          const nextSame = !!nextMsg &&
+            nextMsg.sender_id === msg.sender_id &&
+            new Date(nextMsg.created_at).toDateString() === new Date(msg.created_at).toDateString() &&
+            new Date(nextMsg.created_at).getTime() - new Date(msg.created_at).getTime() < GROUP_MS
           const repliedMsg = msg.reply_to_id ? messages.find(m => m.id === msg.reply_to_id) : null
           const resolvedAttachUrl = msg.attachment_url ? resolvedUrls[msg.attachment_url] : null
           const attachName = msg.attachment_name || ''
@@ -317,14 +348,19 @@ export default function MessageThread({
           const deletable = isMe && canDelete(msg.created_at) && onDeleteMessage
 
           return (
-            <div key={msg.id}>
+            <div key={msg.id} className={`tl-msg-in ${showDate ? '' : prevSame ? 'mt-[3px]' : 'mt-4'}`}>
               {showDate && (
                 <div className="flex items-center gap-3 my-6">
                   <div className="flex-1 h-px" style={{ backgroundColor: 'hsl(var(--border))' }} />
-                  <span className="text-[10px] uppercase tracking-wider flex-shrink-0" style={{ color: 'hsl(var(--text-faint))' }}>
-                    {new Date(msg.created_at).toLocaleDateString('en-US', {
-                      weekday: 'short', month: 'short', day: 'numeric'
-                    })}
+                  <span
+                    className="text-[10px] font-semibold uppercase tracking-[0.14em] flex-shrink-0 px-3 py-1 rounded-full"
+                    style={{
+                      color: 'hsl(var(--muted-foreground))',
+                      backgroundColor: 'hsl(var(--card))',
+                      border: '1px solid hsl(var(--border))',
+                    }}
+                  >
+                    {dayLabel(msg.created_at)}
                   </span>
                   <div className="flex-1 h-px" style={{ backgroundColor: 'hsl(var(--border))' }} />
                 </div>
@@ -345,19 +381,29 @@ export default function MessageThread({
                 )}
 
                 <div className="max-w-[75%] min-w-[120px] flex flex-col">
-                  {!isMe && (
+                  {!isMe && !prevSame && (
                     <p className="text-[10px] font-semibold uppercase tracking-wider mb-1 ml-1" style={{ color: 'hsl(var(--muted-foreground))' }}>
                       {msg.sender_name}
                     </p>
                   )}
 
                   <div
-                    className="rounded-2xl relative overflow-hidden"
+                    className="relative overflow-hidden"
                     style={{
-                      backgroundColor: isMe ? 'hsl(var(--primary))' : 'hsl(var(--border))',
+                      backgroundColor: isMe ? 'hsl(var(--primary))' : 'hsl(var(--card))',
+                      backgroundImage: isMe
+                        ? 'linear-gradient(165deg, hsl(var(--primary)) 0%, hsl(var(--primary) / 0.86) 100%)'
+                        : 'none',
                       color: isMe ? 'hsl(var(--background))' : 'hsl(var(--foreground))',
-                      borderBottomRightRadius: isMe ? '4px' : '16px',
-                      borderBottomLeftRadius: isMe ? '16px' : '4px',
+                      border: isMe ? 'none' : '1px solid hsl(var(--border))',
+                      boxShadow: isMe
+                        ? '0 1px 2px hsl(var(--background) / 0.25)'
+                        : '0 1px 2px hsl(var(--background) / 0.15)',
+                      borderRadius: 18,
+                      borderTopRightRadius: isMe && prevSame ? 6 : 18,
+                      borderBottomRightRadius: isMe ? (nextSame ? 6 : 5) : 18,
+                      borderTopLeftRadius: !isMe && prevSame ? 6 : 18,
+                      borderBottomLeftRadius: !isMe ? (nextSame ? 6 : 5) : 18,
                     }}
                   >
                     {/* Replied Context */}
@@ -531,12 +577,14 @@ export default function MessageThread({
                     )}
                   </div>
 
-                  {/* Meta row */}
-                  <div className={`text-[10px] mt-1 flex items-center gap-1.5 ${isMe ? 'justify-end mr-1' : 'justify-start ml-1'}`} style={{ color: 'hsl(var(--text-faint))' }}>
-                    {new Date(msg.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                    {msg.edited_at && <span className="italic">• edited</span>}
-                    {isMe && <MessageTicks msg={msg} />}
-                  </div>
+                  {/* Meta row — once per group; the run reads as one utterance */}
+                  {(!nextSame || msg.edited_at) && (
+                    <div className={`text-[10px] mt-1 flex items-center gap-1.5 ${isMe ? 'justify-end mr-1' : 'justify-start ml-1'}`} style={{ color: 'hsl(var(--text-faint))' }}>
+                      {new Date(msg.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                      {msg.edited_at && <span className="italic">• edited</span>}
+                      {isMe && <MessageTicks msg={msg} />}
+                    </div>
+                  )}
                 </div>
 
                 {/* Hover actions — right side for sent */}
@@ -576,8 +624,16 @@ export default function MessageThread({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* ── Input Area ─────────────────────────────────────── */}
-      <div className="flex-shrink-0 p-4" style={{ borderTop: '1px solid hsl(var(--border))', backgroundColor: 'hsl(var(--card))' }}>
+      {/* ── Input Area — glass bar, the shell's material ───── */}
+      <div
+        className="flex-shrink-0 p-4"
+        style={{
+          borderTop: '1px solid hsl(var(--border))',
+          backgroundColor: 'hsl(var(--card) / 0.85)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+        }}
+      >
 
         {/* Reply Context Bar */}
         {replyTo && (
@@ -733,9 +789,9 @@ export default function MessageThread({
               setNewMessage(e.target.value)
               if (onTyping) onTyping()
             }}
-            placeholder={uploading ? 'Uploading...' : recording ? 'Recording...' : 'Type a message...'}
-            className="flex-1 px-4 py-3 rounded-xl text-sm outline-none transition-all focus:border-[hsl(var(--primary))] focus:shadow-[0_0_0_3px_hsl(var(--primary) / 0.08)]"
-            style={{ backgroundColor: 'hsl(var(--border))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}
+            placeholder={uploading ? 'Uploading…' : recording ? 'Recording…' : 'Write a message'}
+            className="flex-1 px-4 py-3 rounded-xl text-sm outline-none transition-all focus:border-[hsl(var(--primary))] focus:shadow-[0_0_0_3px_hsl(var(--primary)/0.12)]"
+            style={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }}
             disabled={uploading || recording}
           />
 
@@ -757,8 +813,9 @@ export default function MessageThread({
           <button
             type="submit"
             disabled={(!newMessage.trim() && !attachment) || uploading || recording}
-            className="w-10 h-10 rounded-xl flex items-center justify-center transition-all disabled:opacity-40"
+            className="w-10 h-10 rounded-xl flex items-center justify-center transition-all disabled:opacity-40 hover:shadow-[0_0_14px_hsl(var(--primary)/0.35)]"
             style={{ backgroundColor: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
+            title="Send"
           >
             <Send size={16} />
           </button>

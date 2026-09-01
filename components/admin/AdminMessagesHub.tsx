@@ -11,12 +11,14 @@ import StatusBadge from '@/components/portal/StatusBadge'
 import {
   MessageSquare,
   ChevronLeft,
+  Volume2,
+  VolumeX,
 } from 'lucide-react'
 import MessageThread from '@/components/shared/MessageThread'
 import type { Message } from '@/lib/types/database'
 import { uploadFileToR2 } from '@/lib/uploadClient'
 import { messagePreview } from '@/lib/messagePreview'
-import { playMessageChime } from '@/lib/soundClient'
+import { playMessageChime, messageSoundEnabled, setMessageSoundEnabled } from '@/lib/soundClient'
 import { usePresenceStore, isClientOnline } from '@/lib/stores/presence-store'
 import { acquireHub, releaseHub, type ThreadMessagePayload } from '@/lib/realtimeBus'
 
@@ -94,6 +96,11 @@ export default function AdminMessagesHub({
   // Own auth uid — echo suppression compares sender identity, never role.
   const ownIdRef = useRef<string | null>(null)
   const seenIdsRef = useRef<Set<string>>(new Set())
+  // Device-level chime switch (localStorage); per-room preference is
+  // message_room_prefs, wired when the hub grows its settings surface.
+  // Lazy init: messageSoundEnabled() guards storage access, so SSR renders
+  // the default and the client hydrates the stored choice.
+  const [soundOn, setSoundOn] = useState(() => messageSoundEnabled())
   useEffect(() => {
     createClient().auth.getUser().then(({ data }) => { ownIdRef.current = data.user?.id ?? null })
   }, [])
@@ -582,7 +589,7 @@ export default function AdminMessagesHub({
           }}
         >
           <div
-            className="px-4 h-[60px] flex items-center flex-shrink-0"
+            className="px-4 h-[60px] flex items-center justify-between flex-shrink-0"
             style={{ borderBottom: '1px solid hsl(var(--border))' }}
           >
             <p
@@ -590,8 +597,17 @@ export default function AdminMessagesHub({
               tracking-widest"
               style={{ color: 'hsl(var(--text-faint))' }}
             >
-              All Client Threads
+              All Conversations
             </p>
+            <button
+              type="button"
+              onClick={() => { const next = !soundOn; setSoundOn(next); setMessageSoundEnabled(next) }}
+              className="p-1.5 rounded-lg transition-colors hover:bg-[hsl(var(--border))]"
+              style={{ color: soundOn ? 'hsl(var(--primary))' : 'hsl(var(--text-faint))' }}
+              title={soundOn ? 'Mute message sound' : 'Unmute message sound'}
+            >
+              {soundOn ? <Volume2 size={14} /> : <VolumeX size={14} />}
+            </button>
           </div>
 
           <div className="flex-1 overflow-y-auto scrollbar-thin">
@@ -619,8 +635,9 @@ export default function AdminMessagesHub({
                   transition-all"
                   style={{
                     backgroundColor: isActive
-                      ? 'hsl(var(--border))'
+                      ? 'hsl(var(--primary) / 0.07)'
                       : 'transparent',
+                    boxShadow: isActive ? 'inset 2px 0 0 hsl(var(--primary))' : 'none',
                     borderBottom: '1px solid hsl(var(--border))',
                   }}
                 >
@@ -628,9 +645,20 @@ export default function AdminMessagesHub({
                     justify-between gap-2">
                     <div className="flex-1 min-w-0">
                       <p
-                        className="text-sm font-semibold truncate"
+                        className="text-sm font-semibold truncate flex items-center gap-1.5"
                         style={{ color: 'hsl(var(--foreground))' }}
                       >
+                        {thread.isGeneral && (
+                          <span
+                            className="w-4 h-4 rounded-md flex items-center justify-center flex-shrink-0"
+                            style={{
+                              backgroundColor: 'hsl(var(--primary) / 0.12)',
+                              border: '1px solid hsl(var(--primary) / 0.35)',
+                            }}
+                          >
+                            <MessageSquare size={9} style={{ color: 'hsl(var(--primary))' }} />
+                          </span>
+                        )}
                         {thread.title}
                       </p>
                       <p
@@ -678,8 +706,8 @@ export default function AdminMessagesHub({
                           w-5 h-5 rounded-full flex items-center 
                           justify-center"
                           style={{
-                            backgroundColor: 'hsl(var(--destructive))',
-                            color: '#fff',
+                            backgroundColor: 'hsl(var(--primary))',
+                            color: 'hsl(var(--primary-foreground))',
                           }}
                         >
                           {thread.unreadCount}
