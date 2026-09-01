@@ -83,6 +83,12 @@ export default function RoomThread({
   const [pageCursor, setPageCursor] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
+  // Threads (item 3): one level deep — a panel over the room, root on top.
+  const [replyMeta, setReplyMeta] = useState<Record<string, { count: number; lastAt: string }>>({})
+  const [threadRoot, setThreadRoot] = useState<Message | null>(null)
+  const [threadReplies, setThreadReplies] = useState<Message[]>([])
+  const threadRootRef = useRef<string | null>(null)
+  useEffect(() => { threadRootRef.current = threadRoot?.id ?? null }, [threadRoot])
 
   const ownIdRef = useRef<string | null>(null)
   const seenIdsRef = useRef<Set<string>>(new Set())
@@ -170,6 +176,7 @@ export default function RoomThread({
       setMessages(rows)
       setPageCursor(json.nextCursor ?? null)
       setHasMore(!!json.hasMore)
+      if (json.replyMeta) setReplyMeta(json.replyMeta)
       if (json.roomId) roomIdRef.current = json.roomId
       for (const r of rows) seenIdsRef.current.add(r.id)
     } catch {
@@ -213,6 +220,7 @@ export default function RoomThread({
       for (const r of incoming) seenIdsRef.current.add(r.id)
       // Merge, never replace — older keyset pages already on screen survive.
       setMessages((prev) => mergeRows(prev, incoming))
+      if (json.replyMeta) setReplyMeta((prev) => ({ ...prev, ...json.replyMeta }))
     } catch {}
   }, [listUrl, mergeRows])
 
@@ -224,6 +232,26 @@ export default function RoomThread({
       if (seenIdsRef.current.has(row.id)) return
       seenIdsRef.current.add(row.id)
       playMessageChime()
+      if (row.thread_root_id) {
+        // A thread reply: never the main list (item 3). Into the open panel
+        // if it matches, and onto the root's affordance either way.
+        if (threadRootRef.current === row.thread_root_id) {
+          setThreadReplies((prev) =>
+            prev.some((m) => m.id === row.id) ? prev : [...prev, row]
+          )
+        }
+        setReplyMeta((prev) => {
+          const cur = prev[row.thread_root_id as string]
+          return {
+            ...prev,
+            [row.thread_root_id as string]: {
+              count: (cur?.count ?? 0) + 1,
+              lastAt: row.created_at,
+            },
+          }
+        })
+        return
+      }
       setMessages((prev) =>
         prev.some((m) => m.id === row.id) ? prev : [...prev, row]
       )
@@ -316,6 +344,22 @@ export default function RoomThread({
     }
   }, [selfFallback, threadKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const openThread = useCallback(
+    async (root: Message) => {
+      setThreadRoot(root)
+      setThreadReplies([])
+      try {
+        const res = await fetch(`${listUrl()}&thread_root=${root.id}`)
+        const json = await res.json()
+        if (res.ok && json.messages) {
+          for (const r of json.messages as Message[]) seenIdsRef.current.add(r.id)
+          setThreadReplies(json.messages as Message[])
+        }
+      } catch {}
+    },
+    [listUrl]
+  )
+
   // ── Typing (throttled, over the bus) ─────────────────────────────────────
   const handleTyping = useCallback(() => {
     if (typingSendRef.current) return
@@ -354,7 +398,8 @@ export default function RoomThread({
     replyToId?: string,
     attachmentUrl?: string,
     attachmentName?: string,
-    attachmentFileId?: string
+    attachmentFileId?: string,
+    threadRootId?: string
   ) {
     const optimistic: Message = {
       id: `temp-${Date.now()}`,
@@ -375,7 +420,8 @@ export default function RoomThread({
       edited_at: null,
       created_at: new Date().toISOString(),
     }
-    setMessages((prev) => [...prev, optimistic])
+    if (threadRootId) setThreadReplies((prev) => [...prev, optimistic])
+    else setMessages((prev) => [...prev, optimistic])
 
     let inserted: Message | null = null
     try {
@@ -396,6 +442,7 @@ export default function RoomThread({
             attachment_url: attachmentUrl || null,
             attachment_name: attachmentName || null,
             attachment_file_id: attachmentFileId || null,
+            thread_root_id: threadRootId || null,
           }),
         }
       )
@@ -403,7 +450,8 @@ export default function RoomThread({
       if (!res.ok) throw new Error(json.error ?? 'Send failed')
       inserted = json.message ?? null
     } catch (err) {
-      setMessages((prev) => prev.filter((m) => m.id !== optimistic.id))
+      if (threadRootId) setThreadReplies((prev) => prev.filter((m) => m.id !== optimistic.id))
+      else setMessages((prev) => prev.filter((m) => m.id !== optimistic.id))
       setSendError(err instanceof Error ? err.message : 'Failed to send message.')
       setTimeout(() => setSendError(null), 6000)
       throw err
@@ -411,12 +459,22 @@ export default function RoomThread({
 
     if (inserted) {
       seenIdsRef.current.add(inserted.id)
-      setMessages((prev) => {
+      const reconcile = (prev: Message[]) => {
         if (prev.some((m) => m.id === inserted!.id)) {
           return prev.filter((m) => m.id !== optimistic.id)
         }
         return prev.map((m) => (m.id === optimistic.id ? inserted! : m))
-      })
+      }
+      if (threadRootId) {
+        setThreadReplies(reconcile)
+        setReplyMeta((prev) => {
+          const cur = prev[threadRootId]
+          return {
+            ...prev,
+            [threadRootId]: { count: (cur?.count ?? 0) + 1, lastAt: inserted!.created_at },
+          }
+        })
+      } else setMessages(reconcile)
       onActivity?.(inserted, 'sent')
       channelRef.current?.send({
         type: 'broadcast',
@@ -504,22 +562,70 @@ export default function RoomThread({
           />
         </div>
       ) : (
-        <MessageThread
-          messages={messages}
-          currentRole={role}
-          currentName={currentName}
-          otherName={otherName}
-          projectId={threadKey}
-          onSendMessage={sendMessage}
-          readOnly={!canSend}
-          onUploadAttachment={allowAttachments ? handleAttachmentUpload : undefined}
-          onDeleteMessage={handleDeleteMessage}
-          onEditMessage={handleEditMessage}
-          onTyping={handleTyping}
-          onLoadOlder={loadOlder}
-          hasMore={hasMore}
-          loadingOlder={loadingOlder}
-        />
+        <>
+          <MessageThread
+            messages={messages}
+            currentRole={role}
+            currentName={currentName}
+            otherName={otherName}
+            projectId={threadKey}
+            onSendMessage={sendMessage}
+            readOnly={!canSend}
+            onUploadAttachment={allowAttachments ? handleAttachmentUpload : undefined}
+            onDeleteMessage={handleDeleteMessage}
+            onEditMessage={handleEditMessage}
+            onTyping={handleTyping}
+            onLoadOlder={loadOlder}
+            hasMore={hasMore}
+            loadingOlder={loadingOlder}
+            replyMeta={replyMeta}
+            onOpenThread={openThread}
+          />
+          {threadRoot && (
+            <div
+              className="absolute inset-y-0 right-0 z-30 w-full md:w-[400px] flex flex-col border-l shadow-2xl"
+              style={{
+                backgroundColor: 'hsl(var(--card))',
+                borderColor: 'hsl(var(--border))',
+              }}
+            >
+              <div
+                className="flex items-center gap-2 px-4 h-[52px] flex-shrink-0 border-b"
+                style={{ borderColor: 'hsl(var(--border))' }}
+              >
+                <p
+                  className="text-xs font-semibold uppercase tracking-widest flex-1"
+                  style={{ color: 'hsl(var(--text-faint))' }}
+                >
+                  Thread
+                </p>
+                <button
+                  onClick={() => { setThreadRoot(null); setThreadReplies([]) }}
+                  className="p-1.5 rounded-lg hover:bg-[hsl(var(--border))] text-sm"
+                  style={{ color: 'hsl(var(--muted-foreground))' }}
+                  title="Close thread"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="flex-1 min-h-0">
+                <MessageThread
+                  messages={[threadRoot, ...threadReplies]}
+                  currentRole={role}
+                  currentName={currentName}
+                  otherName={otherName}
+                  projectId={`${threadKey}:thread`}
+                  onSendMessage={(b, r, u, n, f) => sendMessage(b, r, u, n, f, threadRoot.id)}
+                  readOnly={!canSend}
+                  onUploadAttachment={allowAttachments ? handleAttachmentUpload : undefined}
+                  onDeleteMessage={handleDeleteMessage}
+                  onEditMessage={handleEditMessage}
+                  onTyping={handleTyping}
+                />
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

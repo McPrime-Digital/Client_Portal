@@ -222,6 +222,7 @@ export async function POST(req: NextRequest) {
           attachment_name,
           attachment_file_id,
           reply_to_id,
+          thread_root_id,
         } = body
         // "room:<clientId>" is the General thread's id — an untagged send.
         const project_id =
@@ -270,6 +271,10 @@ export async function POST(req: NextRequest) {
             attachment_url: att?.url ?? null,
             attachment_name: att?.name ?? null,
             reply_to_id: reply_to_id || null,
+            // One level deep, root-validated, tag inherited — by the 0030
+            // trigger, NOT re-implemented here (RLS depends on the database
+            // being the authority).
+            thread_root_id: thread_root_id || null,
           })
           .select()
           .single()

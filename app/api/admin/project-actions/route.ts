@@ -169,6 +169,7 @@ export async function POST(req: NextRequest) {
           attachment_name,
           attachment_file_id,
           reply_to_id,
+          thread_root_id,
         } = body
         // The room is the COMPANY's conversation; project_id rides along as
         // the tag (S3-core §1.1) — and is OPTIONAL since Batch 14 item 8: a
@@ -216,6 +217,8 @@ export async function POST(req: NextRequest) {
             attachment_url: att?.url ?? null,
             attachment_name: att?.name ?? null,
             reply_to_id: reply_to_id || null,
+            // Root-validated + tag-inherited by the 0030 trigger (item 3).
+            thread_root_id: thread_root_id || null,
           })
           .select()
           .single()

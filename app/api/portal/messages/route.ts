@@ -86,10 +86,33 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Malformed cursor' }, { status: 400 })
   }
   const aroundId = req.nextUrl.searchParams.get('around')
+  // Thread panel fetch (item 3): the replies of one root, ascending, bounded.
+  const threadRoot = req.nextUrl.searchParams.get('thread_root')
+  if (threadRoot) {
+    const { data: replies, error: thErr } = await supabaseAdmin
+      .from('messages')
+      .select('*, message_attachments(file_id)')
+      .eq('room_id', room.id)
+      .eq('thread_root_id', threadRoot)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .limit(200)
+    if (thErr) return NextResponse.json({ error: thErr.message }, { status: 500 })
+    const thRows = (replies ?? []).map((row) => {
+      const { message_attachments, ...m } = row as Record<string, unknown> & { message_attachments?: { file_id: string }[] }
+      return { ...m, attachment_file_id: message_attachments?.[0]?.file_id ?? null }
+    }).map((m: Record<string, unknown>) =>
+      m.deleted_at || m.is_deleted
+        ? { ...m, body: '', attachment_url: null, attachment_name: null, attachment_file_id: null }
+        : m
+    )
+    return NextResponse.json({ messages: thRows, roomId: room.id, nextCursor: null, hasMore: false })
+  }
   let msgQ = supabaseAdmin
     .from('messages')
     .select('*, message_attachments(file_id)')
     .eq('room_id', room.id)
+    .is('thread_root_id', null) // replies live in their panel (item 3)
     .order('created_at', { ascending: false })
     .order('id', { ascending: false })
     .limit(limit + 1)
@@ -181,7 +204,26 @@ export async function GET(req: NextRequest) {
       : m
   )
 
-  return NextResponse.json({ messages: scrubbed, roomId: room.id, nextCursor, hasMore: !!hasMore })
+  // Reply meta per root on this page — count + last reply time (item 3).
+  const rootIds = scrubbed.map((m) => m.id as string)
+  const replyMeta: Record<string, { count: number; lastAt: string }> = {}
+  if (rootIds.length > 0) {
+    const { data: replyRows } = await supabaseAdmin
+      .from('messages')
+      .select('thread_root_id, created_at')
+      .in('thread_root_id', rootIds)
+      .is('deleted_at', null)
+    for (const r of replyRows ?? []) {
+      const k = r.thread_root_id as string
+      const cur = replyMeta[k]
+      replyMeta[k] = {
+        count: (cur?.count ?? 0) + 1,
+        lastAt: !cur || r.created_at > cur.lastAt ? r.created_at : cur.lastAt,
+      }
+    }
+  }
+
+  return NextResponse.json({ messages: scrubbed, roomId: room.id, nextCursor, hasMore: !!hasMore, replyMeta })
 }
 
 // Mark a thread read (advances THIS user's room watermark) or delivered.

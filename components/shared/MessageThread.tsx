@@ -19,6 +19,7 @@ import {
   Check,
   CheckCheck,
   Clock,
+  MessagesSquare,
 } from 'lucide-react'
 import type { Message } from '@/lib/types/database'
 import FileViewer from './FileViewer'
@@ -43,6 +44,9 @@ type Props = {
   onLoadOlder?: () => Promise<void>
   hasMore?: boolean
   loadingOlder?: boolean
+  /** threads (Batch 15 item 3): reply meta per root + open-panel action */
+  replyMeta?: Record<string, { count: number; lastAt: string }>
+  onOpenThread?: (msg: Message) => void
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -111,6 +115,8 @@ export default function MessageThread({
   onLoadOlder,
   hasMore = false,
   loadingOlder = false,
+  replyMeta = {},
+  onOpenThread,
 }: Props) {
   const [newMessage, setNewMessage] = useState('')
   const [replyTo, setReplyTo] = useState<Message | null>(null)
@@ -420,10 +426,19 @@ export default function MessageThread({
                     <button
                       onClick={() => { setReplyTo(msg); inputRef.current?.focus() }}
                       className="p-1.5 rounded-full hover:bg-[hsl(var(--border))] text-[hsl(var(--text-faint))] hover:text-[hsl(var(--foreground))] transition-colors"
-                      title="Reply"
+                      title="Quote reply"
                     >
                       <Reply size={13} />
                     </button>
+                    {onOpenThread && !msg.thread_root_id && (
+                      <button
+                        onClick={() => onOpenThread(msg)}
+                        className="p-1.5 rounded-full hover:bg-[hsl(var(--border))] text-[hsl(var(--text-faint))] hover:text-[hsl(var(--primary))] transition-colors"
+                        title="Reply in thread"
+                      >
+                        <MessagesSquare size={13} />
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -624,6 +639,20 @@ export default function MessageThread({
                     )}
                   </div>
 
+                  {/* Thread affordance (item 3): replies live in a panel */}
+                  {onOpenThread && replyMeta[msg.id] && (
+                    <button
+                      onClick={() => onOpenThread(msg)}
+                      className={`mt-1 text-[11px] font-semibold flex items-center gap-1 ${isMe ? 'self-end mr-1' : 'self-start ml-1'}`}
+                      style={{ color: 'hsl(var(--primary))' }}
+                    >
+                      ↳ {replyMeta[msg.id].count} {replyMeta[msg.id].count === 1 ? 'reply' : 'replies'}
+                      <span style={{ color: 'hsl(var(--text-faint))', fontWeight: 400 }}>
+                        · {new Date(replyMeta[msg.id].lastAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </button>
+                  )}
+
                   {/* Meta row — once per group; the run reads as one utterance */}
                   {(!nextSame || msg.edited_at) && (
                     <div className={`text-[10px] mt-1 flex items-center gap-1.5 ${isMe ? 'justify-end mr-1' : 'justify-start ml-1'}`} style={{ color: 'hsl(var(--text-faint))' }}>
@@ -640,10 +669,19 @@ export default function MessageThread({
                     <button
                       onClick={() => { setReplyTo(msg); inputRef.current?.focus() }}
                       className="p-1.5 rounded-full hover:bg-[hsl(var(--border))] text-[hsl(var(--text-faint))] hover:text-[hsl(var(--foreground))] transition-colors"
-                      title="Reply"
+                      title="Quote reply"
                     >
                       <Reply size={13} />
                     </button>
+                    {onOpenThread && !msg.thread_root_id && (
+                      <button
+                        onClick={() => onOpenThread(msg)}
+                        className="p-1.5 rounded-full hover:bg-[hsl(var(--border))] text-[hsl(var(--text-faint))] hover:text-[hsl(var(--primary))] transition-colors"
+                        title="Reply in thread"
+                      >
+                        <MessagesSquare size={13} />
+                      </button>
+                    )}
                     {isMe && canEdit(msg.created_at) && onEditMessage && msg.body && (
                       <button
                         onClick={() => { setEditingMsg(msg); setEditText(msg.body) }}
