@@ -7,6 +7,7 @@ import { recordActivity } from '@/lib/logActivity.server'
 import { clientMembershipOf, type ClientRole } from '@/lib/team'
 import { clientCan } from '@/lib/permissions'
 import { ensureClientRoom } from '@/lib/messageRooms'
+import { verifyAttachment, writeAttachmentRow } from '@/lib/messageAttachments'
 
 // Verify the calling user belongs to a client company — the primary login
 // (clients.user_id) or an invited teammate (client_members). Returns the
@@ -93,7 +94,13 @@ export async function POST(req: NextRequest) {
         // The room is the company's single conversation; project_id rides
         // along as the tag (S3-core §1.1). Org stamped, never defaulted (T-5).
         const approvalRoom = await ensureClientRoom(supabaseAdmin, client.organization_id, client.id, user.id)
-        await supabaseAdmin.from('messages').insert({
+        // Verified against the files table + this company; stored fields
+        // derive from the verified row (I-6). A bad ref drops the attachment
+        // from the proof rather than failing the approval itself.
+        const approvalAtt = await verifyAttachment(supabaseAdmin, {
+          fileId: attachment_file_id, url: attachment_url, clientId: client.id,
+        }).catch(() => null)
+        const { data: approvalMsg } = await supabaseAdmin.from('messages').insert({
           room_id: approvalRoom.id,
           organization_id: client.organization_id,
           project_id: task.project_id,
@@ -101,9 +108,10 @@ export async function POST(req: NextRequest) {
           sender_role: 'client',
           sender_name: auth.memberName,
           body: approvalBody,
-          attachment_url: attachment_url || null,
-          attachment_name: attachment_name || null,
-        })
+          attachment_url: approvalAtt?.url ?? null,
+          attachment_name: approvalAtt?.name ?? null,
+        }).select('id').single()
+        if (approvalAtt && approvalMsg) await writeAttachmentRow(supabaseAdmin, approvalMsg.id, approvalAtt.fileId)
 
         await createAdminNotification({
           clientId: client.id,
@@ -165,7 +173,10 @@ export async function POST(req: NextRequest) {
           attachment_name ? `📎 File: ${attachment_name}` : null,
         ].filter(Boolean).join('\n')
         const changesRoom = await ensureClientRoom(supabaseAdmin, client.organization_id, client.id, user.id)
-        await supabaseAdmin.from('messages').insert({
+        const changesAtt = await verifyAttachment(supabaseAdmin, {
+          fileId: attachment_file_id, url: attachment_url, clientId: client.id,
+        }).catch(() => null)
+        const { data: changesMsg } = await supabaseAdmin.from('messages').insert({
           room_id: changesRoom.id,
           organization_id: client.organization_id, // stamped, never defaulted (T-5)
           project_id: task.project_id,
@@ -173,9 +184,10 @@ export async function POST(req: NextRequest) {
           sender_role: 'client',
           sender_name: auth.memberName,
           body: changesBody,
-          attachment_url: attachment_url || null,
-          attachment_name: attachment_name || null,
-        })
+          attachment_url: changesAtt?.url ?? null,
+          attachment_name: changesAtt?.name ?? null,
+        }).select('id').single()
+        if (changesAtt && changesMsg) await writeAttachmentRow(supabaseAdmin, changesMsg.id, changesAtt.fileId)
 
         await createAdminNotification({
           clientId: client.id,
@@ -208,6 +220,7 @@ export async function POST(req: NextRequest) {
           body: msgBody,
           attachment_url,
           attachment_name,
+          attachment_file_id,
           reply_to_id,
         } = body
 
@@ -223,6 +236,17 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: 'Project not found' }, { status: 404 })
         }
 
+        // The reference is verified against the files table and the sending
+        // company — a forged id or path fails here, and what gets STORED is
+        // derived from the verified row, never echoed from the body (I-6).
+        let att
+        try {
+          att = await verifyAttachment(supabaseAdmin, {
+            fileId: attachment_file_id, url: attachment_url, clientId: client.id,
+          })
+        } catch (e) {
+          return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid attachment' }, { status: 400 })
+        }
         const room = await ensureClientRoom(supabaseAdmin, client.organization_id, client.id, user.id)
         const { data, error } = await supabaseAdmin
           .from('messages')
@@ -234,14 +258,15 @@ export async function POST(req: NextRequest) {
             sender_role: 'client',
             sender_name: auth.memberName,
             body: msgBody,
-            attachment_url: attachment_url || null,
-            attachment_name: attachment_name || null,
+            attachment_url: att?.url ?? null,
+            attachment_name: att?.name ?? null,
             reply_to_id: reply_to_id || null,
           })
           .select()
           .single()
 
         if (error) throw error
+        if (att) await writeAttachmentRow(supabaseAdmin, data.id, att.fileId)
         // No in-app bell entry for plain chat (the Messages badge carries
         // unread). But push the admin's device instantly IF they're away —
         // an active, in-app admin is left alone (they see it live). Email/SMS

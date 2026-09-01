@@ -344,7 +344,7 @@ export default function AdminMessagesHub({
     loadMessages(thread.id)
   }
 
-  async function sendMessage(body: string, replyToId?: string, attachmentUrl?: string, attachmentName?: string) {
+  async function sendMessage(body: string, replyToId?: string, attachmentUrl?: string, attachmentName?: string, attachmentFileId?: string) {
     if (!activeThread) return
 
     const optimistic: Message = {
@@ -388,6 +388,7 @@ export default function AdminMessagesHub({
           reply_to_id: replyToId || null,
           attachment_url: attachmentUrl || null,
           attachment_name: attachmentName || null,
+          attachment_file_id: attachmentFileId || null,
         }),
       })
       const json = await res.json()
@@ -435,7 +436,7 @@ export default function AdminMessagesHub({
     }
   }
 
-  async function handleAttachmentUpload(file: File): Promise<{ url: string; name: string }> {
+  async function handleAttachmentUpload(file: File): Promise<{ url: string; name: string; fileId?: string }> {
     if (!activeThread || !activeThread.client) throw new Error('No active thread or client')
     const uploaded = await uploadFileToR2({
       file,
@@ -447,6 +448,7 @@ export default function AdminMessagesHub({
     return {
       url: `${uploaded.bucket}::${uploaded.file_path}`,
       name: uploaded.file_name,
+      fileId: uploaded.id,
     }
   }
 

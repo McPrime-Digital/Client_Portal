@@ -406,7 +406,7 @@ export default function ProjectDetail({
     }
   }, [messages, activeTab])
 
-  async function sendMessage(body: string, replyToId?: string, attachmentUrl?: string, attachmentName?: string) {
+  async function sendMessage(body: string, replyToId?: string, attachmentUrl?: string, attachmentName?: string, attachmentFileId?: string) {
     // Optimistic insert — show the message instantly, then reconcile.
     const optimistic: Message = {
       id: `temp-${Date.now()}`,
@@ -444,6 +444,7 @@ export default function ProjectDetail({
           reply_to_id: replyToId,
           attachment_url: attachmentUrl,
           attachment_name: attachmentName,
+          attachment_file_id: attachmentFileId,
         }),
       })
       const json = await res.json()
@@ -468,7 +469,7 @@ export default function ProjectDetail({
     }
   }
 
-  async function handleAttachmentUpload(file: File): Promise<{ url: string; name: string }> {
+  async function handleAttachmentUpload(file: File): Promise<{ url: string; name: string; fileId?: string }> {
     const uploaded = await uploadFileToR2({
       file,
       projectId: project.id,
@@ -482,6 +483,7 @@ export default function ProjectDetail({
     return {
       url: `${uploaded.bucket}::${uploaded.file_path}`,
       name: uploaded.file_name,
+      fileId: uploaded.id,
     }
   }
 

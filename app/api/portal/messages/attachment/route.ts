@@ -1,5 +1,5 @@
 import { portalClientId } from '@/lib/team'
-import { isAdmin } from '@/lib/auth/role'
+import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getSignedDownloadUrl } from '@/lib/r2'
@@ -18,7 +18,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { ref } = await req.json()
+    const { ref, file_id } = await req.json()
+
+    // Preferred path since Batch 14: a real files id (message_attachments).
+    // Authorization comes from the ROW — its client for portal users, its
+    // org for admins — not from parsing a path.
+    if (file_id && typeof file_id === 'string') {
+      const { data: f } = await supabaseAdmin
+        .from('files')
+        .select('id, bucket, file_path, client_id, organization_id')
+        .eq('id', file_id)
+        .maybeSingle()
+      if (!f) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      if (isAdmin(user)) {
+        if (f.organization_id !== userOrgId(user)) {
+          return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+        }
+      } else if (f.client_id !== await portalClientId(user)) {
+        return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+      }
+      const url = f.bucket === 'r2'
+        ? await getSignedDownloadUrl(f.file_path, 3600, { disposition: 'inline' })
+        : (await supabaseAdmin.storage.from(f.bucket).createSignedUrl(f.file_path, 3600)).data?.signedUrl
+      if (!url) return NextResponse.json({ error: 'Could not sign' }, { status: 500 })
+      return NextResponse.json({ url })
+    }
+
     if (!ref || typeof ref !== 'string') {
       return NextResponse.json({ error: 'ref required' }, { status: 400 })
     }

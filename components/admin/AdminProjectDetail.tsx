@@ -500,7 +500,7 @@ export default function AdminProjectDetail({
   }
 
   // ── MESSAGE HANDLERS ──
-  async function sendMessage(body: string, replyToId?: string, attachmentUrl?: string, attachmentName?: string) {
+  async function sendMessage(body: string, replyToId?: string, attachmentUrl?: string, attachmentName?: string, attachmentFileId?: string) {
     if (!body.trim() && !attachmentUrl) return
     setSending(true)
 
@@ -534,6 +534,7 @@ export default function AdminProjectDetail({
         reply_to_id: replyToId || null,
         attachment_url: attachmentUrl || null,
         attachment_name: attachmentName || null,
+        attachment_file_id: attachmentFileId || null,
       })
       
       setMessages((prev: any[]) =>
@@ -552,7 +553,7 @@ export default function AdminProjectDetail({
     }
   }
 
-  async function handleAttachmentUpload(file: File): Promise<{ url: string; name: string }> {
+  async function handleAttachmentUpload(file: File): Promise<{ url: string; name: string; fileId?: string }> {
     const uploaded = await uploadFileToR2({
       file,
       projectId: project.id,
@@ -563,6 +564,7 @@ export default function AdminProjectDetail({
     return {
       url: `${uploaded.bucket}::${uploaded.file_path}`,
       name: uploaded.file_name,
+      fileId: uploaded.id,
     }
   }
 

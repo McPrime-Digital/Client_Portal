@@ -88,6 +88,7 @@ export type Message = {
   thread_root_id: string | null
   attachment_url: string | null
   attachment_name: string | null
+  attachment_file_id?: string | null
   is_deleted: boolean
   edited_at: string | null
   deleted_at: string | null

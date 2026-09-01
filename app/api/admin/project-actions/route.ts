@@ -9,6 +9,7 @@ import { messagePreview } from '@/lib/messagePreview'
 import { recordActivity } from '@/lib/logActivity.server'
 import { seedDefaultTasks, buildPhaseTaskRows, safeCategory } from '@/lib/defaultTasks'
 import { ensureClientRoom, ensureCrewRoom } from '@/lib/messageRooms'
+import { verifyAttachment, writeAttachmentRow } from '@/lib/messageAttachments'
 
 // Records an approval-gate send into the Approvals & Records ledger when a
 // visible approval gate enters review (first send OR a resend for re-approval).
@@ -156,6 +157,7 @@ export async function POST(req: NextRequest) {
           body: msgBody,
           attachment_url,
           attachment_name,
+          attachment_file_id,
           reply_to_id,
         } = body
         // The room is the COMPANY's conversation; project_id rides along as
@@ -168,6 +170,16 @@ export async function POST(req: NextRequest) {
           .single()
         if (!proj) return NextResponse.json({ error: 'Not found.' }, { status: 404 })
         const sendOrgId = userOrgId(user)
+        // Verified against the files table + this org; stored fields derive
+        // from the verified row, never the body (I-6, closes HANDOFF §8.3.1).
+        let att
+        try {
+          att = await verifyAttachment(supabaseAdmin, {
+            fileId: attachment_file_id, url: attachment_url, orgId: sendOrgId,
+          })
+        } catch (e) {
+          return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid attachment' }, { status: 400 })
+        }
         const room = proj.client_id
           ? await ensureClientRoom(supabaseAdmin, sendOrgId, proj.client_id, user.id)
           : await ensureCrewRoom(supabaseAdmin, sendOrgId, user.id)
@@ -181,13 +193,14 @@ export async function POST(req: NextRequest) {
             sender_role: 'admin',
             sender_name: studioName,
             body: msgBody,
-            attachment_url: attachment_url || null,
-            attachment_name: attachment_name || null,
+            attachment_url: att?.url ?? null,
+            attachment_name: att?.name ?? null,
             reply_to_id: reply_to_id || null,
           })
           .select()
           .single()
         if (error) throw error
+        if (att) await writeAttachmentRow(supabaseAdmin, data.id, att.fileId)
         // No in-app bell entry for plain chat (the Messages badge carries
         // unread). But push the client's device instantly IF they're away —
         // an active, in-app client is left alone (they see it live). Email/SMS
@@ -612,10 +625,13 @@ export async function POST(req: NextRequest) {
           attachment_name ? `📎 File: ${attachment_name}` : null,
         ].filter(Boolean).join('\n')
         const mediaOrgId = userOrgId(user)
+        const mediaAtt = await verifyAttachment(supabaseAdmin, {
+          fileId: attachment_file_id, url: attachment_url, orgId: mediaOrgId,
+        }).catch(() => null)
         const mediaRoom = clientId
           ? await ensureClientRoom(supabaseAdmin, mediaOrgId, clientId, user.id)
           : await ensureCrewRoom(supabaseAdmin, mediaOrgId, user.id)
-        await supabaseAdmin.from('messages').insert({
+        const { data: mediaMsg } = await supabaseAdmin.from('messages').insert({
           room_id: mediaRoom.id,
           organization_id: mediaOrgId, // stamped, never defaulted (T-5)
           project_id: task.project_id,
@@ -623,9 +639,10 @@ export async function POST(req: NextRequest) {
           sender_role: 'admin',
           sender_name: studioName,
           body: msgBody,
-          attachment_url: attachment_url || null,
-          attachment_name: attachment_name || null,
-        })
+          attachment_url: mediaAtt?.url ?? null,
+          attachment_name: mediaAtt?.name ?? null,
+        }).select('id').single()
+        if (mediaAtt && mediaMsg) await writeAttachmentRow(supabaseAdmin, mediaMsg.id, mediaAtt.fileId)
         await createNotification({
           clientId, projectId: task.project_id, type: 'message',
           title: `New message from ${studioName}`, body: `${resend ? 'Re-sent' : 'Sent'} “${task.title}” for approval`,

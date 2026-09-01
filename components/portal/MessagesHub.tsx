@@ -357,7 +357,8 @@ export default function MessagesHub({
     body: string,
     replyToId?: string,
     attachmentUrl?: string,
-    attachmentName?: string
+    attachmentName?: string,
+    attachmentFileId?: string
   ) {
     if (!activeThread) return
 
@@ -396,6 +397,7 @@ export default function MessagesHub({
           reply_to_id: replyToId || null,
           attachment_url: attachmentUrl || null,
           attachment_name: attachmentName || null,
+          attachment_file_id: attachmentFileId || null,
         }),
       })
       const json = await res.json()
@@ -443,7 +445,7 @@ export default function MessagesHub({
     }
   }
 
-  async function handleAttachmentUpload(file: File): Promise<{ url: string; name: string }> {
+  async function handleAttachmentUpload(file: File): Promise<{ url: string; name: string; fileId?: string }> {
     if (!activeThread) throw new Error('No active thread')
     const uploaded = await uploadFileToR2({
       file,
@@ -455,6 +457,7 @@ export default function MessagesHub({
     return {
       url: `${uploaded.bucket}::${uploaded.file_path}`,
       name: uploaded.file_name,
+      fileId: uploaded.id,
     }
   }
 

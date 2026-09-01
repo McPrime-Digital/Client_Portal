@@ -34,8 +34,8 @@ type Props = {
   currentUserId?: string
   otherName?: string
   projectId: string
-  onSendMessage: (body: string, replyToId?: string, attachmentUrl?: string, attachmentName?: string) => Promise<void>
-  onUploadAttachment?: (file: File) => Promise<{ url: string; name: string }>
+  onSendMessage: (body: string, replyToId?: string, attachmentUrl?: string, attachmentName?: string, attachmentFileId?: string) => Promise<void>
+  onUploadAttachment?: (file: File) => Promise<{ url: string; name: string; fileId?: string }>
   onDeleteMessage?: (messageId: string) => Promise<void>
   onEditMessage?: (messageId: string, newBody: string) => Promise<void>
   onTyping?: () => void
@@ -97,7 +97,7 @@ export default function MessageThread({
   const [newMessage, setNewMessage] = useState('')
   const [replyTo, setReplyTo] = useState<Message | null>(null)
   const [uploading, setUploading] = useState(false)
-  const [attachment, setAttachment] = useState<{ url: string; name: string } | null>(null)
+  const [attachment, setAttachment] = useState<{ url: string; name: string; fileId?: string } | null>(null)
   const [showAttachMenu, setShowAttachMenu] = useState(false)
   const [recording, setRecording] = useState(false)
   const [viewerSource, setViewerSource] = useState<{ url: string; name: string } | null>(null)
@@ -145,7 +145,7 @@ export default function MessageThread({
     setAttachment(null)
     requestAnimationFrame(() => inputRef.current?.focus())
 
-    void onSendMessage(body, replyId, att?.url, att?.name).catch((err) => {
+    void onSendMessage(body, replyId, att?.url, att?.name, att?.fileId).catch((err) => {
       console.error(err)
     })
   }
@@ -238,7 +238,7 @@ export default function MessageThread({
   // ── Resolve attachment signed URL for inline preview ──
   const [resolvedUrls, setResolvedUrls] = useState<Record<string, string>>({})
 
-  const resolveUrl = useCallback(async (rawUrl: string) => {
+  const resolveUrl = useCallback(async (rawUrl: string, fileId?: string | null) => {
     if (resolvedUrls[rawUrl]) return resolvedUrls[rawUrl]
     // Resolve server-side — the browser client can't sign every bucket
     // (storage RLS), so this authorizes + signs with the service role.
@@ -250,7 +250,7 @@ export default function MessageThread({
       const res = await fetch('/api/portal/messages/attachment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ref: rawUrl }),
+        body: JSON.stringify(fileId ? { file_id: fileId, ref: rawUrl } : { ref: rawUrl }),
       })
       const json = await res.json()
       const signed = res.ok && json.url ? json.url : failValue
@@ -266,7 +266,7 @@ export default function MessageThread({
   useEffect(() => {
     messages.forEach(msg => {
       if (msg.attachment_url && !resolvedUrls[msg.attachment_url]) {
-        resolveUrl(msg.attachment_url)
+        resolveUrl(msg.attachment_url, (msg as { attachment_file_id?: string | null }).attachment_file_id)
       }
     })
   }, [messages])

@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
     // studio's chat.
     msgQ = supabaseAdmin
       .from('messages')
-      .select('*')
+      .select('*, message_attachments(file_id)')
       .eq('project_id', projectId)
       .eq('organization_id', orgId)
       .order('created_at', { ascending: true })
@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
     if (!room) return NextResponse.json({ messages: [] })
     msgQ = supabaseAdmin
       .from('messages')
-      .select('*')
+      .select('*, message_attachments(file_id)')
       .eq('room_id', room.id)
       .is('project_id', null)
       .order('created_at', { ascending: true })
@@ -65,9 +65,13 @@ export async function GET(req: NextRequest) {
 
   // Batch 14 item 5: deleted rows keep their place (tombstone) but their
   // content does not leave the server.
-  const scrubbed = (messages ?? []).map((m) =>
+  const withFk = (messages ?? []).map((row) => {
+    const { message_attachments, ...m } = row as typeof row & { message_attachments?: { file_id: string }[] }
+    return { ...m, attachment_file_id: message_attachments?.[0]?.file_id ?? null }
+  })
+  const scrubbed = withFk.map((m) =>
     m.deleted_at || m.is_deleted
-      ? { ...m, body: '', attachment_url: null, attachment_name: null }
+      ? { ...m, body: '', attachment_url: null, attachment_name: null, attachment_file_id: null }
       : m
   )
 
