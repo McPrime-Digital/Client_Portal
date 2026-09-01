@@ -294,12 +294,15 @@ async function resolveRecipients(
 // live conversation never spams those channels per message. Best-effort.
 export async function pushMessageAlert(opts: {
   recipient: 'admin' | 'client'
-  projectId: string
+  /** the thread's tag; null/absent for a General-thread (untagged) message */
+  projectId?: string | null
+  /** resolves the recipients when there is no project (Batch 14 item 8) */
+  clientId?: string | null
   senderName: string
   preview: string
 }): Promise<void> {
   try {
-    const states = await resolveRecipients(opts.recipient, opts.projectId)
+    const states = await resolveRecipients(opts.recipient, opts.projectId, opts.clientId)
     if (states.length === 0) return
 
     const url = deepLink(opts.recipient, 'messages', opts.projectId)

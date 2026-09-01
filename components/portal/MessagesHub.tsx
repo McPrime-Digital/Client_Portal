@@ -23,8 +23,10 @@ import { acquireHub, releaseHub, type ThreadMessagePayload } from '@/lib/realtim
 type Thread = {
   id: string
   title: string
-  status: string
-  type: string
+  status: string | null
+  type: string | null
+  /** the company's room-level conversation — id is "room:<clientId>" */
+  isGeneral?: boolean
   latestMessage: Message | null
   unreadCount: number
 }
@@ -693,13 +695,15 @@ export default function MessagesHub({
                     </div>
                   </div>
 
-                  {/* Status */}
-                  <div className="mt-2">
-                    <StatusBadge
-                      status={thread.status}
-                      size="xs"
-                    />
-                  </div>
+                  {/* Status — General threads carry none */}
+                  {!thread.isGeneral && (
+                    <div className="mt-2">
+                      <StatusBadge
+                        status={thread.status ?? ''}
+                        size="xs"
+                      />
+                    </div>
+                  )}
                 </button>
               )
             })}
@@ -775,10 +779,12 @@ export default function MessagesHub({
                     {activeThread.title}
                   </p>
                   <div className="flex items-center gap-2 mt-1">
-                    <StatusBadge
-                      status={activeThread.status}
-                      size="xs"
-                    />
+                    {!activeThread.isGeneral && (
+                      <StatusBadge
+                        status={activeThread.status ?? ''}
+                        size="xs"
+                      />
+                    )}
                     <span
                       className="flex items-center gap-1.5 text-xs"
                       style={{
@@ -832,7 +838,7 @@ export default function MessagesHub({
                     projectId={activeThread.id}
                     onSendMessage={sendMessage}
                     readOnly={!canSend}
-                    onUploadAttachment={handleAttachmentUpload}
+                    onUploadAttachment={activeThread.isGeneral ? undefined : handleAttachmentUpload}
                     onDeleteMessage={handleDeleteMessage}
                     onEditMessage={handleEditMessage}
                     onTyping={handleClientTyping}

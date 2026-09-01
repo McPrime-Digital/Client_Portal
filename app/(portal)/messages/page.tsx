@@ -48,6 +48,16 @@ export default async function MessagesPage() {
 
   let threads: any[] = []
 
+  // Unread is per PERSON now (message_read_state, A-7): this member's own
+  // watermark, not whether ANYONE at the company opened the thread. Computed
+  // unconditionally — a project-less client still has a room and a badge.
+  const unread = await clientUnread(supabaseAdmin, {
+    userId: user.id,
+    clientId: client.id,
+    historyFrom: access?.historyFrom ?? null,
+    visibleProjectIds: access?.projectIds ?? null,
+  })
+
   if (projectIds.length > 0) {
     // Get latest message per project (respecting the member's history cutoff)
     let latestQ = supabaseAdmin
@@ -58,15 +68,6 @@ export default async function MessagesPage() {
     if (access?.historyFrom) latestQ = latestQ.gte('created_at', access.historyFrom)
     const { data: latestRaw } = await latestQ
     const latestMessages = scrubDeleted(latestRaw)
-
-    // Unread is per PERSON now (message_read_state, A-7): this member's own
-    // watermark, not whether ANYONE at the company opened the thread.
-    const { byProject: unreadByProject } = await clientUnread(supabaseAdmin, {
-      userId: user.id,
-      clientId: client.id,
-      historyFrom: access?.historyFrom ?? null,
-      visibleProjectIds: access?.projectIds ?? null,
-    })
 
     // Build thread map
     const latestByProject: Record<string, any> = {}
@@ -79,7 +80,7 @@ export default async function MessagesPage() {
     threads = visibleProjects.map((p) => ({
       ...p,
       latestMessage: latestByProject[p.id] ?? null,
-      unreadCount: unreadByProject[p.id] ?? 0,
+      unreadCount: unread.byProject[p.id] ?? 0,
     }))
 
     // Sort: threads with messages first, then by latest
@@ -93,6 +94,35 @@ export default async function MessagesPage() {
       )
     })
   }
+
+  // The General thread (Batch 14 item 8): the company's room-level
+  // conversation — how a freshly onboarded client messages the studio before
+  // any project exists, and where untagged traffic lives after. Always
+  // pinned first; its id ("room:<clientId>") is understood by every route.
+  let generalLatest: Record<string, unknown> | null = null
+  if (unread.roomId) {
+    let gq = supabaseAdmin
+      .from('messages')
+      .select('*')
+      .eq('room_id', unread.roomId)
+      .is('project_id', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+    if (access?.historyFrom) gq = gq.gte('created_at', access.historyFrom)
+    generalLatest = scrubDeleted((await gq).data)[0] ?? null
+  }
+  threads = [
+    {
+      id: `room:${client.id}`,
+      isGeneral: true,
+      title: 'General',
+      status: null,
+      type: null,
+      latestMessage: generalLatest,
+      unreadCount: unread.general,
+    },
+    ...threads,
+  ]
 
   return (
     <MessagesHub

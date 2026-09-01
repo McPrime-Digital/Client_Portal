@@ -216,24 +216,33 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: 'Your role is view-only — messaging is not available.' }, { status: 403 })
         }
         const {
-          project_id,
+          project_id: rawProjectId,
           body: msgBody,
           attachment_url,
           attachment_name,
           attachment_file_id,
           reply_to_id,
         } = body
+        // "room:<clientId>" is the General thread's id — an untagged send.
+        const project_id =
+          typeof rawProjectId === 'string' && rawProjectId.startsWith('room:')
+            ? null
+            : rawProjectId ?? null
 
-        // Verify this project belongs to this client
-        const { data: project } = await supabaseAdmin
-          .from('projects')
-          .select('id')
-          .eq('id', project_id)
-          .eq('client_id', client.id)
-          .single()
-
-        if (!project) {
-          return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+        // A message needs a room, not a project (Batch 14 item 8): with no
+        // project_id it lands untagged in the company's General thread — how
+        // a freshly onboarded client talks to their studio before any project
+        // exists. When a tag IS supplied it must be the client's own project.
+        if (project_id) {
+          const { data: project } = await supabaseAdmin
+            .from('projects')
+            .select('id')
+            .eq('id', project_id)
+            .eq('client_id', client.id)
+            .single()
+          if (!project) {
+            return NextResponse.json({ error: 'Project not found' }, { status: 404 })
+          }
         }
 
         // The reference is verified against the files table and the sending
@@ -273,7 +282,8 @@ export async function POST(req: NextRequest) {
         // stay on the 5h nudge cron so a live thread never spams them.
         await pushMessageAlert({
           recipient: 'admin',
-          projectId: project_id,
+          projectId: project_id ?? null,
+          clientId: client.id,
           senderName: auth.memberName,
           preview: messagePreview({ body: msgBody, attachment_name }),
         })

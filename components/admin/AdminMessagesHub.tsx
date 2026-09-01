@@ -22,8 +22,10 @@ import { acquireHub, releaseHub, type ThreadMessagePayload } from '@/lib/realtim
 type Thread = {
   id: string
   title: string
-  status: string
-  type: string
+  status: string | null
+  type: string | null
+  /** the company's room-level conversation — id is "room:<clientId>" */
+  isGeneral?: boolean
   client?: {
     id: string
     name: string
@@ -731,7 +733,7 @@ export default function AdminMessagesHub({
                   otherName={activeThread.client?.name}
                   projectId={activeThread.id}
                   onSendMessage={sendMessage}
-                  onUploadAttachment={handleAttachmentUpload}
+                  onUploadAttachment={activeThread.isGeneral ? undefined : handleAttachmentUpload}
                   onDeleteMessage={handleDeleteMessage}
                   onEditMessage={handleEditMessage}
                   onTyping={handleAdminTyping}

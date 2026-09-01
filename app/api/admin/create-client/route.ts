@@ -3,6 +3,7 @@ import { createClient as createServerClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { sendTenantInvite } from '@/lib/email/invite'
+import { ensureClientRoom } from '@/lib/messageRooms'
 
 // ONE message for every "this address is taken" outcome, whether the address
 // belongs to this tenant's client, to another tenant's, or to an auth user we
@@ -244,6 +245,15 @@ export async function POST(req: NextRequest) {
         organization_id: client.organization_id,
       },
     })
+
+    // Day-one conversation (Batch 14 item 8): the company's room exists from
+    // the moment the company does, so a client with no project yet can still
+    // message their studio. Best-effort — a room also mints on first send.
+    try {
+      await ensureClientRoom(supabaseAdmin, client.organization_id, client.id, user.id)
+    } catch (e) {
+      console.error('[create-client] room mint failed (first send will retry):', e)
+    }
 
     return NextResponse.json({
       success: true,

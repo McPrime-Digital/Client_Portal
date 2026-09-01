@@ -28,9 +28,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const projectId = req.nextUrl.searchParams.get('project_id')
-  const clientId = req.nextUrl.searchParams.get('client_id')
-  const scope = req.nextUrl.searchParams.get('scope')
+  // General threads travel as project_id="room:<clientId>" or as
+  // ?client_id=…&scope=general — both mean the untagged room conversation.
+  const rawProjectId = req.nextUrl.searchParams.get('project_id')
+  const fromPrefix = rawProjectId?.startsWith('room:') ? rawProjectId.slice(5) : null
+  const projectId = fromPrefix ? null : rawProjectId
+  const clientId = fromPrefix ?? req.nextUrl.searchParams.get('client_id')
+  const scope = fromPrefix ? 'general' : req.nextUrl.searchParams.get('scope')
   const orgId = userOrgId(user)
 
   let msgQ
@@ -86,8 +90,11 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { project_id, client_id, mode, scope } = await req.json()
-  const general = scope === 'general'
+  const { project_id: rawProjectId, client_id: rawClientId, mode, scope: rawScope } = await req.json()
+  const fromPrefix = typeof rawProjectId === 'string' && rawProjectId.startsWith('room:') ? rawProjectId.slice(5) : null
+  const project_id = fromPrefix ? null : rawProjectId
+  const client_id = fromPrefix ?? rawClientId
+  const general = fromPrefix != null || rawScope === 'general'
   if (!project_id && !(general && client_id)) {
     return NextResponse.json({ error: 'Missing project_id' }, { status: 400 })
   }

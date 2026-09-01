@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { ensureClientRoom } from '@/lib/messageRooms'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { sendTenantInvite } from '@/lib/email/invite'
 import { rosterName } from '@/lib/team'
@@ -139,6 +140,14 @@ export async function POST(request: NextRequest) {
     await supabaseAdmin.auth.admin.updateUserById(invitedUser.id, {
       app_metadata: { role: 'client', client_id: clientRecord.id, organization_id: clientRecord.organization_id },
     })
+
+    // 2c. Day-one conversation (Batch 14 item 8): the room exists before the
+    // first project does. Best-effort — a room also mints on first send.
+    try {
+      await ensureClientRoom(supabaseAdmin, clientRecord.organization_id, clientRecord.id, user.id)
+    } catch (e) {
+      console.error('[invite-client] room mint failed (first send will retry):', e)
+    }
 
     // 3. Link to project if provided
     if (projectId && clientRecord) {

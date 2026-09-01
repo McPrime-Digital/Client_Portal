@@ -16,9 +16,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const projectId = req.nextUrl.searchParams.get('project_id')
+  // The General thread travels as project_id="room:<clientId>" (the hubs
+  // treat it as just another thread id) or as ?scope=general — both mean
+  // the untagged room-level conversation.
+  const rawProjectId = req.nextUrl.searchParams.get('project_id')
   const scope = req.nextUrl.searchParams.get('scope')
-  if (!projectId && scope !== 'general') {
+  const general = scope === 'general' || (rawProjectId?.startsWith('room:') ?? false)
+  const projectId = general ? null : rawProjectId
+  if (!projectId && !general) {
     return NextResponse.json({ error: 'Missing project_id' }, { status: 400 })
   }
 
@@ -104,8 +109,9 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { project_id, mode, scope } = await req.json()
-  const general = scope === 'general'
+  const { project_id: rawProjectId, mode, scope } = await req.json()
+  const general = scope === 'general' || (typeof rawProjectId === 'string' && rawProjectId.startsWith('room:'))
+  const project_id = general ? null : rawProjectId
   if (!project_id && !general) {
     return NextResponse.json({ error: 'Missing project_id' }, { status: 400 })
   }

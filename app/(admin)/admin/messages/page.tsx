@@ -39,6 +39,9 @@ export default async function AdminMessagesPage() {
   const projectIds = (projects ?? []).map((p) => p.id)
   let threads: any[] = []
 
+  // Per-person unread across the org (message_read_state, A-7).
+  const unread = await orgUnread(supabaseAdmin, { userId: user.id, orgId })
+
   if (projectIds.length > 0) {
     const { data: latestRaw } = await supabaseAdmin
       .from('messages')
@@ -48,12 +51,7 @@ export default async function AdminMessagesPage() {
       .order('created_at', { ascending: false })
     const latestMessages = scrubDeleted(latestRaw)
 
-    // Per-person unread (message_read_state, A-7): this admin's watermark —
-    // a colleague opening the thread no longer marks it read for them.
-    const { byProject: unreadByProject } = await orgUnread(supabaseAdmin, {
-      userId: user.id,
-      orgId,
-    })
+    const unreadByProject = unread.byProject
 
     const latestByProject: Record<string, any> = {}
     for (const msg of latestMessages ?? []) {
@@ -79,6 +77,49 @@ export default async function AdminMessagesPage() {
       )
     })
   }
+
+  // General threads (Batch 14 item 8): every company room gets one — the
+  // untagged conversation, and the ONLY thread a project-less client has.
+  const { data: rooms } = await supabaseAdmin
+    .from('message_rooms')
+    .select('id, client_id, clients(id, name, company)')
+    .eq('organization_id', orgId)
+    .eq('kind', 'client')
+    .is('deleted_at', null)
+  const { data: untaggedRaw } = await supabaseAdmin
+    .from('messages')
+    .select('*')
+    .eq('organization_id', orgId)
+    .is('project_id', null)
+    .order('created_at', { ascending: false })
+  const untagged = scrubDeleted(untaggedRaw)
+  const latestByRoom: Record<string, Record<string, unknown>> = {}
+  for (const m of untagged) {
+    if (m.room_id && !latestByRoom[m.room_id]) latestByRoom[m.room_id] = m
+  }
+  const generalThreads = (rooms ?? []).map((r) => ({
+    id: `room:${r.client_id}`,
+    isGeneral: true,
+    title: 'General',
+    status: null,
+    type: null,
+    client: r.clients,
+    clients: r.clients,
+    latestMessage: latestByRoom[r.id] ?? null,
+    unreadCount: unread.generalByClient[r.client_id] ?? 0,
+  }))
+  // Generals join the same activity sort — a quiet General sinks, a busy one
+  // surfaces, exactly like a project thread.
+  threads = [...generalThreads, ...threads]
+  threads.sort((a, b) => {
+    if (!a.latestMessage && !b.latestMessage) return 0
+    if (!a.latestMessage) return 1
+    if (!b.latestMessage) return -1
+    return (
+      new Date(b.latestMessage.created_at).getTime() -
+      new Date(a.latestMessage.created_at).getTime()
+    )
+  })
 
   return (
     <AdminMessagesHub

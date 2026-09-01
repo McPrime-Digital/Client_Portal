@@ -91,6 +91,7 @@ async function belongsToOrg(orgId: string, body: Record<string, unknown>): Promi
     ['tasks', body.task_id],
     ['project_phases', body.phase_id],
     ['files', body.file_id],
+    ['clients', body.client_id],
   ]
   for (const [table, id] of targets) {
     if (typeof id !== 'string' || !id) continue
@@ -112,6 +113,14 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json()
   const { action } = body
+
+  // "room:<clientId>" is a General-thread id (Batch 14 item 8), not a project
+  // uuid — normalize BEFORE the tenant gate so belongsToOrg checks the CLIENT
+  // row it actually names.
+  if (typeof body.project_id === 'string' && body.project_id.startsWith('room:')) {
+    body.client_id = body.project_id.slice(5)
+    delete body.project_id
+  }
 
   // 404 rather than 403: a foreign uuid must not be confirmed as existing.
   if (!(await belongsToOrg(userOrgId(user), body))) {
@@ -154,6 +163,7 @@ export async function POST(req: NextRequest) {
       case 'send_message': {
         const {
           project_id,
+          client_id,
           body: msgBody,
           attachment_url,
           attachment_name,
@@ -161,14 +171,24 @@ export async function POST(req: NextRequest) {
           reply_to_id,
         } = body
         // The room is the COMPANY's conversation; project_id rides along as
-        // the tag (S3-core §1.1). belongsToOrg has already proven the project
-        // is this tenant's, so its client resolves inside the same org.
-        const { data: proj } = await supabaseAdmin
-          .from('projects')
-          .select('client_id')
-          .eq('id', project_id)
-          .single()
-        if (!proj) return NextResponse.json({ error: 'Not found.' }, { status: 404 })
+        // the tag (S3-core §1.1) — and is OPTIONAL since Batch 14 item 8: a
+        // send with client_id and no project lands untagged in the General
+        // thread, which is how the studio answers a project-less client.
+        // belongsToOrg has proven whichever id arrived is this tenant's.
+        let roomClientId: string | null = null
+        if (project_id) {
+          const { data: proj } = await supabaseAdmin
+            .from('projects')
+            .select('client_id')
+            .eq('id', project_id)
+            .single()
+          if (!proj) return NextResponse.json({ error: 'Not found.' }, { status: 404 })
+          roomClientId = proj.client_id
+        } else if (client_id) {
+          roomClientId = client_id
+        } else {
+          return NextResponse.json({ error: 'Missing project_id or client_id' }, { status: 400 })
+        }
         const sendOrgId = userOrgId(user)
         // Verified against the files table + this org; stored fields derive
         // from the verified row, never the body (I-6, closes HANDOFF §8.3.1).
@@ -180,15 +200,15 @@ export async function POST(req: NextRequest) {
         } catch (e) {
           return NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid attachment' }, { status: 400 })
         }
-        const room = proj.client_id
-          ? await ensureClientRoom(supabaseAdmin, sendOrgId, proj.client_id, user.id)
+        const room = roomClientId
+          ? await ensureClientRoom(supabaseAdmin, sendOrgId, roomClientId, user.id)
           : await ensureCrewRoom(supabaseAdmin, sendOrgId, user.id)
         const { data, error } = await supabaseAdmin
           .from('messages')
           .insert({
             room_id: room.id,
             organization_id: sendOrgId, // stamped, never defaulted (T-5)
-            project_id,
+            project_id: project_id ?? null,
             sender_id: user.id,
             sender_role: 'admin',
             sender_name: studioName,
@@ -207,9 +227,10 @@ export async function POST(req: NextRequest) {
         // stay on the 5h nudge cron so a live thread never spams them.
         await pushMessageAlert({
           recipient: 'client',
-          projectId: project_id,
+          projectId: project_id ?? null,
+          clientId: roomClientId,
           senderName: studioName,
-          preview: messagePreview({ body: msgBody, attachment_name }),
+          preview: messagePreview({ body: msgBody, attachment_name: att?.name ?? null }),
         })
         return NextResponse.json({ message: data })
       }
