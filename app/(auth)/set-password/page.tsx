@@ -7,6 +7,8 @@ import { createClient } from '@/lib/supabase/client'
 import type { Session } from '@supabase/supabase-js'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import AuthShell from '@/components/auth/AuthShell'
+import TenantLogo from '@/components/TenantLogo'
+import type { WelcomeContext } from '@/lib/welcomeContext'
 
 export default function SetPasswordPage() {
   const router = useRouter()
@@ -20,6 +22,11 @@ export default function SetPasswordPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const [sessionReady, setSessionReady] = useState(false)
+
+  // WHO WAS INVITED, resolved the moment the token becomes a session.
+  // Null until then — and null is the honest state, not a loading artefact:
+  // before the token is adopted there is no tenant to name (S0-B §2).
+  const [ctx, setCtx] = useState<WelcomeContext | null>(null)
   // One client instance for the whole page, so the session established
   // here from the invite link is the same one used at submit. Creating
   // a second client in handleSubmit is what caused "Auth session missing".
@@ -88,6 +95,20 @@ export default function SetPasswordPage() {
     }
   }, [supabase])
 
+  // The session cookie is what the endpoint reads, so this runs after the
+  // token has been adopted rather than alongside it. Failure is silent by
+  // design: the page falls back to neutral copy and the form still works —
+  // branding must never stand between someone and their password.
+  useEffect(() => {
+    if (!sessionReady) return
+    let active = true
+    fetch('/api/auth/welcome-context')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (active && j) setCtx(j as WelcomeContext) })
+      .catch(() => {})
+    return () => { active = false }
+  }, [sessionReady])
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
@@ -120,8 +141,10 @@ export default function SetPasswordPage() {
     // client_members is the sole membership authority.)
 
     setSuccess(true)
-    // New clients land in the self-serve onboarding wizard first.
-    setTimeout(() => router.push('/onboarding'), 1500)
+    // Routed by AUDIENCE, resolved server-side. This used to push everyone to
+    // /onboarding, which sent crew through a redirect chain to the studio and —
+    // worse — dropped invited teammates into their company's setup wizard.
+    setTimeout(() => router.push(ctx?.next ?? '/dashboard'), 1500)
   }
 
   const inputStyle = {
@@ -141,6 +164,29 @@ export default function SetPasswordPage() {
     },
   }
 
+  // WHAT THIS INVITE ACTUALLY IS. Three different relationships, and the copy
+  // says which — a studio bringing on a client company, that company adding a
+  // colleague, and a studio adding crew are not the same event and should not
+  // read as one generic "set up your account".
+  const studio = ctx?.studioName ?? null
+  const company = ctx?.companyName ?? null
+  const heading =
+    ctx?.audience === 'crew'
+      ? studio ? `Join the ${studio} team` : 'Join the team'
+      : ctx?.audience === 'client_teammate'
+        ? company ? `Join ${company} on the portal` : 'Join your team on the portal'
+        : ctx?.audience === 'client_owner'
+          ? 'Set up your client portal'
+          : 'Set up your account'
+  const blurb =
+    ctx?.audience === 'crew'
+      ? `Choose a password and you will land in the workspace${studio ? `, with the projects ${studio} has assigned you` : ''}.`
+      : ctx?.audience === 'client_teammate'
+        ? `Choose a password to join${company ? ` ${company}'s` : ' your team\u2019s'} workspace${studio ? ` with ${studio}` : ''}.`
+        : ctx?.audience === 'client_owner'
+          ? `Choose a password to open the portal${studio ? ` ${studio} has set up for you` : ''}.`
+          : 'Create your password to access your portal.'
+
   return (
     // The mark sits centred ABOVE the card, and the form sits inside it — the
     // same frame as /login. This screen used to put its content straight onto
@@ -149,7 +195,17 @@ export default function SetPasswordPage() {
     //
     // Still the PRODUCT's mark, not a studio's: the invite token is not
     // exchanged until submit, so the tenant is unknowable here (S0-B §2).
-    <AuthShell>
+    <AuthShell
+      mark={
+        // Before the token is adopted there is no session and so no tenant —
+        // the product's mark is the honest answer (S0-B §2). After it, the
+        // studio is known and this is THEIR client's first screen, so it wears
+        // their brand. AuthShell falls back to the product mark when null.
+        ctx && studio
+          ? <TenantLogo name={studio} logoUrl={ctx.studioLogoUrl ?? null} height={56} rounded="rounded-2xl" />
+          : undefined
+      }
+    >
       <>
         {/* Page loading state */}
         {pageLoading && (
@@ -217,7 +273,7 @@ export default function SetPasswordPage() {
               className="font-display text-2xl font-bold"
               style={{ color: 'hsl(var(--foreground))' }}
             >
-              Account created! 🎉
+              {ctx?.firstName ? `You\u2019re all set, ${ctx.firstName}` : 'You\u2019re all set'}
             </h1>
             <div
               className="p-4 rounded-lg text-sm flex items-center 
@@ -229,7 +285,11 @@ export default function SetPasswordPage() {
               }}
             >
               <Loader2 size={14} className="animate-spin flex-shrink-0" />
-              Setting up your workspace...
+              {ctx?.audience === 'crew'
+                ? 'Opening your workspace…'
+                : company
+                  ? `Opening ${company}\u2019s portal…`
+                  : 'Opening your portal…'}
             </div>
           </div>
         )}
@@ -241,10 +301,10 @@ export default function SetPasswordPage() {
               className="font-display text-2xl font-bold mb-2"
               style={{ color: 'hsl(var(--foreground))' }}
             >
-              Set up your account
+              {heading}
             </h1>
             <p className="text-sm mb-8" style={{ color: 'hsl(var(--muted-foreground))' }}>
-              Create your password to access your portal.
+              {blurb}
             </p>
 
             <form onSubmit={handleSubmit} className="space-y-5">

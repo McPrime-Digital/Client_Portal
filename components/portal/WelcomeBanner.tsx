@@ -6,11 +6,24 @@ import { X, Sparkles } from 'lucide-react'
 export default function WelcomeBanner({
   clientName,
   studioName,
+  companyName,
+  memberRole,
   dismissed,
 }: {
   clientName: string
   /** The studio whose portal this is (S0-B §3) — never the product's name. */
   studioName: string
+  /** The client company this person belongs to. */
+  companyName?: string | null
+  /**
+   * Owner or colleague. The two arrived here by different routes and are
+   * being welcomed to different things: an owner was invited BY the studio and
+   * this portal is their company's; a teammate was invited by their own
+   * colleague and is joining a workspace that already existed. One greeting for
+   * both is how a product reads as generic (the owner's word: "done just like
+   * that").
+   */
+  memberRole?: 'owner' | 'approver' | 'member' | 'viewer'
   // Server-persisted: once the client closes the banner it never returns.
   dismissed: boolean
 }) {
@@ -85,29 +98,42 @@ export default function WelcomeBanner({
             font-bold"
             style={{ color: 'hsl(var(--foreground))' }}
           >
-            Welcome to {studioName},{' '}
-            {clientName.split(' ')[0]} 👋
+            {memberRole && memberRole !== 'owner' && companyName
+              ? <>Welcome to {companyName}&rsquo;s workspace, {clientName.split(' ')[0]} 👋</>
+              : <>Welcome to {studioName}, {clientName.split(' ')[0]} 👋</>}
           </h2>
           <p
             className="text-sm mt-1.5
             leading-relaxed"
             style={{ color: 'hsl(var(--muted-foreground))' }}
           >
-            This is your project portal — your
-            single place to track progress,
-            review files, send messages, and
-            manage payments. Your project
-            manager will keep everything
-            updated here.
+            {memberRole && memberRole !== 'owner'
+              ? <>You have been added to this workspace by your team. It is where{' '}
+                  {studioName} keeps progress, files, approvals and conversation for
+                  your projects — what you can see and do here follows the access
+                  your team gave you.</>
+              : <>This is your project portal — your single place to track progress,
+                  review files, send messages, and manage payments. Your project
+                  manager at {studioName} will keep everything updated here.</>}
           </p>
           <div className="flex flex-wrap gap-4
             mt-3">
-            {[
-              { label: 'View your projects', icon: '📁' },
-              { label: 'Download deliverables', icon: '⬇️' },
-              { label: 'Send a message', icon: '💬' },
-              { label: 'Pay invoices', icon: '💳' },
-            ].map((item) => (
+            {/* Invoices are owner/approver-gated (clientCan 'invoices'), so
+                promising a viewer they can pay one is a broken promise in the
+                first thing they read. */}
+            {(memberRole && memberRole !== 'owner'
+              ? [
+                  { label: 'View your projects', icon: '📁' },
+                  { label: 'Download deliverables', icon: '⬇️' },
+                  { label: 'Send a message', icon: '💬' },
+                ]
+              : [
+                  { label: 'View your projects', icon: '📁' },
+                  { label: 'Download deliverables', icon: '⬇️' },
+                  { label: 'Send a message', icon: '💬' },
+                  { label: 'Pay invoices', icon: '💳' },
+                ]
+            ).map((item) => (
               <div
                 key={item.label}
                 className="flex items-center

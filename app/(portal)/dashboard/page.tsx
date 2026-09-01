@@ -388,7 +388,13 @@ export default async function DashboardPage() {
       />
 
       {/* Welcome banner — stays until the client closes it themselves */}
-      <WelcomeBanner clientName={access?.name ?? client?.name ?? 'there'} studioName={brand.name} dismissed={welcomeDismissed} />
+      <WelcomeBanner
+        clientName={access?.name ?? client?.name ?? 'there'}
+        studioName={brand.name}
+        companyName={(client as { company?: string | null } | null)?.company ?? client?.name ?? null}
+        memberRole={access?.role}
+        dismissed={welcomeDismissed}
+      />
 
       {/* Pending approvals — items awaiting the client's review */}
       {pendingApprovals.length > 0 && (

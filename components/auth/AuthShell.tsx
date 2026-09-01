@@ -11,6 +11,14 @@ type Props = {
   footer?: React.ReactNode
   /** Widen for a form with more than a couple of fields. */
   width?: 'sm' | 'md'
+  /**
+   * Overrides the product mark. Used by `/set-password` once the invite token
+   * has become a session: at that point the studio IS knowable, and the page
+   * is their client's first screen, so it should wear their brand rather than
+   * ours. Absent, the product mark stands — which is the correct answer on
+   * every screen that genuinely has no tenant (S0-B §2).
+   */
+  mark?: React.ReactNode
 }
 
 /**
@@ -24,11 +32,14 @@ type Props = {
  * different product from the one they signed into afterwards. Three
  * near-identical layouts would drift again, so there is one.
  *
- * The mark is the PRODUCT's, and stays so: these pages run before a session
- * exists, so there is no tenant to resolve (S0-B §2, Batch 9.7). The tenant's
- * brand starts at the first authenticated screen.
+ * The mark defaults to the PRODUCT's, because these pages run before a session
+ * exists and there is no tenant to resolve (S0-B §2, Batch 9.7). `/set-password`
+ * is the one exception, and only for the half of its life where it stops being
+ * true: once the invite token becomes a session the studio IS knowable, and
+ * that page is their client's first screen. It passes `mark` then, and not
+ * before.
  */
-export default function AuthShell({ children, footer, width = 'sm' }: Props) {
+export default function AuthShell({ children, footer, width = 'sm', mark }: Props) {
   return (
     <div className="relative min-h-screen bg-background flex items-center justify-center px-4 py-12">
       {/* Depth behind the card, not on it. */}
@@ -41,9 +52,7 @@ export default function AuthShell({ children, footer, width = 'sm' }: Props) {
           width === 'md' ? 'max-w-[480px]' : 'max-w-[420px]'
         }`}
       >
-        <div className="mb-8">
-          <ProductMark size={64} showName />
-        </div>
+        <div className="mb-8">{mark ?? <ProductMark size={64} showName />}</div>
 
         <div className="w-full rounded-2xl border border-border bg-card p-8 shadow-2xl shadow-black/20">
           {children}
