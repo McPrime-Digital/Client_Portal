@@ -32,6 +32,15 @@ import {
 import { Pin, Bookmark, Settings2, Users, MoreVertical, Search as SearchIcon } from 'lucide-react'
 import { mentionTrigger, setMentionTrigger, type MentionTrigger } from '@/lib/mentionClient'
 import { projectColor } from '@/lib/projectColor'
+import {
+  wallpaperPattern,
+  setWallpaperPattern,
+  wallpaperIntensity,
+  setWallpaperIntensity,
+  INTENSITY_ALPHA,
+  type WallpaperPattern,
+  type WallpaperIntensity,
+} from '@/lib/chatPrefs'
 import type { ThreadMessagePayload } from '@/lib/realtimeBus'
 
 export type RoomFilter =
@@ -129,6 +138,8 @@ export default function RoomThread({
   const [stickyTag, setStickyTag] = useState<string | null>(() => {
     try { return localStorage.getItem(`genreline-room-tag:${clientId}`) } catch { return null }
   })
+  const [wpPattern, setWpPattern] = useState<WallpaperPattern>(() => wallpaperPattern())
+  const [wpIntensity, setWpIntensity] = useState<WallpaperIntensity>(() => wallpaperIntensity())
   const setSticky = useCallback((id: string | null) => {
     setStickyTag(id)
     try {
@@ -1017,6 +1028,7 @@ export default function RoomThread({
             composerTagOptions={Object.entries(projectMeta).map(([id, m]) => ({ id, ...m }))}
             composerTagLocked={filter.kind === 'project'}
             onComposerTagChange={setSticky}
+            wallpaper={{ pattern: wpPattern, alpha: INTENSITY_ALPHA[wpIntensity] }}
             onLoadOlder={loadOlder}
             hasMore={hasMore}
             loadingOlder={loadingOlder}
@@ -1201,6 +1213,54 @@ export default function RoomThread({
                           ))}
                         </div>
                       </div>
+                      <div
+                        className="w-full px-3 py-2.5 rounded-xl border"
+                        style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))' }}
+                      >
+                        <p className="text-sm mb-2" style={{ color: 'hsl(var(--foreground))' }}>Wallpaper</p>
+                        <div className="flex gap-1.5 mb-2">
+                          {([
+                            ['film', 'Film'],
+                            ['dots', 'Dots'],
+                            ['grid', 'Grid'],
+                            ['none', 'None'],
+                          ] as const).map(([value, label]) => (
+                            <button
+                              key={value}
+                              onClick={() => { setWpPattern(value); setWallpaperPattern(value) }}
+                              className="flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                              style={{
+                                backgroundColor: wpPattern === value ? 'hsl(var(--primary))' : 'hsl(var(--card))',
+                                color: wpPattern === value ? 'hsl(var(--primary-foreground))' : 'hsl(var(--foreground))',
+                                border: '1px solid ' + (wpPattern === value ? 'hsl(var(--primary))' : 'hsl(var(--border))'),
+                              }}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="flex gap-1.5">
+                          {([
+                            ['faint', 'Faint'],
+                            ['medium', 'Medium'],
+                            ['bold', 'Bold'],
+                          ] as const).map(([value, label]) => (
+                            <button
+                              key={value}
+                              disabled={wpPattern === 'none'}
+                              onClick={() => { setWpIntensity(value); setWallpaperIntensity(value) }}
+                              className="flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40"
+                              style={{
+                                backgroundColor: wpIntensity === value ? 'hsl(var(--primary) / 0.15)' : 'hsl(var(--card))',
+                                color: wpIntensity === value ? 'hsl(var(--primary))' : 'hsl(var(--foreground))',
+                                border: '1px solid ' + (wpIntensity === value ? 'hsl(var(--primary) / 0.5)' : 'hsl(var(--border))'),
+                              }}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                       <button
                         onClick={() => {
                           const next = !focusOn
@@ -1334,6 +1394,7 @@ export default function RoomThread({
                   onTyping={handleTyping}
                   onRecordingChange={handleRecordingChange}
                   onSendVoice={allowAttachments ? sendVoice : undefined}
+                  wallpaper={{ pattern: wpPattern, alpha: INTENSITY_ALPHA[wpIntensity] }}
                   mentionTargets={mentionTargets}
                   mentionCandidates={mentionCandidates}
                   projectMeta={projectMeta}

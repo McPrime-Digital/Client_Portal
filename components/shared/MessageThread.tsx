@@ -74,6 +74,8 @@ type Props = {
   composerTagOptions?: { id: string; title: string; color: string }[]
   composerTagLocked?: boolean
   onComposerTagChange?: (id: string | null) => void
+  /** viewer's wallpaper (Batch 17): pattern class + intensity alpha */
+  wallpaper?: { pattern: 'film' | 'dots' | 'grid' | 'none'; alpha: number }
   /** project colour-bonding (Batch 16): tagged bubbles carry their project's colour */
   projectMeta?: Record<string, { title: string; color: string }>
 }
@@ -181,6 +183,7 @@ export default function MessageThread({
   composerTagOptions = [],
   composerTagLocked = false,
   onComposerTagChange,
+  wallpaper = { pattern: 'film', alpha: 0.75 },
   projectMeta = {},
 }: Props) {
   const [newMessage, setNewMessage] = useState('')
@@ -450,7 +453,12 @@ export default function MessageThread({
       )}
 
       {/* Messages Area */}
-      <div ref={scrollBoxRef} onScroll={handleScroll} className="tl-chat-bg flex-1 overflow-y-auto px-4 py-3 min-h-0 scrollbar-thin relative">
+      <div
+        ref={scrollBoxRef}
+        onScroll={handleScroll}
+        className={`${wallpaper.pattern !== 'none' ? `tl-chat-bg tl-wp-${wallpaper.pattern}` : ''} flex-1 overflow-y-auto px-4 py-3 min-h-0 scrollbar-thin relative`}
+        style={{ ['--tl-wp-a' as string]: wallpaper.alpha }}
+      >
         {loadingOlder && (
           <div className="flex justify-center py-2">
             <Loader2 size={14} className="animate-spin" style={{ color: 'hsl(var(--text-faint))' }} />

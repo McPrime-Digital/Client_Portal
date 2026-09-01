@@ -536,13 +536,36 @@ svg .gl-rise, svg .gl-pop { transform-origin: 50% 50%; }
   .tl-msg-in { animation: none; }
 }
 
-/* ── Chat wallpaper (Batch 16.8) ──────────────────────────────────────────
-   The WhatsApp move, in Genreline's world: a faint film-production doodle
-   tile — clapperboard, film strip, reel, camera, star — at ~5% neutral so
-   it reads as texture on light AND dark, never as content. Bubbles float
-   on a slightly recessed ground. */
+/* ── Chat wallpaper (Batch 17) ────────────────────────────────────────────
+   Theme-aware and viewer-adjustable: dark strokes on light, light on dark
+   (the 16.8 single-gray tile vanished on light portals — the "wallpaper
+   only shows in the org" bug). Pattern + intensity come from chat settings:
+   the pattern class and the --tl-wp-a var are set by MessageThread. */
 .tl-chat-bg {
+  position: relative;
   background-color: hsl(var(--background) / 0.45);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cg fill='none' stroke='%23888888' stroke-width='1.3' opacity='0.028'%3E%3Cpath d='M14 22h30v20H14z'/%3E%3Cpath d='M14 22l5-8 7 2-5 8zm12-6l7 2-5 8-7-2zm14 4l4 1-5 8'/%3E%3Crect x='96' y='14' width='40' height='18' rx='2'/%3E%3Cpath d='M100 18h4v3h-4zm8 0h4v3h-4zm8 0h4v3h-4zm8 0h4v3h-4zm-24 8h4v3h-4zm8 0h4v3h-4zm8 0h4v3h-4zm8 0h4v3h-4z'/%3E%3Ccircle cx='150' cy='80' r='13'/%3E%3Ccircle cx='150' cy='80' r='3'/%3E%3Ccircle cx='150' cy='71' r='2.5'/%3E%3Ccircle cx='150' cy='89' r='2.5'/%3E%3Ccircle cx='141' cy='80' r='2.5'/%3E%3Ccircle cx='159' cy='80' r='2.5'/%3E%3Cpath d='M30 90h26v18H30zM56 95l10-5v18l-10-5z'/%3E%3Ccircle cx='38' cy='86' r='5'/%3E%3Ccircle cx='50' cy='86' r='5'/%3E%3Cpath d='M96 130l3.5 7 8 1-5.7 5.6 1.3 8-7.1-3.7-7.1 3.7 1.3-8-5.7-5.6 8-1z'/%3E%3Ccircle cx='40' cy='150' r='9'/%3E%3Cpath d='M37 145.5l8 4.5-8 4.5z'/%3E%3Cpath d='M120 55l2 4 4 .6-3 2.8.7 4-3.7-2-3.7 2 .7-4-3-2.8 4-.6z'/%3E%3Cpath d='M75 45c2-3 6-3 8 0M160 130c2-3 6-3 8 0M14 62c2-3 6-3 8 0'/%3E%3C/g%3E%3C/svg%3E");
+}
+.tl-chat-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: var(--tl-wp-a, 0.75);
+}
+.tl-wp-film::before {
   background-size: 180px 180px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cg fill='none' stroke='%23445066' stroke-width='1.3' opacity='0.10'%3E%3Cpath d='M14 22h30v20H14z'/%3E%3Cpath d='M14 22l5-8 7 2-5 8zm12-6l7 2-5 8-7-2zm14 4l4 1-5 8'/%3E%3Crect x='96' y='14' width='40' height='18' rx='2'/%3E%3Cpath d='M100 18h4v3h-4zm8 0h4v3h-4zm8 0h4v3h-4zm8 0h4v3h-4zm-24 8h4v3h-4zm8 0h4v3h-4zm8 0h4v3h-4zm8 0h4v3h-4z'/%3E%3Ccircle cx='150' cy='80' r='13'/%3E%3Ccircle cx='150' cy='80' r='3'/%3E%3Ccircle cx='150' cy='71' r='2.5'/%3E%3Ccircle cx='150' cy='89' r='2.5'/%3E%3Ccircle cx='141' cy='80' r='2.5'/%3E%3Ccircle cx='159' cy='80' r='2.5'/%3E%3Cpath d='M30 90h26v18H30zM56 95l10-5v18l-10-5z'/%3E%3Ccircle cx='38' cy='86' r='5'/%3E%3Ccircle cx='50' cy='86' r='5'/%3E%3Cpath d='M96 130l3.5 7 8 1-5.7 5.6 1.3 8-7.1-3.7-7.1 3.7 1.3-8-5.7-5.6 8-1z'/%3E%3Ccircle cx='40' cy='150' r='9'/%3E%3Cpath d='M37 145.5l8 4.5-8 4.5z'/%3E%3Cpath d='M120 55l2 4 4 .6-3 2.8.7 4-3.7-2-3.7 2 .7-4-3-2.8 4-.6z'/%3E%3Cpath d='M75 45c2-3 6-3 8 0M160 130c2-3 6-3 8 0M14 62c2-3 6-3 8 0'/%3E%3C/g%3E%3C/svg%3E");
+}
+.dark .tl-wp-film::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cg fill='none' stroke='%23d8dce6' stroke-width='1.3' opacity='0.075'%3E%3Cpath d='M14 22h30v20H14z'/%3E%3Cpath d='M14 22l5-8 7 2-5 8zm12-6l7 2-5 8-7-2zm14 4l4 1-5 8'/%3E%3Crect x='96' y='14' width='40' height='18' rx='2'/%3E%3Cpath d='M100 18h4v3h-4zm8 0h4v3h-4zm8 0h4v3h-4zm8 0h4v3h-4zm-24 8h4v3h-4zm8 0h4v3h-4zm8 0h4v3h-4zm8 0h4v3h-4z'/%3E%3Ccircle cx='150' cy='80' r='13'/%3E%3Ccircle cx='150' cy='80' r='3'/%3E%3Ccircle cx='150' cy='71' r='2.5'/%3E%3Ccircle cx='150' cy='89' r='2.5'/%3E%3Ccircle cx='141' cy='80' r='2.5'/%3E%3Ccircle cx='159' cy='80' r='2.5'/%3E%3Cpath d='M30 90h26v18H30zM56 95l10-5v18l-10-5z'/%3E%3Ccircle cx='38' cy='86' r='5'/%3E%3Ccircle cx='50' cy='86' r='5'/%3E%3Cpath d='M96 130l3.5 7 8 1-5.7 5.6 1.3 8-7.1-3.7-7.1 3.7 1.3-8-5.7-5.6 8-1z'/%3E%3Ccircle cx='40' cy='150' r='9'/%3E%3Cpath d='M37 145.5l8 4.5-8 4.5z'/%3E%3Cpath d='M120 55l2 4 4 .6-3 2.8.7 4-3.7-2-3.7 2 .7-4-3-2.8 4-.6z'/%3E%3Cpath d='M75 45c2-3 6-3 8 0M160 130c2-3 6-3 8 0M14 62c2-3 6-3 8 0'/%3E%3C/g%3E%3C/svg%3E");
+}
+.tl-wp-dots::before {
+  background-image: radial-gradient(hsl(var(--foreground) / 0.14) 1px, transparent 1.4px);
+  background-size: 20px 20px;
+}
+.tl-wp-grid::before {
+  background-image:
+    linear-gradient(hsl(var(--foreground) / 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--foreground) / 0.08) 1px, transparent 1px);
+  background-size: 24px 24px;
 }
