@@ -484,8 +484,7 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                   filter={filter}
                   currentName={adminName}
                   otherName={active.name}
-                  allowAttachments={filter.kind === 'project'}
-                  externalRow={externalRow}
+                          externalRow={externalRow}
                   onActivity={onActivity}
                   onTypingChange={setClientTyping}
                 />

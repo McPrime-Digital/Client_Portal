@@ -280,7 +280,6 @@ export default function MessagesHub({
           currentName={clientName}
           otherName={studioName}
           canSend={canSend}
-          allowAttachments={filter.kind === 'project'}
           externalRow={externalRow}
           onTypingChange={setAdminTyping}
         />
