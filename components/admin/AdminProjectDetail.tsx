@@ -508,6 +508,9 @@ export default function AdminProjectDetail({
       const { data: { user } } = await supabase.auth.getUser()
       const optimistic: Message = {
         id: `temp-${Date.now()}`,
+        room_id: null,
+        thread_root_id: null,
+        deleted_at: null,
         project_id: project.id,
         sender_id: user!.id,
         sender_role: 'admin',

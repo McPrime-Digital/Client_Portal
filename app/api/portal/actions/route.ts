@@ -6,6 +6,7 @@ import { messagePreview } from '@/lib/messagePreview'
 import { recordActivity } from '@/lib/logActivity.server'
 import { clientMembershipOf, type ClientRole } from '@/lib/team'
 import { clientCan } from '@/lib/permissions'
+import { ensureClientRoom } from '@/lib/messageRooms'
 
 // Verify the calling user belongs to a client company — the primary login
 // (clients.user_id) or an invited teammate (client_members). Returns the
@@ -89,7 +90,12 @@ export async function POST(req: NextRequest) {
           trimmedNote ? `Note: ${trimmedNote}` : null,
           attachment_name ? `📎 File: ${attachment_name}` : null,
         ].filter(Boolean).join('\n')
+        // The room is the company's single conversation; project_id rides
+        // along as the tag (S3-core §1.1). Org stamped, never defaulted (T-5).
+        const approvalRoom = await ensureClientRoom(supabaseAdmin, client.organization_id, client.id, user.id)
         await supabaseAdmin.from('messages').insert({
+          room_id: approvalRoom.id,
+          organization_id: client.organization_id,
           project_id: task.project_id,
           sender_id: user.id,
           sender_role: 'client',
@@ -158,7 +164,10 @@ export async function POST(req: NextRequest) {
           `Note: ${trimmed}`,
           attachment_name ? `📎 File: ${attachment_name}` : null,
         ].filter(Boolean).join('\n')
+        const changesRoom = await ensureClientRoom(supabaseAdmin, client.organization_id, client.id, user.id)
         await supabaseAdmin.from('messages').insert({
+          room_id: changesRoom.id,
+          organization_id: client.organization_id, // stamped, never defaulted (T-5)
           project_id: task.project_id,
           sender_id: user.id,
           sender_role: 'client',
@@ -214,9 +223,12 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: 'Project not found' }, { status: 404 })
         }
 
+        const room = await ensureClientRoom(supabaseAdmin, client.organization_id, client.id, user.id)
         const { data, error } = await supabaseAdmin
           .from('messages')
           .insert({
+            room_id: room.id,
+            organization_id: client.organization_id, // stamped, never defaulted (T-5)
             project_id,
             sender_id: user.id,
             sender_role: 'client',

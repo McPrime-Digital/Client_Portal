@@ -410,6 +410,9 @@ export default function ProjectDetail({
     // Optimistic insert — show the message instantly, then reconcile.
     const optimistic: Message = {
       id: `temp-${Date.now()}`,
+      room_id: null,
+      thread_root_id: null,
+      deleted_at: null,
       project_id: project.id,
       // The company id, matching MessagesHub.tsx:364. This read the deprecated
       // clients.user_id pointer; the value is optimistic-only and replaced by the

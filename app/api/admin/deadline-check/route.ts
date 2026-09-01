@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { tenantBrand } from '@/lib/tenantBrand'
 import { createAdminNotification, createNotification } from '@/lib/notify'
+import { ensureClientRoom, ensureCrewRoom } from '@/lib/messageRooms'
 
 // Auto-proceed window: if a client doesn't respond to an approval gate within
 // this many days of it entering review, we record "response not received" and
@@ -63,7 +64,12 @@ export async function POST() {
         .eq('id', t.id)
 
       // Record it in the project chat as proof, and notify both sides.
+      // Room = the company's conversation; project_id is the tag (S3-core §1.1).
+      const room = clientId
+        ? await ensureClientRoom(supabaseAdmin, orgId, clientId, user.id)
+        : await ensureCrewRoom(supabaseAdmin, orgId, user.id)
       await supabaseAdmin.from('messages').insert({
+        room_id: room.id,
         project_id: t.project_id,
         organization_id: orgId,   // stamped, not defaulted (T-5)
         sender_id: user.id,

@@ -363,6 +363,9 @@ export default function MessagesHub({
 
     const optimistic: Message = {
       id: `temp-${Date.now()}`,
+      room_id: null,
+      thread_root_id: null,
+      deleted_at: null,
       project_id: activeThread.id,
       sender_id: clientId,
       sender_role: 'client',

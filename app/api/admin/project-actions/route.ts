@@ -8,6 +8,7 @@ import { createNotification, clientIdForProject, pushMessageAlert } from '@/lib/
 import { messagePreview } from '@/lib/messagePreview'
 import { recordActivity } from '@/lib/logActivity.server'
 import { seedDefaultTasks, buildPhaseTaskRows, safeCategory } from '@/lib/defaultTasks'
+import { ensureClientRoom, ensureCrewRoom } from '@/lib/messageRooms'
 
 // Records an approval-gate send into the Approvals & Records ledger when a
 // visible approval gate enters review (first send OR a resend for re-approval).
@@ -157,9 +158,24 @@ export async function POST(req: NextRequest) {
           attachment_name,
           reply_to_id,
         } = body
+        // The room is the COMPANY's conversation; project_id rides along as
+        // the tag (S3-core §1.1). belongsToOrg has already proven the project
+        // is this tenant's, so its client resolves inside the same org.
+        const { data: proj } = await supabaseAdmin
+          .from('projects')
+          .select('client_id')
+          .eq('id', project_id)
+          .single()
+        if (!proj) return NextResponse.json({ error: 'Not found.' }, { status: 404 })
+        const sendOrgId = userOrgId(user)
+        const room = proj.client_id
+          ? await ensureClientRoom(supabaseAdmin, sendOrgId, proj.client_id, user.id)
+          : await ensureCrewRoom(supabaseAdmin, sendOrgId, user.id)
         const { data, error } = await supabaseAdmin
           .from('messages')
           .insert({
+            room_id: room.id,
+            organization_id: sendOrgId, // stamped, never defaulted (T-5)
             project_id,
             sender_id: user.id,
             sender_role: 'admin',
@@ -595,7 +611,13 @@ export async function POST(req: NextRequest) {
           trimmedNote ? `Note: ${trimmedNote}` : null,
           attachment_name ? `📎 File: ${attachment_name}` : null,
         ].filter(Boolean).join('\n')
+        const mediaOrgId = userOrgId(user)
+        const mediaRoom = clientId
+          ? await ensureClientRoom(supabaseAdmin, mediaOrgId, clientId, user.id)
+          : await ensureCrewRoom(supabaseAdmin, mediaOrgId, user.id)
         await supabaseAdmin.from('messages').insert({
+          room_id: mediaRoom.id,
+          organization_id: mediaOrgId, // stamped, never defaulted (T-5)
           project_id: task.project_id,
           sender_id: user.id,
           sender_role: 'admin',

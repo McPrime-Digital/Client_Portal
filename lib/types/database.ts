@@ -74,6 +74,9 @@ export type FileRecord = {
 
 export type Message = {
   id: string
+  // Nullable through the Batch 13 transition: rows predating the 0029
+  // backfill carry null until it runs; 0030 sets NOT NULL and this tightens.
+  room_id: string | null
   project_id: string
   sender_id: string
   sender_role: 'admin' | 'client'
@@ -82,10 +85,12 @@ export type Message = {
   read_at: string | null
   delivered_at: string | null
   reply_to_id: string | null
+  thread_root_id: string | null
   attachment_url: string | null
   attachment_name: string | null
   is_deleted: boolean
   edited_at: string | null
+  deleted_at: string | null
   created_at: string
 }
 
