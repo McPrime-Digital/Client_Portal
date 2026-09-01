@@ -36,6 +36,7 @@ order:
 | 8 | `S1-tenancy-and-entitlement.md` | Tenancy model; resolves T-1 … T-5 |
 | 9 | `S2-authorization.md` | Layered authorization; the RLS migration order |
 | 10 | `S-C-communications.md` | **DRAFT** — sender identity across email/SMS/push |
+| 11 | `S3-b-calendar-meetings-documents-seats.md` | **DRAFT** — schema for the four shapes `S-F` §9 moved into v1; sequenced after `S3-core`, **which is not written yet** |
 
 **Where S0 and S0-A disagree, S0-A wins.** S0 entries were not edited in place — the original
 text stands as the record of what was believed at the time, and reading S0 alone will give you
