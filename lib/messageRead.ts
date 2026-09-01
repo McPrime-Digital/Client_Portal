@@ -27,6 +27,21 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 type Wm = { room_id: string; last_read_at: string }
 
+/**
+ * Batch 14 item 5 (A-2's interim exposure): a deleted message's row keeps
+ * its place so the tombstone renders, but its content must not leave the
+ * server until the purge destroys it. Applied by every server read that
+ * ships message rows; RLS takes over for authenticated reads at migration 10.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function scrubDeleted<T extends Record<string, any>>(rows: T[] | null | undefined): T[] {
+  return (rows ?? []).map((m) =>
+    m.deleted_at || m.is_deleted
+      ? { ...m, body: '', attachment_url: null, attachment_name: null }
+      : m
+  )
+}
+
 export type ClientUnread = {
   total: number
   byProject: Record<string, number>

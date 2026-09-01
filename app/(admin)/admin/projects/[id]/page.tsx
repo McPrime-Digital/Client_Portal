@@ -2,6 +2,7 @@ import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { tenantBrand } from '@/lib/tenantBrand'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { scrubDeleted } from '@/lib/messageRead'
 import { redirect, notFound } from 'next/navigation'
 import AdminProjectDetail from '@/components/admin/AdminProjectDetail'
 import RealtimeRefresh from '@/components/shared/RealtimeRefresh'
@@ -152,7 +153,7 @@ export default async function AdminProjectDetailPage({
         phases={phases ?? []}
         tasks={tasks ?? []}
         files={files ?? []}
-        initialMessages={messages ?? []}
+        initialMessages={scrubDeleted(messages)}
         involvement={involvement}
         studioName={brand.name}
       />

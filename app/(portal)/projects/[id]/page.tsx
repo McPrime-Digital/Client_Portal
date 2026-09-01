@@ -2,6 +2,7 @@ import { clientCan } from '@/lib/permissions'
 import { portalClientId, portalAccess } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { scrubDeleted } from '@/lib/messageRead'
 import { tenantBrand } from '@/lib/tenantBrand'
 import { redirect, notFound } from 'next/navigation'
 import ProjectDetail from '@/components/portal/ProjectDetail'
@@ -119,7 +120,7 @@ export default async function ProjectDetailPage({
         phases={phases ?? []}
       tasks={tasks ?? []}
       files={files ?? []}
-      initialMessages={messages ?? []}
+      initialMessages={scrubDeleted(messages)}
         client={client}
         studioName={brand.name}
         memberName={access?.name}

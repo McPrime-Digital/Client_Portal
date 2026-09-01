@@ -5,7 +5,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import AdminMessagesHub from
   '@/components/admin/AdminMessagesHub'
-import { orgUnread } from '@/lib/messageRead'
+import { orgUnread, scrubDeleted } from '@/lib/messageRead'
 
 export default async function AdminMessagesPage() {
   const supabase = await createClient()
@@ -40,12 +40,13 @@ export default async function AdminMessagesPage() {
   let threads: any[] = []
 
   if (projectIds.length > 0) {
-    const { data: latestMessages } = await supabaseAdmin
+    const { data: latestRaw } = await supabaseAdmin
       .from('messages')
       .select('*')
       .eq('organization_id', orgId)
       .in('project_id', projectIds)
       .order('created_at', { ascending: false })
+    const latestMessages = scrubDeleted(latestRaw)
 
     // Per-person unread (message_read_state, A-7): this admin's watermark —
     // a colleague opening the thread no longer marks it read for them.

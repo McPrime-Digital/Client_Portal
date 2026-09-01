@@ -3,7 +3,7 @@ import { tenantBrand } from '@/lib/tenantBrand'
 import { portalClientId, portalAccess } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { clientUnread } from '@/lib/messageRead'
+import { clientUnread, scrubDeleted } from '@/lib/messageRead'
 import { redirect } from 'next/navigation'
 import MessagesHub from '@/components/portal/MessagesHub'
 
@@ -56,7 +56,8 @@ export default async function MessagesPage() {
       .in('project_id', projectIds)
       .order('created_at', { ascending: false })
     if (access?.historyFrom) latestQ = latestQ.gte('created_at', access.historyFrom)
-    const { data: latestMessages } = await latestQ
+    const { data: latestRaw } = await latestQ
+    const latestMessages = scrubDeleted(latestRaw)
 
     // Unread is per PERSON now (message_read_state, A-7): this member's own
     // watermark, not whether ANYONE at the company opened the thread.
