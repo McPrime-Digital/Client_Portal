@@ -147,12 +147,12 @@ paying"** (S-V §13).
 
 | ID | Invariant | Status 2026-08-28 |
 |---|---|---|
-| I-1 | Keyset pagination everywhere | **VIOLATES — unchanged by Batch 13.** The keyset *index* now exists (`messages_room_keyset_idx`, 0030); **no query uses it** — messages/files/tasks still load unbounded. The index landing does not upgrade this invariant |
+| I-1 | Keyset pagination everywhere | **VIOLATES — unchanged by Batches 13–14.** The keyset *index* exists (0030); **no query uses it**. Worst named site: `app/(admin)/admin/projects/page.tsx:28` embeds every message row per project to derive a count (reported by 14.3, owned by the hub batch). The hub pages and `lib/messageRead.ts` still fetch org/room-bounded message sets whole |
 | I-2 | Realtime scoped, ≤2 subs/session | **VIOLATES** — the *disclosure* half is closed: presence is `presence:org:${orgId}`, per tenant (7.2). The *budget* half is untouched — ~13 subs on a loaded session, and eight other globally-named channels (sidebars, bells, rosters). S0-A §6 routes it to S2.5 |
 | I-3 | No polling where push exists | **VIOLATES** — 16 `setInterval` sites remain; de-poll is gated on per-surface RLS verification (S0-A §4.2), now unblocked by the harness |
 | I-4 | >5s work runs on a queue | **NOT BUILT** — no queue exists; blocks AI generation jobs (S5) |
 | I-5 | AI calls ceilinged + budget-checked | **PARTIAL, and accurate for the first time.** Fixed (7.1): `hard_stop` defaults **true** (0024, applied) and `getCreditState` treats a *missing* `org_budgets` row as gated — the column default alone changed nothing, because nothing in the app inserts that table. The house org's exemption is now a **stated row**, not a test for McPrime's id (8.5). Not fixed: the **$2 per-call ceiling is unbuilt** — no surface enforces one, so a single call is bounded only by `max_tokens` |
-| I-6 | Ownership server-resolved, never from the body | **PARTIAL** — activity ledger (6.1), team routes (3A + 6.2), edit pages (6.6) fixed; display names now resolve from the roster, not user-editable `user_metadata` (7.8); `portal/actions:225` / `admin/project-actions:123` still write body attachment refs |
+| I-6 | Ownership server-resolved, never from the body | **PARTIAL, improved by 14.4** — activity ledger (6.1), team routes (3A + 6.2), edit pages (6.6), roster display names (7.8), and now **attachment references**: every message-insert site resolves the ref to a `files` row server-side and refuses one outside the caller's tenant (`lib/messageAttachments.ts`); stored fields derive from the verified row. Still body-trusted: `attachment_file_id` into `activity_log.meta` at the approve/request sites (display-only), and the remaining unvalidated route bodies (I-7) |
 | I-7 | Schema validation at API boundaries | **PARTIAL** — first zod boundary is `app/api/activity/route.ts` (the pattern to copy); 40 route handlers unvalidated |
 | I-8 | No service role on user-session paths | **VIOLATES — but ratcheted (7.9).** 71 modules touch the service role (69 importers + 2 inline constructors), all allowlisted in `lib/supabase/admin-allowlist.mjs` and split PERMANENT / TRANSITIONAL. Two ESLint rules hold the line: the import, and naming `SUPABASE_SERVICE_ROLE_KEY` inline. **No file has migrated yet** — that is S2 §7 steps 4-6 |
 | I-9 | Explicit tenant filter on every query | **PARTIAL** — studio reads (3A), edit pages (6.6), heartbeat (B2), `orgRolesOf` (7.5) scoped; `lib/sms.ts` now takes the org from its caller (8.4) and both client-creation paths stamp it (8.1). Other inserts still lean on column DEFAULTs — the `tenantScope()` helper (S1 §8.1) is not built |
@@ -234,7 +234,8 @@ The audited era, each batch with what it *found*:
 | 10.4 | Second Resend send path collapsed | 10.3's own commit message claimed `send.ts` was "extracted from notify.ts". It was not — `send.ts` was *added* and notify.ts kept its `fetch`, ending in `catch {}`. Every notification email since 10.2 went out through the copy **without** the error sink |
 | 12.1 | Shell overhaul, both portals: liquid-glass squircle chrome (`--glow` token + glass utilities in `globals.css`), Geist + Schibsted Grotesk, `/studio` lands on **crew**, space landings become animated stages (`SpaceShowcase.tsx`) instead of feature grids, premium icon swaps, studio mobile drawer, route-level loading skeletons | The studio had **no mobile navigation at all** — `StudioSidebar` rendered unconditionally and squeezed every page on a phone; only the portal had a drawer. And "4-second navigation" is two problems, not one: dev-mode compile dominates (prefetch is disabled in dev), but the studio layout also serialized three independent round trips, and the space landings paid auth + roster queries to draw a grid duplicating the rail |
 | 12.2 | **Workspace → Suite** (slug + label; proxy redirect for old URLs; the `workspace` OrgCap keeps its name — it lives in `extra_caps` rows); CRM · Pipeline / Lead-Gen gated to plan feature `internal.pipeline` (house only, sidebar + `requireOrgFeature`); rail badges are live counts only (unread client messages, `changes_requested` gates, overdue invoices — ★ markers gone); active space tile double-bevel + gold type; **erasure built** (`lib/erasure.ts` + `erase-person` route + Settings → Data & Privacy, plan feature `platform.erasure`); `update-client` org-scoped (the last unscoped admin write); `delete-client` deletes the R2/storage blobs before the rows; crew re-invite returns a clean 409 instead of a raw 23505 (pre-check before the invite email fires); AD-003/deleteUser doc drift corrected in S0-conformance + S0-A | The conformance and amendment docs still asserted four live `deleteUser` call sites that Batch 6.2 had removed — anyone designing from those docs was designing against dead code. `tenantBrand` already read `organizations.plan` and threw it away; exposing it made every plan gate free. And the crew-invite 23505 fired **after** `sendTenantInvite` — the person got a working invite email while the roster insert died |
-| 13 (the brief was titled "Batch 10" — renumbered, the repo already had one) | **The message room moves to the client company.** S3-core + S3-core-A committed; `message_rooms` (0027); room columns on `messages` (0028); the 190-row backfill (0029); NOT NULL + thread trigger + room-scoped RLS + A-4's FK defusal (0030) — **all four applied to production**, 0027–0029 by the owner, 0030 by the agent under the new Management-API grant. All six send sites resolve their room via `lib/messageRooms.ts` and stamp `organization_id` (five had leaned on the column DEFAULT — A-7/T-5); the delete route stops blanking bodies (A-2); harness grows 10 → **14 assertions, 0 vacuous** | Item 0's audit became **S3-core-A** before any migration was printed: `edited_at` and `reply_to_id` already existed; soft delete existed as a body-blanking boolean (**data loss** — a 90-day grace restoring nothing); `project_id` was ON DELETE CASCADE (**data loss** once it became a tag); `sender_role`'s CHECK blocked crew rooms. The backfill matched its printed prediction exactly — 7 rooms, 190 messages, 0 unresolvable, 0 org changes, 7 reply chains walked. The seeder was silently incompatible with the NOT NULL (its message upserts carried no `room_id`) — found by running it, fixed in 13.7 ||
+| 13 (the brief was titled "Batch 10" — renumbered, the repo already had one) | **The message room moves to the client company.** S3-core + S3-core-A committed; `message_rooms` (0027); room columns on `messages` (0028); the 190-row backfill (0029); NOT NULL + thread trigger + room-scoped RLS + A-4's FK defusal (0030) — **all four applied to production**, 0027–0029 by the owner, 0030 by the agent under the new Management-API grant. All six send sites resolve their room via `lib/messageRooms.ts` and stamp `organization_id` (five had leaned on the column DEFAULT — A-7/T-5); the delete route stops blanking bodies (A-2); harness grows 10 → **14 assertions, 0 vacuous** | Item 0's audit became **S3-core-A** before any migration was printed: `edited_at` and `reply_to_id` already existed; soft delete existed as a body-blanking boolean (**data loss** — a 90-day grace restoring nothing); `project_id` was ON DELETE CASCADE (**data loss** once it became a tag); `sender_role`'s CHECK blocked crew rooms. The backfill matched its printed prediction exactly — 7 rooms, 190 messages, 0 unresolvable, 0 org changes, 7 reply chains walked. The seeder was silently incompatible with the NOT NULL (its message upserts carried no `room_id`) — found by running it, fixed in 13.7 |
+| 14 | **Unread becomes a question about a person, and the message layer grows up.** `message_read_state` (0031, backfilled 7 rows exactly as pre-counted), six supporting tables (0032), the attachment FK + 11-row backfill (0033 — 11 in, 11 out, 0 unresolved, 0 tenant mismatches) — **all applied and verified live**. All twelve unread sites read `lib/messageRead.ts`; the watermark routes advance per-user state while still writing `read_at` (drops in migration 12); the nudge cron regroups by room and only nudges what someone actually hasn't read; every read path scrubs deleted bodies server-side (item 5); `verifyAttachment` makes a forged attachment ref fail at send (closes §8.3.1). Harness 15/15. **Owner items shipped in the same batch:** the General thread (`room:<clientId>` understood by every route; rooms minted at onboarding; project-less sends both sides), the thread-bus realtime unification (pages broadcast sends + typing on `thread:<id>`; hubs gain filtered replication fallbacks with id-dedupe), the subtle WebAudio chime with device mute, and the premium MessageThread pass (grouping, tails, glass composer, gold rail) | The click-test's "3-minute delay" was NOT replication — a live probe delivered in 1.8s under the new policies to both personas. It was wiring: project pages never broadcast their sends, the hubs had no replication subscription (built when "RLS-starved for admins" was true — it no longer is), and typing rode a different channel name on pages than hubs. Also: MessageThread filtered deleted messages entirely (the "tombstone" never rendered), and General-thread attachments are deliberately disabled — the presign scope requires a project, and widening `lib/uploadScope` deserves review, not a side door ||
 
 ## 7. Current state (verified 2026-08-28 after Batch 8; Batch 9 deltas from the
 code 2026-08-30, with one live read; Batch 10 deltas from the code 2026-08-31)
@@ -242,13 +243,13 @@ code 2026-08-30, with one live read; Batch 10 deltas from the code 2026-08-31)
 - **Branch:** `throughline` (main ⊆ throughline, fast-forward). Not renamed —
   S0-B §6 excludes the branch, and renaming it is a remote/CI change, not a
   code one.
-- **Migrations applied: 0000–0030. Nothing is printed-and-pending.** Verified
+- **Migrations applied: 0000–0033. Nothing is printed-and-pending.** Verified
   by live probe 2026-09-01: `client_members.last_seen_at` exists (0025),
   `clients.user_id` is gone (0026), `message_rooms` exists with room-scoped
   policies (0027, 0030), `messages` carries `room_id NOT NULL`,
   `thread_root_id`, `body_tsv`, `deleted_at` (0028–0030). The owner applied
-  0025/0026 on 2026-08-31 and 0027–0029 on 2026-09-01; **0030 was applied by
-  the agent** under the Management-API grant (below). The 0029 backfill's
+  0025/0026 on 2026-08-31 and 0027–0029 on 2026-09-01; **0030–0033 were
+  applied by the agent** under the Management-API grant (below). The 0029 backfill's
   verification matched its printed prediction exactly: 7 client rooms, 0 crew,
   190 messages repointed, 0 unresolvable, 0 org changes, 7 reply chains.
 - **The agent can now apply migrations.** The owner added
@@ -259,19 +260,20 @@ code 2026-08-30, with one live read; Batch 10 deltas from the code 2026-08-31)
 - **Access token hook:** enabled in production, verified from a live JWT. 0026
   changes its body; step 2 (verify a client's token still carries
   `organization_id`) is the check that matters after applying it.
-- **Harness:** `npm run test:rls` → **14 pass / 0 fail / 0 vacuous / 0 error**
-  (was 10; Batch 13.7 added S3-core §7's four — rooms sealed through both
-  policy doors, untagged visibility as a POSITIVE assertion, sibling-tag
-  isolation with control 2, history_from on untagged rows). `message_rooms`
-  joined the every-table sweeps (assertions 6 and 9). The seeder now
-  get-or-creates the two harness rooms and stamps `room_id` on every seeded
-  message — without that it could no longer seed a fresh environment at all.
-- **Owed from Batch 13, not yet done: the A-8 click-test.** The 0030 policy
-  replacement changed what an authenticated session can SELECT, and replication
-  fails silently when a policy is stricter than a subscriber's filter. Send a
-  message from each side of a project thread and watch it arrive live on the
-  other (both hubs, no refresh) — `ProjectDetail.tsx:225` and
-  `AdminProjectDetail.tsx:246` are the two filtered subscriptions at risk.
+- **Harness:** `npm run test:rls` → **15 pass / 0 fail / 0 vacuous / 0 error**
+  (10 from S2 §6; 11–14 from Batch 13.7; 15 from Batch 14.6 — a member cannot
+  read a colleague's `message_read_state`, and neither can the ORG OWNER; the
+  probe checks both doors because the surveillance surface §7.8 worries about
+  is precisely the boss reading when you opened a message). `message_rooms`
+  is in the every-table sweeps; the seeder get-or-creates rooms, stamps
+  `room_id` on every message, and writes two watermark rows for assertion 15.
+- **The A-8 click-test is DONE** (owner, 2026-09-01) — it surfaced the
+  wiring gaps recorded in the Batch 14 row above, and a scripted probe
+  cleared replication itself (1.8s delivery, both policy doors). Owed now
+  instead: a fresh click-test after the Batch 14 deploy — send both ways in
+  a project thread AND in a General thread, hub and project page, expecting
+  ~1–2s delivery, live typing, the chime, and the rail badge moving without
+  a refresh. The 0030 policy
 - **`tsc --noEmit`:** clean. **Lint: 352** — 353 through Batch 9, then **down
   one** in 10.3 when the old `resend-invite` and its `catch (err: any)` were
   rewritten. Verified by diffing the full finding list against committed HEAD,
@@ -333,21 +335,22 @@ S2 §11 q4 close with it.
 
 ### 8.3 Live defects / security
 
-1. Body-trusted attachment refs (I-6; AD-004-R item 2). **Still open — S3-core
-   migrations 6–7 own it.** The Batch 13 item 0 audit sized the backfill:
-   11 messages carry an attachment, formats are `r2::` (8) and
-   `client-uploads::` (3), and **all 11 resolve to a `files` row by exact
-   `file_path` match** — migration 7 is an 11-row join, not a decision. The
-   line numbers this entry used to cite drifted with the 13.5 edits; the sites
-   are the `attachment_url` fields of the send/approve/attach inserts in
-   `portal/actions` and `admin/project-actions`.
-2. Message delete orphans the file + R2 object (AD-004-R item 3). **Still
-   open — the §4.2 purge owns destruction now.** Batch 13.5b changed the
-   route's shape: deletion sets `deleted_at` and keeps body + attachment
-   (A-2), so nothing is destroyed at delete time to orphan — but nothing
-   purges yet either. Interim exposure, recorded in A-2 and the 13.5b commit:
-   until migration 10's RLS sweep, a deleted message's body still travels in
-   thread payloads (the UI renders the tombstone).
+1. **CLOSED in 14.4 — structurally.** Migration 0033 backfilled
+   `message_attachments` (11 in, 11 out, 0 unresolved, 0 tenant mismatches)
+   and `lib/messageAttachments.ts` now resolves every send's reference to a
+   `files` row server-side, refuses one outside the caller's tenant, and
+   stores fields derived from the verified row — the body's strings are never
+   echoed. A forged reference 400s. `attachment_url` keeps being written
+   (derived, verified) until migration 12 drops it. Do not re-open.
+2. Message delete orphans the file + R2 object (AD-004-R item 3). **Half
+   remains: the purge.** The payload half CLOSED in 14.3/14.5 —
+   `scrubDeleted()` strips body + attachment fields from every server read
+   that ships message rows (both thread GETs, both project pages, both hub
+   previews), so deleted content no longer travels while the row awaits the
+   §4.2 purge. What still does not exist: the purge itself (migration 11) —
+   the R2 object has no destruction path, and RLS still shows deleted rows to
+   authenticated sessions until migration 10's sweep (replication payloads of
+   the delete UPDATE included, which only reach prior readers).
 3. The `$2` per-call AI ceiling (S0 §4) is **unbuilt**. 7.1 fixed the *budget*
    half of I-5; nothing bounds a single call but `max_tokens: 2000` in
    `app/api/studio/muse/route.ts:141`.
@@ -604,32 +607,31 @@ is why SMS dedupes by number) · provenance tables have zero reads/writes
 
 ## 9. What to do next
 
-**S3-core is written, amended (S3-core-A) and its migrations 1–4 are live.**
-The message room model is in production: rooms exist, every send writes one,
-RLS scopes by room, and the harness proves it at 14/14.
+**S3-core migrations 1–7 are live** (0027–0033): rooms, per-user read state,
+the supporting tables, the attachment FK. The message layer is per-person,
+project-less-capable, realtime-unified, and harness-proven at 15/15.
 
-Immediate, owed from Batch 13:
+Immediate:
 
-1. **The A-8 click-test** (§7 above) — five minutes in two browsers, and the
-   only verification a policy-vs-replication failure has.
-2. Nothing else is pending against the database. 0000–0030 applied, verified.
+1. **Deploy the Batch 14 push, then the fresh click-test** (§7 above) — both
+   thread kinds, both directions, expecting ~1–2s delivery, live typing, the
+   chime, and a rail badge that moves without a refresh.
+2. Nothing is pending against the database. 0000–0033 applied, verified.
 
-**Then the rest of the S3-core sequence, in its §6 order — schema next, hub
-after:**
+**Then, in order:**
 
-- **Migration 5** — `message_read_state` + backfill from `read_at`. Kills the
-  per-company watermark defect (A-7): today one teammate reading marks the
-  whole company read at every one of the twelve count sites.
-- **Migrations 6–7** — supporting tables + the 11-row attachment backfill
-  (§8.3 item 1 — sized, trivial).
-- **Batch 11 of the messaging plan: the hub reads by room.** Read paths still
-  key on `project_id` (deliberately — item 5 left them); the company-room UI,
-  keyset pagination on `messages_room_keyset_idx` (I-1's first real surface),
-  and the thread UI all land there.
+- **The hub batch — the room becomes the primary unit.** Room-first thread
+  UI (dissolves the transitional cross-thread watermark trade stated in
+  `lib/messageRead.ts`), keyset pagination on `messages_room_keyset_idx`
+  (I-1's first real query — and the named worst site,
+  `(admin)/admin/projects/page.tsx:28`), reactions/pins/saves/mentions UI on
+  the 0032 tables, `message_room_prefs` settings surface (sound + level per
+  room), General-thread attachments (widen `lib/uploadScope` deliberately),
+  and the client-portal settings spec the owner asked for.
 - **Migrations 8–9** — approvals engine tables; file version stacking.
-- **Migrations 10–12** — `deleted_at` sweep across policies (+ the deleted-
-  message payload exposure closes, §8.3 item 2), purge + tombstone functions,
-  then the destructive drops (`read_at`, `is_deleted`, `sender_role`,
+- **Migrations 10–12** — `deleted_at` policy sweep (closes §8.3.2's RLS
+  half), purge + tombstone functions (closes its R2 half), then the
+  destructive drops (`read_at`, `is_deleted`, `sender_role`,
   `attachment_url` — deploy first, drop second, reload).
 
 Independent of S3-core and available any time: the `$2` per-call ceiling
@@ -674,18 +676,22 @@ studio creates work too, which they would not have.
 
 1. **Migration runner** — which tool, and when (S6). `_archive/README.md`
    rule 2 binds whatever is chosen.
-2. **Crew project-scoping default** for a new member — all projects or none
-   until scoped? (S1 §10.3; client side is permissive, freelance-bench logic
-   argues restrictive.)
+2. **ANSWERED by `S3-b` §4.1 (Batch 14 item 7):** crew members default
+   `scope_mode='all'`, collaborators default scoped — written as a stated
+   value at invite time. The tension §11 worried about was a missing
+   DISTINCTION (employee vs collaborator), not a real trade-off. Closes with
+   the seat-class work that builds it.
 3. **Does the archetype axis affect billing?** (S1 §10.4 → S3.)
-4. **Document types** (screenplay/treatment/bible) before FDX, or accept
-   rework (S0-A §4.7 → AD-005).
+4. **ANSWERED by `S-F` §8 decision 1 (Batch 14 item 7):** distinct document
+   types before FDX. `documents.kind` is additive and cheap; S3-core §9.3
+   flags it so Script Design's batch does not forget it.
 5. **`(admin)` route group** — its pages are canonical modules re-exported by
    studio wrappers (6.6 confirmed), so "delete or retain" is really "where do
    canonical modules live" (S4). 13 of the 71 service-role modules are in it.
-6. **Whether a browser-callable activity endpoint should exist at all** —
-   server-side emission as a side effect of the real action is the stronger
-   shape (6.1 report → S3).
+6. **ANSWERED by `S3-core` §5 (Batch 14 item 7):** no. Ledger rows are
+   written server-side as a side effect of the action they record;
+   `lib/logActivity.ts` (browser) is deleted when the approvals engine lands.
+   `S-F` §8 decision 4 settled it.
 7. **The `$2` per-call AI ceiling** (new, from 7.1) — where it is enforced, and
    what "confirm above" means in a streaming UI. S0 §4 fixes the number; nothing
    fixes the mechanism.

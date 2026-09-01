@@ -100,9 +100,10 @@ Note: dynamic-route `params` and `next/headers` `cookies()` are async (Promises)
 - `npm run lint` — ESLint flat config (`eslint.config.mjs`, extends `eslint-config-next`
   core-web-vitals + typescript)
 
-There is no test framework configured — no test script, no runner, no test files. Do not
-invent one or claim tests passed. (S0 AD-001 makes an RLS test harness a prerequisite for the
-authorization migration; it does not exist yet.)
+There is no unit-test framework configured. The one test surface is the RLS harness —
+`npm run test:rls` (scripts/test-rls.ts, 15 assertions with positive controls, seeded by
+`npm run seed:harness`) — run it after anything touching policies, auth, or tenancy. Do not
+invent another runner or claim tests passed that did not run.
 
 ## Build / lint quirks
 
@@ -298,8 +299,8 @@ into new code.
 
 `supabase/migrations/` holds one numbering scheme (`00NN`); the retired `2026*` scheme is fenced in `_archive/`:
 
-- `0000_baseline_schema.sql` … `0030_messages_room_constraints.sql` — the current source of
-  truth, all applied. `0000` is a full captured baseline that **drops and recreates** the
+- `0000_baseline_schema.sql` … `0033_message_attachments_backfill.sql` — the current source
+  of truth, all applied. `0000` is a full captured baseline that **drops and recreates** the
   core tables.
 - `_archive/20260531_*.sql` … `_archive/20260606_*.sql` (phase1–12 + invoicing) — historical,
   already baked into `0000`, moved to `supabase/migrations/_archive/` (Batch 6.9). Read
