@@ -298,12 +298,36 @@ export async function pushMessageAlert(opts: {
   projectId?: string | null
   /** resolves the recipients when there is no project (Batch 14 item 8) */
   clientId?: string | null
+  /** per-room notification prefs (Batch 15 item 6a) */
+  roomId?: string | null
+  mentionedUserIds?: string[]
   senderName: string
   preview: string
 }): Promise<void> {
   try {
     const states = await resolveRecipients(opts.recipient, opts.projectId, opts.clientId)
     if (states.length === 0) return
+
+    // Room-level preference (item 6a): 'muted' silences the room; 'mentions'
+    // pushes only when this message mentions the person. Applies per USER on
+    // the client side; the admin side pushes org-wide (sendPushToAdmins) and
+    // cannot be filtered per person yet — recorded, not hidden.
+    const prefByUser = new Map<string, string>()
+    if (opts.roomId) {
+      const { data: prefs } = await supabaseAdmin
+        .from('message_room_prefs')
+        .select('user_id, level')
+        .eq('room_id', opts.roomId)
+      for (const p of prefs ?? []) prefByUser.set(p.user_id, p.level)
+    }
+    const mentioned = new Set(opts.mentionedUserIds ?? [])
+    const allowedByPrefs = (userId: string | null | undefined) => {
+      if (!userId) return true
+      const level = prefByUser.get(userId)
+      if (level === 'muted') return false
+      if (level === 'mentions') return mentioned.has(userId)
+      return true
+    }
 
     const url = deepLink(opts.recipient, 'messages', opts.projectId)
     // The sending studio's logo rides along, so the lock screen shows the
@@ -324,7 +348,7 @@ export async function pushMessageAlert(opts: {
       if (!awayFrom(state.lastSeen)) return
       if ((state.prefs['messages'] ?? {}).push === false) return
       if (opts.recipient === 'admin') await sendPushToAdmins(state.orgId, payload)
-      else await sendPushToUser(state.userId, payload)
+      else if (allowedByPrefs(state.userId)) await sendPushToUser(state.userId, payload)
     }))
   } catch {
     // never block the triggering send

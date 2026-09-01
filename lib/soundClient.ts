@@ -41,6 +41,24 @@ export function primeAudio(): void {
   window.addEventListener('keydown', unlock, { once: true })
 }
 
+const FOCUS_KEY = 'genreline-focus'
+
+/** Focus mode (item 6a): this device chimes for nothing; per-room server
+ *  prefs decide push. Mentions still push server-side unless a room is muted. */
+export function focusModeEnabled(): boolean {
+  try {
+    return localStorage.getItem(FOCUS_KEY) === 'on'
+  } catch {
+    return false
+  }
+}
+
+export function setFocusModeEnabled(on: boolean): void {
+  try {
+    localStorage.setItem(FOCUS_KEY, on ? 'on' : 'off')
+  } catch { /* non-persistent */ }
+}
+
 export function messageSoundEnabled(): boolean {
   try {
     return localStorage.getItem(KEY) !== 'off'
@@ -59,7 +77,7 @@ export function setMessageSoundEnabled(on: boolean): void {
 
 export function playMessageChime(): void {
   if (typeof window === 'undefined') return
-  if (!messageSoundEnabled()) return
+  if (!messageSoundEnabled() || focusModeEnabled()) return
   const now = Date.now()
   if (now - lastPlayed < THROTTLE_MS) return
   lastPlayed = now

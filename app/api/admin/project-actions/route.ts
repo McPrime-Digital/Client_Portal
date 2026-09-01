@@ -226,6 +226,7 @@ export async function POST(req: NextRequest) {
         if (error) throw error
         if (att) await writeAttachmentRow(supabaseAdmin, data.id, att.fileId)
         // Mentions: server-parsed, tenant-validated, server-written (I-6).
+        let mentionedIds: string[] = []
         try {
           const mentioned = await writeMentions(supabaseAdmin, {
             messageId: data.id,
@@ -233,6 +234,7 @@ export async function POST(req: NextRequest) {
             orgId: sendOrgId,
             clientId: roomClientId,
           })
+          mentionedIds = mentioned.map((m) => m.id)
           await notifyMentions(supabaseAdmin, {
             roomId: room.id,
             mentionedUsers: mentioned,
@@ -251,6 +253,8 @@ export async function POST(req: NextRequest) {
           recipient: 'client',
           projectId: project_id ?? null,
           clientId: roomClientId,
+          roomId: room.id,
+          mentionedUserIds: mentionedIds,
           senderName: studioName,
           preview: messagePreview({ body: msgBody, attachment_name: att?.name ?? null }),
         })

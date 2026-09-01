@@ -20,8 +20,16 @@ import { createClient } from '@/lib/supabase/client'
 import MessageThread from '@/components/shared/MessageThread'
 import type { Message } from '@/lib/types/database'
 import { uploadFileToR2 } from '@/lib/uploadClient'
-import { playMessageChime, primeAudio } from '@/lib/soundClient'
-import { Pin, Bookmark } from 'lucide-react'
+import {
+  playMessageChime,
+  primeAudio,
+  messageSoundEnabled,
+  setMessageSoundEnabled,
+  playTestChime,
+  focusModeEnabled,
+  setFocusModeEnabled,
+} from '@/lib/soundClient'
+import { Pin, Bookmark, Settings2, Users } from 'lucide-react'
 import type { ThreadMessagePayload } from '@/lib/realtimeBus'
 
 export type RoomFilter =
@@ -92,13 +100,18 @@ export default function RoomThread({
   // room-wide; saves are private (user_id = auth.uid() by RLS construction).
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set())
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set())
-  const [panel, setPanel] = useState<'pins' | 'saves' | null>(null)
+  const [panel, setPanel] = useState<'pins' | 'saves' | 'settings' | 'people' | null>(null)
   const [panelRows, setPanelRows] = useState<Message[]>([])
   const [highlightId, setHighlightId] = useState<string | null>(null)
   // Mentions (item 5): per-viewer resolution rides each page; candidates
   // come from the roster endpoint once per room.
   const [mentionTargets, setMentionTargets] = useState<Record<string, Record<string, { label: string; sub?: string; href?: string } | null>> | null>(null)
   const [mentionCandidates, setMentionCandidates] = useState<{ users: { id: string; name: string }[]; projects: { id: string; title: string }[] } | null>(null)
+  // Per-room notification preference (item 6a) + this device's switches.
+  const [roomLevel, setRoomLevel] = useState<'all' | 'mentions' | 'muted'>('all')
+  const [soundOn, setSoundOn] = useState(() => messageSoundEnabled())
+  const [focusOn, setFocusOn] = useState(() => focusModeEnabled())
+  const [people, setPeople] = useState<{ name: string; role: string; side: 'client' | 'crew' }[]>([])
   const threadRootRef = useRef<string | null>(null)
   useEffect(() => { threadRootRef.current = threadRoot?.id ?? null }, [threadRoot])
 
@@ -482,9 +495,55 @@ export default function RoomThread({
   }, [savedIds])
 
   const openPanel = useCallback(
-    async (which: 'pins' | 'saves') => {
+    async (which: 'pins' | 'saves' | 'settings' | 'people') => {
       setPanel(which)
       setPanelRows([])
+      if (which === 'settings') {
+        const me = ownIdRef.current
+        const roomId = roomIdRef.current
+        if (me && roomId) {
+          // The USER client under Class C RLS — this row is yours alone.
+          const { data } = await createClient()
+            .from('message_room_prefs')
+            .select('level')
+            .eq('room_id', roomId)
+            .eq('user_id', me)
+            .maybeSingle()
+          setRoomLevel((data?.level as 'all' | 'mentions' | 'muted') ?? 'all')
+        }
+        return
+      }
+      if (which === 'people') {
+        // EXISTING roster operations surfaced in place (item 6b) — no new
+        // permission logic; the canonical managers stay the write surface.
+        try {
+          if (role === 'client') {
+            const res = await fetch('/api/portal/team')
+            const json = await res.json()
+            setPeople(
+              (json.members ?? []).map((m: { name: string; role: string }) => ({
+                name: m.name,
+                role: m.role,
+                side: 'client' as const,
+              }))
+            )
+          } else {
+            const [ct, crew] = await Promise.all([
+              fetch(`/api/admin/client-team?clientId=${clientId}`).then((r) => r.json()),
+              fetch('/api/admin/team').then((r) => r.json()),
+            ])
+            setPeople([
+              ...((ct.members ?? []) as { name: string; role: string }[]).map((m) => ({
+                name: m.name, role: m.role, side: 'client' as const,
+              })),
+              ...((crew.members ?? []) as { name: string; role: string }[]).map((m) => ({
+                name: m.name, role: m.role, side: 'crew' as const,
+              })),
+            ])
+          }
+        } catch {}
+        return
+      }
       if (which === 'pins') {
         try {
           const res = await fetch(`${listUrl()}&pins=full`)
@@ -508,6 +567,16 @@ export default function RoomThread({
     },
     [listUrl]
   )
+
+  const setLevel = useCallback(async (level: 'all' | 'mentions' | 'muted') => {
+    const me = ownIdRef.current
+    const roomId = roomIdRef.current
+    if (!me || !roomId) return
+    setRoomLevel(level)
+    await createClient()
+      .from('message_room_prefs')
+      .upsert({ room_id: roomId, user_id: me, level }, { onConflict: 'room_id,user_id' })
+  }, [])
 
   // Jump-to-message: a window around the target (item 2's `around`).
   const jumpTo = useCallback(
@@ -776,6 +845,32 @@ export default function RoomThread({
               <Pin size={13} />
             </button>
             <button
+              onClick={() => (panel === 'people' ? setPanel(null) : void openPanel('people'))}
+              className="p-1.5 rounded-lg transition-colors"
+              style={{
+                backgroundColor: panel === 'people' ? 'hsl(var(--primary) / 0.15)' : 'hsl(var(--card) / 0.8)',
+                border: '1px solid hsl(var(--border))',
+                color: panel === 'people' ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))',
+                backdropFilter: 'blur(8px)',
+              }}
+              title="People in this room"
+            >
+              <Users size={13} />
+            </button>
+            <button
+              onClick={() => (panel === 'settings' ? setPanel(null) : void openPanel('settings'))}
+              className="p-1.5 rounded-lg transition-colors"
+              style={{
+                backgroundColor: panel === 'settings' ? 'hsl(var(--primary) / 0.15)' : 'hsl(var(--card) / 0.8)',
+                border: '1px solid hsl(var(--border))',
+                color: panel === 'settings' ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))',
+                backdropFilter: 'blur(8px)',
+              }}
+              title="Notification settings"
+            >
+              <Settings2 size={13} />
+            </button>
+            <button
               onClick={() => (panel === 'saves' ? setPanel(null) : void openPanel('saves'))}
               className="p-1.5 rounded-lg transition-colors"
               style={{
@@ -802,7 +897,7 @@ export default function RoomThread({
                   className="text-xs font-semibold uppercase tracking-widest flex-1"
                   style={{ color: 'hsl(var(--text-faint))' }}
                 >
-                  {panel === 'pins' ? 'Pinned' : 'Saved for you'}
+                  {panel === 'pins' ? 'Pinned' : panel === 'saves' ? 'Saved for you' : panel === 'people' ? 'People' : 'Notifications'}
                 </p>
                 <button
                   onClick={() => setPanel(null)}
@@ -813,14 +908,121 @@ export default function RoomThread({
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto scrollbar-thin p-3 space-y-2">
-                {panelRows.length === 0 && (
+                {panel === 'settings' && (
+                  <div className="space-y-4 p-1">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-widest mb-2" style={{ color: 'hsl(var(--text-faint))' }}>
+                        This room notifies you about
+                      </p>
+                      {([
+                        ['all', 'Everything', 'Every new message'],
+                        ['mentions', 'Mentions only', 'Only when someone @mentions you'],
+                        ['muted', 'Nothing', 'No pushes, no chime — the badge still counts'],
+                      ] as const).map(([value, label, sub]) => (
+                        <button
+                          key={value}
+                          onClick={() => void setLevel(value)}
+                          className="w-full text-left px-3 py-2.5 rounded-xl mb-1.5 border transition-colors"
+                          style={{
+                            backgroundColor: roomLevel === value ? 'hsl(var(--primary) / 0.08)' : 'hsl(var(--background))',
+                            borderColor: roomLevel === value ? 'hsl(var(--primary) / 0.5)' : 'hsl(var(--border))',
+                          }}
+                        >
+                          <p className="text-sm font-medium" style={{ color: roomLevel === value ? 'hsl(var(--primary))' : 'hsl(var(--foreground))' }}>
+                            {label}
+                          </p>
+                          <p className="text-[11px] mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{sub}</p>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="pt-2 border-t space-y-2" style={{ borderColor: 'hsl(var(--border))' }}>
+                      <p className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'hsl(var(--text-faint))' }}>
+                        This device
+                      </p>
+                      <button
+                        onClick={() => {
+                          const next = !soundOn
+                          setSoundOn(next)
+                          setMessageSoundEnabled(next)
+                          if (next) playTestChime()
+                        }}
+                        className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border"
+                        style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))' }}
+                      >
+                        <span className="text-sm" style={{ color: 'hsl(var(--foreground))' }}>Message sound</span>
+                        <span className="text-xs font-semibold" style={{ color: soundOn ? 'hsl(var(--primary))' : 'hsl(var(--text-faint))' }}>
+                          {soundOn ? 'On' : 'Off'}
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          const next = !focusOn
+                          setFocusOn(next)
+                          setFocusModeEnabled(next)
+                        }}
+                        className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border"
+                        style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))' }}
+                      >
+                        <span className="text-left">
+                          <span className="text-sm block" style={{ color: 'hsl(var(--foreground))' }}>Focus mode</span>
+                          <span className="text-[11px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                            Silence the chime everywhere on this device
+                          </span>
+                        </span>
+                        <span className="text-xs font-semibold" style={{ color: focusOn ? 'hsl(var(--primary))' : 'hsl(var(--text-faint))' }}>
+                          {focusOn ? 'On' : 'Off'}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {panel === 'people' && (
+                  <div className="space-y-1.5 p-1">
+                    {people.length === 0 && (
+                      <p className="text-xs text-center py-8" style={{ color: 'hsl(var(--text-faint))' }}>
+                        Loading the roster…
+                      </p>
+                    )}
+                    {people.map((p, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-3 px-3 py-2.5 rounded-xl border"
+                        style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))' }}
+                      >
+                        <span
+                          className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0"
+                          style={{
+                            backgroundColor: p.side === 'crew' ? 'hsl(var(--primary) / 0.12)' : 'hsl(var(--border))',
+                            color: p.side === 'crew' ? 'hsl(var(--primary))' : 'hsl(var(--foreground))',
+                          }}
+                        >
+                          {p.name.charAt(0).toUpperCase()}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm truncate" style={{ color: 'hsl(var(--foreground))' }}>{p.name}</p>
+                          <p className="text-[10px] uppercase tracking-wide" style={{ color: 'hsl(var(--text-faint))' }}>
+                            {p.side === 'crew' ? 'Studio' : 'Company'} · {p.role}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                    <a
+                      href={role === 'client' ? '/team' : `/studio/client/companies/${clientId}`}
+                      className="block text-center text-xs font-semibold py-2.5 rounded-xl border mt-2 transition-colors hover:border-[hsl(var(--primary))]"
+                      style={{ color: 'hsl(var(--primary))', borderColor: 'hsl(var(--border))' }}
+                    >
+                      Manage team →
+                    </a>
+                  </div>
+                )}
+                {(panel === 'pins' || panel === 'saves') && panelRows.length === 0 && (
                   <p className="text-xs text-center py-8" style={{ color: 'hsl(var(--text-faint))' }}>
                     {panel === 'pins'
                       ? 'Nothing pinned yet. Pin a message from its hover menu.'
                       : 'Nothing saved yet. Save a message from its hover menu — only you see this list.'}
                   </p>
                 )}
-                {panelRows.map((m) => (
+                {(panel === 'pins' || panel === 'saves') && panelRows.map((m) => (
                   <button
                     key={m.id}
                     onClick={() => void jumpTo(m.id)}
