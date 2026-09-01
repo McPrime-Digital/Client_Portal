@@ -52,3 +52,36 @@ export function stripMentionTokens(body: string): string {
   const re = new RegExp(TOKEN_SRC, 'g')
   return body.replace(re, (_, _k, _id, label) => `@${label || 'mention'}`)
 }
+
+// ── Trigger preference (Batch 16): '@', '/', or both — device-level ────────
+
+const TRIGGER_KEY = 'genreline-mention-trigger'
+export type MentionTrigger = 'at' | 'slash' | 'both'
+
+export function mentionTrigger(): MentionTrigger {
+  try {
+    const v = localStorage.getItem(TRIGGER_KEY)
+    return v === 'at' || v === 'slash' ? v : 'both'
+  } catch {
+    return 'both'
+  }
+}
+
+export function setMentionTrigger(t: MentionTrigger): void {
+  try {
+    localStorage.setItem(TRIGGER_KEY, t)
+  } catch { /* non-persistent */ }
+}
+
+/** The trailing-token matcher for the composer, per the trigger preference. */
+export function mentionQueryOf(text: string): string | null {
+  const t = mentionTrigger()
+  const chars = t === 'at' ? '@' : t === 'slash' ? '/' : '@/'
+  const re = new RegExp(`(?:^|\\s)[${chars}]([^@/\\s]*)$`)
+  const m = text.match(re)
+  return m ? m[1] : null
+}
+
+export function replaceTrailingMentionQuery(text: string, token: string): string {
+  return text.replace(/[@/][^@/\s]*$/, token + ' ')
+}

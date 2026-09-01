@@ -14,7 +14,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Volume2, VolumeX, MessageSquare, ChevronLeft } from 'lucide-react'
+import { Volume2, VolumeX, MessageSquare, ChevronLeft, MoreVertical } from 'lucide-react'
 import RoomThread, { type RoomFilter, type ExternalRow } from '@/components/shared/RoomThread'
 import type { Message } from '@/lib/types/database'
 import { messagePreview } from '@/lib/messagePreview'
@@ -67,6 +67,8 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
   const [activityByClient, setActivityByClient] = useState<Record<string, 'typing' | 'recording'>>({})
   const activityTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const [soundOn, setSoundOn] = useState(() => messageSoundEnabled())
+  const [roomMenuOpen, setRoomMenuOpen] = useState(false)
+  const [panelCommand, setPanelCommand] = useState<{ which: 'pins' | 'saves' | 'settings' | 'people' | 'search'; n: number } | null>(null)
   const [mobileView, setMobileView] = useState<'list' | 'thread'>('list')
 
   const online = usePresenceStore((s) => s.online)
@@ -438,6 +440,44 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                           : `${active.name} · Away`}
                   </p>
                 </div>
+                {/* THE room menu — extreme right (Batch 16) */}
+                <div className="relative flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setRoomMenuOpen((v) => !v)}
+                    className="p-2 rounded-lg transition-colors hover:bg-[hsl(var(--border))]"
+                    style={{ color: roomMenuOpen ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))' }}
+                    title="Room menu"
+                  >
+                    <MoreVertical size={15} />
+                  </button>
+                  {roomMenuOpen && (
+                    <div
+                      className="absolute right-0 mt-1 w-56 rounded-xl overflow-hidden shadow-2xl z-40"
+                      style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
+                    >
+                      {([
+                        ['search', 'Search in conversation'],
+                        ['pins', 'Pinned messages'],
+                        ['saves', 'Saved for you'],
+                        ['people', 'People in this room'],
+                        ['settings', 'Notification settings'],
+                      ] as const).map(([which, label]) => (
+                        <button
+                          key={which}
+                          onClick={() => {
+                            setRoomMenuOpen(false)
+                            setPanelCommand({ which, n: Date.now() })
+                          }}
+                          className="w-full px-3.5 py-2.5 text-sm text-left transition-colors hover:bg-[hsl(var(--primary)/0.08)]"
+                          style={{ color: 'hsl(var(--foreground))' }}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Filter chips: views over the ONE room */}
@@ -521,6 +561,8 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                           externalRow={externalRow}
                   onActivity={onActivity}
                   onTypingChange={setClientActivity}
+                  panelCommand={panelCommand}
+                  showMenuButton={false}
                 />
               </div>
             </>

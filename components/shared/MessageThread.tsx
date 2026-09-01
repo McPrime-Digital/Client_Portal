@@ -25,7 +25,7 @@ import {
   Bookmark,
 } from 'lucide-react'
 import type { Message } from '@/lib/types/database'
-import { splitBody, buildMentionToken, type BodyPart } from '@/lib/mentionClient'
+import { splitBody, buildMentionToken, mentionQueryOf, replaceTrailingMentionQuery, type BodyPart } from '@/lib/mentionClient'
 import FileViewer from './FileViewer'
 import AudioPlayer from './AudioPlayer'
 import VoiceRecorder from './VoiceRecorder'
@@ -173,7 +173,7 @@ export default function MessageThread({
   })()
 
   function applyMention(m: { kind: 'u' | 'p'; id: string; label: string }) {
-    setNewMessage((prev) => prev.replace(/@[^@\s]*$/, buildMentionToken(m.kind, m.id, m.label) + ' '))
+    setNewMessage((prev) => replaceTrailingMentionQuery(prev, buildMentionToken(m.kind, m.id, m.label)))
     setMentionQuery(null)
     setMentionIndex(0)
     inputRef.current?.focus()
@@ -1133,8 +1133,8 @@ export default function MessageThread({
             onChange={(e) => {
               setNewMessage(e.target.value)
               if (onTyping) onTyping()
-              const m = e.target.value.match(/@([^@\s]*)$/)
-              setMentionQuery(mentionCandidates && m ? m[1] : null)
+              const q = mentionQueryOf(e.target.value)
+              setMentionQuery(mentionCandidates && q != null ? q : null)
               setMentionIndex(0)
             }}
             onKeyDown={(e) => {

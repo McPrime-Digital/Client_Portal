@@ -29,7 +29,8 @@ import {
   focusModeEnabled,
   setFocusModeEnabled,
 } from '@/lib/soundClient'
-import { Pin, Bookmark, Settings2, Users } from 'lucide-react'
+import { Pin, Bookmark, Settings2, Users, MoreVertical, Search as SearchIcon } from 'lucide-react'
+import { mentionTrigger, setMentionTrigger, type MentionTrigger } from '@/lib/mentionClient'
 import type { ThreadMessagePayload } from '@/lib/realtimeBus'
 
 export type RoomFilter =
@@ -62,6 +63,9 @@ type Props = {
   onActivity?: (latest: Message, direction: 'incoming' | 'sent') => void
   /** the other side's live composer state: typing, recording a voice note, or idle */
   onTypingChange?: (kind: 'typing' | 'recording' | null) => void
+  /** hubs drive the room menu from their own header; pages keep the built-in one */
+  panelCommand?: { which: 'pins' | 'saves' | 'settings' | 'people' | 'search'; n: number } | null
+  showMenuButton?: boolean
 }
 
 function matchesFilter(filter: RoomFilter, projectId: string | null): boolean {
@@ -84,6 +88,8 @@ export default function RoomThread({
   externalRow = null,
   onActivity,
   onTypingChange,
+  panelCommand = null,
+  showMenuButton = true,
 }: Props) {
   const supabase = createClient()
   const [messages, setMessages] = useState<Message[]>([])
@@ -101,7 +107,10 @@ export default function RoomThread({
   // room-wide; saves are private (user_id = auth.uid() by RLS construction).
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set())
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set())
-  const [panel, setPanel] = useState<'pins' | 'saves' | 'settings' | 'people' | null>(null)
+  const [panel, setPanel] = useState<'pins' | 'saves' | 'settings' | 'people' | 'search' | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [searchQ, setSearchQ] = useState('')
+  const [searching, setSearching] = useState(false)
   const [panelRows, setPanelRows] = useState<Message[]>([])
   const [highlightId, setHighlightId] = useState<string | null>(null)
   // Mentions (item 5): per-viewer resolution rides each page; candidates
@@ -113,6 +122,7 @@ export default function RoomThread({
   const [soundOn, setSoundOn] = useState(() => messageSoundEnabled())
   const [focusOn, setFocusOn] = useState(() => focusModeEnabled())
   const [people, setPeople] = useState<{ name: string; role: string; side: 'client' | 'crew' }[]>([])
+  const [trigger, setTrigger] = useState<MentionTrigger>(() => mentionTrigger())
   const threadRootRef = useRef<string | null>(null)
   useEffect(() => { threadRootRef.current = threadRoot?.id ?? null }, [threadRoot])
 
@@ -497,9 +507,14 @@ export default function RoomThread({
   }, [savedIds])
 
   const openPanel = useCallback(
-    async (which: 'pins' | 'saves' | 'settings' | 'people') => {
+    async (which: 'pins' | 'saves' | 'settings' | 'people' | 'search') => {
+      setMenuOpen(false)
       setPanel(which)
       setPanelRows([])
+      if (which === 'search') {
+        setSearchQ('')
+        return
+      }
       if (which === 'settings') {
         const me = ownIdRef.current
         const roomId = roomIdRef.current
@@ -569,6 +584,30 @@ export default function RoomThread({
     },
     [listUrl]
   )
+
+  const lastPanelCmd = useRef(0)
+  useEffect(() => {
+    if (!panelCommand || panelCommand.n === lastPanelCmd.current) return
+    lastPanelCmd.current = panelCommand.n
+    void openPanel(panelCommand.which)
+  }, [panelCommand, openPanel])
+
+  const runSearch = useCallback(async (query: string) => {
+    if (!query.trim()) {
+      setPanelRows([])
+      return
+    }
+    setSearching(true)
+    try {
+      const res = await fetch(`${listUrl()}&q=${encodeURIComponent(query.trim())}`)
+      const json = await res.json()
+      setPanelRows(res.ok && json.messages ? (json.messages as Message[]) : [])
+    } catch {
+      setPanelRows([])
+    } finally {
+      setSearching(false)
+    }
+  }, [listUrl])
 
   const setLevel = useCallback(async (level: 'all' | 'mentions' | 'muted') => {
     const me = ownIdRef.current
@@ -879,61 +918,48 @@ export default function RoomThread({
             mentionTargets={mentionTargets}
             mentionCandidates={mentionCandidates}
           />
-          {/* Room utilities: pinned + saved (item 4) */}
-          <div className="absolute top-2 right-2 z-20 flex gap-1">
-            <button
-              onClick={() => (panel === 'pins' ? setPanel(null) : void openPanel('pins'))}
-              className="p-1.5 rounded-lg transition-colors"
-              style={{
-                backgroundColor: panel === 'pins' ? 'hsl(var(--primary) / 0.15)' : 'hsl(var(--card) / 0.8)',
-                border: '1px solid hsl(var(--border))',
-                color: panel === 'pins' ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))',
-                backdropFilter: 'blur(8px)',
-              }}
-              title="Pinned messages"
-            >
-              <Pin size={13} />
-            </button>
-            <button
-              onClick={() => (panel === 'people' ? setPanel(null) : void openPanel('people'))}
-              className="p-1.5 rounded-lg transition-colors"
-              style={{
-                backgroundColor: panel === 'people' ? 'hsl(var(--primary) / 0.15)' : 'hsl(var(--card) / 0.8)',
-                border: '1px solid hsl(var(--border))',
-                color: panel === 'people' ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))',
-                backdropFilter: 'blur(8px)',
-              }}
-              title="People in this room"
-            >
-              <Users size={13} />
-            </button>
-            <button
-              onClick={() => (panel === 'settings' ? setPanel(null) : void openPanel('settings'))}
-              className="p-1.5 rounded-lg transition-colors"
-              style={{
-                backgroundColor: panel === 'settings' ? 'hsl(var(--primary) / 0.15)' : 'hsl(var(--card) / 0.8)',
-                border: '1px solid hsl(var(--border))',
-                color: panel === 'settings' ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))',
-                backdropFilter: 'blur(8px)',
-              }}
-              title="Notification settings"
-            >
-              <Settings2 size={13} />
-            </button>
-            <button
-              onClick={() => (panel === 'saves' ? setPanel(null) : void openPanel('saves'))}
-              className="p-1.5 rounded-lg transition-colors"
-              style={{
-                backgroundColor: panel === 'saves' ? 'hsl(var(--primary) / 0.15)' : 'hsl(var(--card) / 0.8)',
-                border: '1px solid hsl(var(--border))',
-                color: panel === 'saves' ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))',
-                backdropFilter: 'blur(8px)',
-              }}
-              title="Saved messages"
-            >
-              <Bookmark size={13} />
-            </button>
-          </div>
+          {/* The room menu — ONE control, extreme right (Batch 16) */}
+          {showMenuButton && (
+            <div className="absolute top-2 right-2 z-20">
+              <button
+                onClick={() => setMenuOpen((v) => !v)}
+                className="p-1.5 rounded-lg transition-colors"
+                style={{
+                  backgroundColor: menuOpen ? 'hsl(var(--primary) / 0.15)' : 'hsl(var(--card) / 0.8)',
+                  border: '1px solid hsl(var(--border))',
+                  color: menuOpen ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))',
+                  backdropFilter: 'blur(8px)',
+                }}
+                title="Room menu"
+              >
+                <MoreVertical size={14} />
+              </button>
+              {menuOpen && (
+                <div
+                  className="absolute right-0 mt-1 w-52 rounded-xl overflow-hidden shadow-2xl z-30"
+                  style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
+                >
+                  {([
+                    ['search', 'Search in conversation', SearchIcon],
+                    ['pins', 'Pinned messages', Pin],
+                    ['saves', 'Saved for you', Bookmark],
+                    ['people', 'People in this room', Users],
+                    ['settings', 'Notification settings', Settings2],
+                  ] as const).map(([which, label, Icon]) => (
+                    <button
+                      key={which}
+                      onClick={() => void openPanel(which)}
+                      className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-left transition-colors hover:bg-[hsl(var(--primary)/0.08)]"
+                      style={{ color: 'hsl(var(--foreground))' }}
+                    >
+                      <Icon size={14} style={{ color: 'hsl(var(--primary))' }} />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {panel && (
             <div
               className="absolute inset-y-0 right-0 z-30 w-full md:w-[360px] flex flex-col border-l shadow-2xl"
@@ -947,7 +973,7 @@ export default function RoomThread({
                   className="text-xs font-semibold uppercase tracking-widest flex-1"
                   style={{ color: 'hsl(var(--text-faint))' }}
                 >
-                  {panel === 'pins' ? 'Pinned' : panel === 'saves' ? 'Saved for you' : panel === 'people' ? 'People' : 'Notifications'}
+                  {panel === 'pins' ? 'Pinned' : panel === 'saves' ? 'Saved for you' : panel === 'people' ? 'People' : panel === 'search' ? 'Search' : 'Notifications'}
                 </p>
                 <button
                   onClick={() => setPanel(null)}
@@ -958,6 +984,36 @@ export default function RoomThread({
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto scrollbar-thin p-3 space-y-2">
+                {panel === 'search' && (
+                  <div className="space-y-2">
+                    <input
+                      autoFocus
+                      type="text"
+                      value={searchQ}
+                      onChange={(e) => {
+                        setSearchQ(e.target.value)
+                        void runSearch(e.target.value)
+                      }}
+                      placeholder="Search this conversation"
+                      className="w-full px-3 py-2.5 rounded-xl text-sm outline-none focus:border-[hsl(var(--primary))]"
+                      style={{
+                        backgroundColor: 'hsl(var(--background))',
+                        border: '1px solid hsl(var(--border))',
+                        color: 'hsl(var(--foreground))',
+                      }}
+                    />
+                    {searching && (
+                      <p className="text-xs text-center py-2" style={{ color: 'hsl(var(--text-faint))' }}>
+                        Searching…
+                      </p>
+                    )}
+                    {!searching && searchQ.trim() && panelRows.length === 0 && (
+                      <p className="text-xs text-center py-6" style={{ color: 'hsl(var(--text-faint))' }}>
+                        No messages match “{searchQ.trim()}”.
+                      </p>
+                    )}
+                  </div>
+                )}
                 {panel === 'settings' && (
                   <div className="space-y-4 p-1">
                     <div>
@@ -1004,6 +1060,32 @@ export default function RoomThread({
                           {soundOn ? 'On' : 'Off'}
                         </span>
                       </button>
+                      <div
+                        className="w-full px-3 py-2.5 rounded-xl border"
+                        style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))' }}
+                      >
+                        <p className="text-sm mb-2" style={{ color: 'hsl(var(--foreground))' }}>Mention trigger</p>
+                        <div className="flex gap-1.5">
+                          {([
+                            ['at', '@ only'],
+                            ['slash', '/ only'],
+                            ['both', '@ and /'],
+                          ] as const).map(([value, label]) => (
+                            <button
+                              key={value}
+                              onClick={() => { setTrigger(value); setMentionTrigger(value) }}
+                              className="flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                              style={{
+                                backgroundColor: trigger === value ? 'hsl(var(--primary))' : 'hsl(var(--card))',
+                                color: trigger === value ? 'hsl(var(--primary-foreground))' : 'hsl(var(--foreground))',
+                                border: '1px solid ' + (trigger === value ? 'hsl(var(--primary))' : 'hsl(var(--border))'),
+                              }}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                       <button
                         onClick={() => {
                           const next = !focusOn
@@ -1072,7 +1154,7 @@ export default function RoomThread({
                       : 'Nothing saved yet. Save a message from its hover menu — only you see this list.'}
                   </p>
                 )}
-                {(panel === 'pins' || panel === 'saves') && panelRows.map((m) => (
+                {(panel === 'pins' || panel === 'saves' || panel === 'search') && panelRows.map((m) => (
                   <button
                     key={m.id}
                     onClick={() => void jumpTo(m.id)}

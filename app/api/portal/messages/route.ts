@@ -106,6 +106,30 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Malformed cursor' }, { status: 400 })
   }
   const aroundId = req.nextUrl.searchParams.get('around')
+  // Search-in-conversation (Batch 16): body_tsv's first consumer — websearch
+  // syntax over the GIN index from 0028, scoped exactly like the list.
+  const q = req.nextUrl.searchParams.get('q')
+  if (q && q.trim()) {
+    let searchQ = supabaseAdmin
+      .from('messages')
+      .select('*, message_attachments(file_id)')
+      .eq('room_id', room.id)
+      .is('deleted_at', null)
+      .eq('is_deleted', false)
+      .textSearch('body_tsv', q.trim(), { type: 'websearch' })
+      .order('created_at', { ascending: false })
+      .limit(30)
+    if (projectId) searchQ = searchQ.or(`project_id.eq.${projectId},project_id.is.null`)
+    else if (general) searchQ = searchQ.is('project_id', null)
+    if (access?.historyFrom) searchQ = searchQ.gte('created_at', access.historyFrom)
+    const { data: hits, error: qErr } = await searchQ
+    if (qErr) return NextResponse.json({ error: qErr.message }, { status: 500 })
+    const rows = (hits ?? []).map((row) => {
+      const { message_attachments, ...m } = row as Record<string, unknown> & { message_attachments?: { file_id: string }[] }
+      return { ...m, attachment_file_id: message_attachments?.[0]?.file_id ?? null }
+    })
+    return NextResponse.json({ messages: rows, roomId: room.id, nextCursor: null, hasMore: false })
+  }
   // Thread panel fetch (item 3): the replies of one root, ascending, bounded.
   const threadRoot = req.nextUrl.searchParams.get('thread_root')
   if (threadRoot) {
