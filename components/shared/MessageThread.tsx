@@ -23,9 +23,11 @@ import {
   SmilePlus,
   Pin,
   Bookmark,
+  MoreHorizontal,
+  Copy,
 } from 'lucide-react'
 import type { Message } from '@/lib/types/database'
-import { splitBody, buildMentionToken, mentionQueryOf, replaceTrailingMentionQuery, type BodyPart } from '@/lib/mentionClient'
+import { splitBody, buildMentionToken, mentionQueryOf, replaceTrailingMentionQuery, stripMentionTokens, type BodyPart } from '@/lib/mentionClient'
 import FileViewer from './FileViewer'
 import AudioPlayer from './AudioPlayer'
 import VoiceRecorder from './VoiceRecorder'
@@ -159,6 +161,7 @@ export default function MessageThread({
   const [editingMsg, setEditingMsg] = useState<Message | null>(null)
   const [editText, setEditText] = useState('')
   const [pickerFor, setPickerFor] = useState<string | null>(null)
+  const [msgMenuFor, setMsgMenuFor] = useState<string | null>(null)
   // '@' autocomplete (item 5): people + projects from the roster prop.
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mentionIndex, setMentionIndex] = useState(0)
@@ -487,9 +490,22 @@ export default function MessageThread({
               )}
 
               <div className={`flex group ${isMe ? 'justify-end' : 'justify-start'}`}>
-                {/* Hover actions — left side for received */}
-                {!isMe && (
-                  <div className="opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-1 mr-1 self-center">
+                <div className="max-w-[75%] min-w-[120px] flex flex-col relative">
+                  {/* Horizontal action bar (Batch 16): floats over the group
+                      on hover — react · quote · thread · more. */}
+                  <div
+                    className={`absolute -top-4 ${isMe ? 'right-0' : 'left-0'} z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex items-center rounded-full shadow-lg`}
+                    style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
+                  >
+                    {onToggleReaction && (
+                      <button
+                        onClick={() => { setPickerFor(pickerFor === msg.id ? null : msg.id); setMsgMenuFor(null) }}
+                        className="p-1.5 rounded-full hover:bg-[hsl(var(--border))] text-[hsl(var(--text-faint))] hover:text-[hsl(var(--primary))] transition-colors"
+                        title="React"
+                      >
+                        <SmilePlus size={13} />
+                      </button>
+                    )}
                     <button
                       onClick={() => { setReplyTo(msg); inputRef.current?.focus() }}
                       className="p-1.5 rounded-full hover:bg-[hsl(var(--border))] text-[hsl(var(--text-faint))] hover:text-[hsl(var(--foreground))] transition-colors"
@@ -506,104 +522,90 @@ export default function MessageThread({
                         <MessagesSquare size={13} />
                       </button>
                     )}
-                    {onToggleReaction && (
-                      <div className="relative">
-                        <button
-                          onClick={() => setPickerFor(pickerFor === msg.id ? null : msg.id)}
-                          className="p-1.5 rounded-full hover:bg-[hsl(var(--border))] text-[hsl(var(--text-faint))] hover:text-[hsl(var(--primary))] transition-colors"
-                          title="React"
-                        >
-                          <SmilePlus size={13} />
-                        </button>
-                        {pickerFor === msg.id && (
-                          <div
-                            className="absolute z-30 flex gap-1 p-1.5 rounded-xl shadow-xl right-0"
-                            style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
-                          >
-                            {['👍', '❤️', '😂', '🎉', '👀', '✅'].map((e) => (
-                              <button
-                                key={e}
-                                onClick={() => { onToggleReaction(msg, e); setPickerFor(null) }}
-                                className="text-sm hover:scale-125 transition-transform px-0.5"
-                              >
-                                {e}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {onTogglePin && (
-                      <button
-                        onClick={() => onTogglePin(msg)}
-                        className="p-1.5 rounded-full hover:bg-[hsl(var(--border))] transition-colors"
-                        style={{ color: pinnedIds?.has(msg.id) ? 'hsl(var(--primary))' : 'hsl(var(--text-faint))' }}
-                        title={pinnedIds?.has(msg.id) ? 'Unpin' : 'Pin to room'}
-                      >
-                        <Pin size={13} />
-                      </button>
-                    )}
-                    {onToggleSave && (
-                      <button
-                        onClick={() => onToggleSave(msg)}
-                        className="p-1.5 rounded-full hover:bg-[hsl(var(--border))] transition-colors"
-                        style={{ color: savedIds?.has(msg.id) ? 'hsl(var(--primary))' : 'hsl(var(--text-faint))' }}
-                        title={savedIds?.has(msg.id) ? 'Unsave' : 'Save for me'}
-                      >
-                        <Bookmark size={13} />
-                      </button>
-                    )}
-                    {onToggleReaction && (
-                      <div className="relative">
-                        <button
-                          onClick={() => setPickerFor(pickerFor === msg.id ? null : msg.id)}
-                          className="p-1.5 rounded-full hover:bg-[hsl(var(--border))] text-[hsl(var(--text-faint))] hover:text-[hsl(var(--primary))] transition-colors"
-                          title="React"
-                        >
-                          <SmilePlus size={13} />
-                        </button>
-                        {pickerFor === msg.id && (
-                          <div
-                            className="absolute z-30 flex gap-1 p-1.5 rounded-xl shadow-xl left-0"
-                            style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
-                          >
-                            {['👍', '❤️', '😂', '🎉', '👀', '✅'].map((e) => (
-                              <button
-                                key={e}
-                                onClick={() => { onToggleReaction(msg, e); setPickerFor(null) }}
-                                className="text-sm hover:scale-125 transition-transform px-0.5"
-                              >
-                                {e}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {onTogglePin && (
-                      <button
-                        onClick={() => onTogglePin(msg)}
-                        className="p-1.5 rounded-full hover:bg-[hsl(var(--border))] transition-colors"
-                        style={{ color: pinnedIds?.has(msg.id) ? 'hsl(var(--primary))' : 'hsl(var(--text-faint))' }}
-                        title={pinnedIds?.has(msg.id) ? 'Unpin' : 'Pin to room'}
-                      >
-                        <Pin size={13} />
-                      </button>
-                    )}
-                    {onToggleSave && (
-                      <button
-                        onClick={() => onToggleSave(msg)}
-                        className="p-1.5 rounded-full hover:bg-[hsl(var(--border))] transition-colors"
-                        style={{ color: savedIds?.has(msg.id) ? 'hsl(var(--primary))' : 'hsl(var(--text-faint))' }}
-                        title={savedIds?.has(msg.id) ? 'Unsave' : 'Save for me'}
-                      >
-                        <Bookmark size={13} />
-                      </button>
-                    )}
+                    <button
+                      onClick={() => { setMsgMenuFor(msgMenuFor === msg.id ? null : msg.id); setPickerFor(null) }}
+                      className="p-1.5 rounded-full hover:bg-[hsl(var(--border))] text-[hsl(var(--text-faint))] hover:text-[hsl(var(--foreground))] transition-colors"
+                      title="More"
+                    >
+                      <MoreHorizontal size={13} />
+                    </button>
                   </div>
-                )}
-
-                <div className="max-w-[75%] min-w-[120px] flex flex-col">
+                  {pickerFor === msg.id && (
+                    <div
+                      className={`absolute -top-14 ${isMe ? 'right-0' : 'left-0'} z-30 flex gap-1 p-1.5 rounded-xl shadow-xl`}
+                      style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
+                    >
+                      {['👍', '❤️', '😂', '🎉', '👀', '✅'].map((e) => (
+                        <button
+                          key={e}
+                          onClick={() => { onToggleReaction?.(msg, e); setPickerFor(null) }}
+                          className="text-base hover:scale-125 transition-transform px-0.5"
+                        >
+                          {e}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {msgMenuFor === msg.id && (
+                    <div
+                      className={`absolute top-5 ${isMe ? 'right-0' : 'left-0'} z-30 w-44 rounded-xl overflow-hidden shadow-2xl`}
+                      style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
+                    >
+                      {onTogglePin && (
+                        <button
+                          onClick={() => { onTogglePin(msg); setMsgMenuFor(null) }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-left transition-colors hover:bg-[hsl(var(--primary)/0.08)]"
+                          style={{ color: 'hsl(var(--foreground))' }}
+                        >
+                          <Pin size={12} style={{ color: pinnedIds?.has(msg.id) ? 'hsl(var(--primary))' : 'hsl(var(--text-faint))' }} />
+                          {pinnedIds?.has(msg.id) ? 'Unpin from room' : 'Pin to room'}
+                        </button>
+                      )}
+                      {onToggleSave && (
+                        <button
+                          onClick={() => { onToggleSave(msg); setMsgMenuFor(null) }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-left transition-colors hover:bg-[hsl(var(--primary)/0.08)]"
+                          style={{ color: 'hsl(var(--foreground))' }}
+                        >
+                          <Bookmark size={12} style={{ color: savedIds?.has(msg.id) ? 'hsl(var(--primary))' : 'hsl(var(--text-faint))' }} />
+                          {savedIds?.has(msg.id) ? 'Unsave' : 'Save for me'}
+                        </button>
+                      )}
+                      {msg.body && (
+                        <button
+                          onClick={() => {
+                            void navigator.clipboard?.writeText(stripMentionTokens(msg.body)).catch(() => {})
+                            setMsgMenuFor(null)
+                          }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-left transition-colors hover:bg-[hsl(var(--primary)/0.08)]"
+                          style={{ color: 'hsl(var(--foreground))' }}
+                        >
+                          <Copy size={12} style={{ color: 'hsl(var(--text-faint))' }} />
+                          Copy text
+                        </button>
+                      )}
+                      {isMe && canEdit(msg.created_at) && onEditMessage && msg.body && (
+                        <button
+                          onClick={() => { setEditingMsg(msg); setEditText(msg.body); setMsgMenuFor(null) }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-left transition-colors hover:bg-[hsl(var(--primary)/0.08)]"
+                          style={{ color: 'hsl(var(--foreground))' }}
+                        >
+                          <Pencil size={12} style={{ color: 'hsl(var(--text-faint))' }} />
+                          Edit
+                        </button>
+                      )}
+                      {deletable && (
+                        <button
+                          onClick={() => { handleDelete(msg); setMsgMenuFor(null) }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-left transition-colors hover:bg-[hsl(var(--destructive)/0.12)]"
+                          style={{ color: 'hsl(var(--destructive))' }}
+                        >
+                          <Trash2 size={12} />
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  )}
                   {!isMe && !prevSame && (
                     <p className="text-[10px] font-semibold uppercase tracking-wider mb-1 ml-1 flex items-center gap-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
                       {msg.sender_name}
@@ -933,45 +935,6 @@ export default function MessageThread({
                   )}
                 </div>
 
-                {/* Hover actions — right side for sent */}
-                {isMe && (
-                  <div className="opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-1 ml-1 self-center">
-                    <button
-                      onClick={() => { setReplyTo(msg); inputRef.current?.focus() }}
-                      className="p-1.5 rounded-full hover:bg-[hsl(var(--border))] text-[hsl(var(--text-faint))] hover:text-[hsl(var(--foreground))] transition-colors"
-                      title="Quote reply"
-                    >
-                      <Reply size={13} />
-                    </button>
-                    {onOpenThread && !msg.thread_root_id && (
-                      <button
-                        onClick={() => onOpenThread(msg)}
-                        className="p-1.5 rounded-full hover:bg-[hsl(var(--border))] text-[hsl(var(--text-faint))] hover:text-[hsl(var(--primary))] transition-colors"
-                        title="Reply in thread"
-                      >
-                        <MessagesSquare size={13} />
-                      </button>
-                    )}
-                    {isMe && canEdit(msg.created_at) && onEditMessage && msg.body && (
-                      <button
-                        onClick={() => { setEditingMsg(msg); setEditText(msg.body) }}
-                        className="p-1.5 rounded-full hover:bg-[hsl(var(--border))] text-[hsl(var(--text-faint))] hover:text-[hsl(var(--foreground))] transition-colors"
-                        title="Edit (within 1 hour)"
-                      >
-                        <Pencil size={13} />
-                      </button>
-                    )}
-                    {deletable && (
-                      <button
-                        onClick={() => handleDelete(msg)}
-                        className="p-1.5 rounded-full hover:bg-red-500/20 text-[hsl(var(--text-faint))] hover:text-red-400 transition-colors"
-                        title="Delete (within 5 minutes)"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
           )
