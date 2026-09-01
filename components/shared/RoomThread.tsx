@@ -79,6 +79,10 @@ export default function RoomThread({
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
   const [sendError, setSendError] = useState<string | null>(null)
+  // Keyset pagination (item 2): cursor of the oldest loaded message.
+  const [pageCursor, setPageCursor] = useState<string | null>(null)
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
 
   const ownIdRef = useRef<string | null>(null)
   const seenIdsRef = useRef<Set<string>>(new Set())
@@ -142,6 +146,21 @@ export default function RoomThread({
   }, [role, patchBody, threadKey])
 
   // ── Load (bounded latest page; item 2 adds the cursor) ───────────────────
+  // Union by id, ordered (created_at, id) — pages and live rows interleave
+  // safely, optimistic temps stay at the tail.
+  const mergeRows = useCallback((prev: Message[], incoming: Message[]) => {
+    const temps = prev.filter((m) => m.id.startsWith('temp-'))
+    const byId = new Map<string, Message>()
+    for (const m of prev) if (!m.id.startsWith('temp-')) byId.set(m.id, m)
+    for (const m of incoming) byId.set(m.id, m)
+    const rows = [...byId.values()].sort((a, b) =>
+      a.created_at === b.created_at
+        ? a.id < b.id ? -1 : 1
+        : a.created_at < b.created_at ? -1 : 1
+    )
+    return [...rows, ...temps]
+  }, [])
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
@@ -149,6 +168,8 @@ export default function RoomThread({
       const json = await res.json()
       const rows: Message[] = res.ok ? json.messages ?? [] : []
       setMessages(rows)
+      setPageCursor(json.nextCursor ?? null)
+      setHasMore(!!json.hasMore)
       if (json.roomId) roomIdRef.current = json.roomId
       for (const r of rows) seenIdsRef.current.add(r.id)
     } catch {
@@ -158,6 +179,24 @@ export default function RoomThread({
     }
     markRead()
   }, [listUrl, markRead])
+
+  const loadOlder = useCallback(async () => {
+    if (!pageCursor || loadingOlder) return
+    setLoadingOlder(true)
+    try {
+      const res = await fetch(`${listUrl()}&before=${encodeURIComponent(pageCursor)}`)
+      const json = await res.json()
+      if (res.ok && json.messages) {
+        const older = json.messages as Message[]
+        for (const r of older) seenIdsRef.current.add(r.id)
+        setMessages((prev) => mergeRows(prev, older))
+        setPageCursor(json.nextCursor ?? null)
+        setHasMore(!!json.hasMore)
+      }
+    } catch {} finally {
+      setLoadingOlder(false)
+    }
+  }, [pageCursor, loadingOlder, listUrl, mergeRows])
 
   useEffect(() => {
     seenIdsRef.current.clear()
@@ -171,13 +210,11 @@ export default function RoomThread({
       const json = await res.json()
       if (!res.ok || !json.messages) return
       const incoming = json.messages as Message[]
-      setMessages((prev) => {
-        const pending = prev.filter((m) => m.id.startsWith('temp-'))
-        for (const r of incoming) seenIdsRef.current.add(r.id)
-        return [...incoming, ...pending]
-      })
+      for (const r of incoming) seenIdsRef.current.add(r.id)
+      // Merge, never replace — older keyset pages already on screen survive.
+      setMessages((prev) => mergeRows(prev, incoming))
     } catch {}
-  }, [listUrl])
+  }, [listUrl, mergeRows])
 
   // ── One incoming path for broadcast AND replication ──────────────────────
   const handleIncomingRow = useCallback(
@@ -479,6 +516,9 @@ export default function RoomThread({
           onDeleteMessage={handleDeleteMessage}
           onEditMessage={handleEditMessage}
           onTyping={handleTyping}
+          onLoadOlder={loadOlder}
+          hasMore={hasMore}
+          loadingOlder={loadingOlder}
         />
       )}
     </div>

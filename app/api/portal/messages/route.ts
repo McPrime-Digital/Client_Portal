@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { advanceWatermark } from '@/lib/messageRead'
+import { decodeCursor, encodeCursor, beforePredicate } from '@/lib/keyset'
 
 // Thread reads and read-marking for the portal. Two thread shapes since
 // Batch 14: a PROJECT thread (?project_id=…) and the company's GENERAL
@@ -76,18 +77,91 @@ export async function GET(req: NextRequest) {
   // Bounded: the latest page only (I-1 — the keyset cursor extends this).
   const limitParam = parseInt(req.nextUrl.searchParams.get('limit') ?? '50', 10)
   const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 100) : 50
+  // Keyset (item 2, I-1): `before` walks older pages on (created_at, id) —
+  // the 0030 index — and `around` loads a window for jump-to-message.
+  let cursor
+  try {
+    cursor = decodeCursor(req.nextUrl.searchParams.get('before'))
+  } catch {
+    return NextResponse.json({ error: 'Malformed cursor' }, { status: 400 })
+  }
+  const aroundId = req.nextUrl.searchParams.get('around')
   let msgQ = supabaseAdmin
     .from('messages')
     .select('*, message_attachments(file_id)')
     .eq('room_id', room.id)
     .order('created_at', { ascending: false })
     .order('id', { ascending: false })
-    .limit(limit)
+    .limit(limit + 1)
+  if (cursor) msgQ = msgQ.or(beforePredicate(cursor))
   if (projectId) msgQ = msgQ.or(`project_id.eq.${projectId},project_id.is.null`)
   else if (general) msgQ = msgQ.is('project_id', null)
   if (access?.historyFrom) msgQ = msgQ.gte('created_at', access.historyFrom)
-  const { data: newestFirst, error } = await msgQ
-  const messages = (newestFirst ?? []).slice().reverse()
+  type PageRow = Record<string, unknown> & {
+    id: string
+    created_at: string
+    message_attachments?: { file_id: string }[]
+  }
+  let newestFirst: PageRow[] | null = null
+  let error: { message: string } | null = null
+  if (aroundId) {
+    // Jump-to-message: the target plus a window either side, one bounded
+    // query each way. Upward pagination continues from the window's oldest.
+    const { data: target } = await supabaseAdmin
+      .from('messages')
+      .select('id, created_at')
+      .eq('id', aroundId)
+      .eq('room_id', room.id)
+      .maybeSingle()
+    if (!target) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    const half = Math.floor(limit / 2)
+    let olderQ = supabaseAdmin
+      .from('messages')
+      .select('*, message_attachments(file_id)')
+      .eq('room_id', room.id)
+      .or(`created_at.lt.${target.created_at},and(created_at.eq.${target.created_at},id.lte.${target.id})`)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(half + 1)
+    let newerQ = supabaseAdmin
+      .from('messages')
+      .select('*, message_attachments(file_id)')
+      .eq('room_id', room.id)
+      .or(`created_at.gt.${target.created_at},and(created_at.eq.${target.created_at},id.gt.${target.id})`)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .limit(half)
+    if (projectId) {
+      olderQ = olderQ.or(`project_id.eq.${projectId},project_id.is.null`)
+      newerQ = newerQ.or(`project_id.eq.${projectId},project_id.is.null`)
+    } else if (general) {
+      olderQ = olderQ.is('project_id', null)
+      newerQ = newerQ.is('project_id', null)
+    }
+    if (access?.historyFrom) {
+      olderQ = olderQ.gte('created_at', access.historyFrom)
+      newerQ = newerQ.gte('created_at', access.historyFrom)
+    }
+    const [olderRes, newerRes] = await Promise.all([olderQ, newerQ])
+    error = olderRes.error ?? newerRes.error ?? null
+    newestFirst = [
+      ...(newerRes.data ?? []).slice().reverse(),
+      ...(olderRes.data ?? []),
+    ]
+  } else {
+    const res = await msgQ
+    newestFirst = res.data
+    error = res.error
+  }
+  const page = (newestFirst ?? []).slice(0, aroundId ? undefined : limit + 1)
+  const hasMore = !aroundId && page.length > limit
+  const trimmed = hasMore ? page.slice(0, limit) : page
+  const oldest = trimmed[trimmed.length - 1] as { created_at: string; id: string } | undefined
+  const nextCursor =
+    (hasMore || (aroundId && oldest)) && oldest
+      ? encodeCursor({ t: oldest.created_at, id: oldest.id })
+      : null
+  const messages = trimmed.slice().reverse()
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
@@ -97,17 +171,17 @@ export async function GET(req: NextRequest) {
   // renders) but its content must not travel — RLS hides it from
   // authenticated reads only at migration 10, and this read runs on the
   // service role regardless.
-  const withFk = (messages ?? []).map((row) => {
-    const { message_attachments, ...m } = row as typeof row & { message_attachments?: { file_id: string }[] }
+  const withFk = messages.map((row) => {
+    const { message_attachments, ...m } = row
     return { ...m, attachment_file_id: message_attachments?.[0]?.file_id ?? null }
   })
-  const scrubbed = withFk.map((m) =>
+  const scrubbed = withFk.map((m: Record<string, unknown>) =>
     m.deleted_at || m.is_deleted
       ? { ...m, body: '', attachment_url: null, attachment_name: null, attachment_file_id: null }
       : m
   )
 
-  return NextResponse.json({ messages: scrubbed, roomId: room.id })
+  return NextResponse.json({ messages: scrubbed, roomId: room.id, nextCursor, hasMore: !!hasMore })
 }
 
 // Mark a thread read (advances THIS user's room watermark) or delivered.

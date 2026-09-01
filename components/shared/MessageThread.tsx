@@ -39,6 +39,10 @@ type Props = {
   onDeleteMessage?: (messageId: string) => Promise<void>
   onEditMessage?: (messageId: string, newBody: string) => Promise<void>
   onTyping?: () => void
+  /** keyset pagination (Batch 15 item 2) — scroll to the top loads older */
+  onLoadOlder?: () => Promise<void>
+  hasMore?: boolean
+  loadingOlder?: boolean
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -104,6 +108,9 @@ export default function MessageThread({
   onDeleteMessage,
   onEditMessage,
   onTyping,
+  onLoadOlder,
+  hasMore = false,
+  loadingOlder = false,
 }: Props) {
   const [newMessage, setNewMessage] = useState('')
   const [replyTo, setReplyTo] = useState<Message | null>(null)
@@ -116,6 +123,11 @@ export default function MessageThread({
   const [editText, setEditText] = useState('')
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const scrollBoxRef = useRef<HTMLDivElement>(null)
+  // Autoscroll only when the reader is already at the tail — loading an older
+  // page or reading history must never yank them to the bottom.
+  const nearBottomRef = useRef(true)
+  const fetchingOlderRef = useRef(false)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const videoInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -123,8 +135,30 @@ export default function MessageThread({
   const attachMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (nearBottomRef.current && !fetchingOlderRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [messages])
+
+  async function handleScroll() {
+    const el = scrollBoxRef.current
+    if (!el) return
+    nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
+    if (el.scrollTop < 80 && hasMore && !loadingOlder && !fetchingOlderRef.current && onLoadOlder) {
+      fetchingOlderRef.current = true
+      const prevHeight = el.scrollHeight
+      const prevTop = el.scrollTop
+      try {
+        await onLoadOlder()
+      } finally {
+        requestAnimationFrame(() => {
+          const box = scrollBoxRef.current
+          if (box) box.scrollTop = box.scrollHeight - prevHeight + prevTop
+          fetchingOlderRef.current = false
+        })
+      }
+    }
+  }
 
   // Close attach menu on click outside
   useEffect(() => {
@@ -304,7 +338,20 @@ export default function MessageThread({
       )}
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-5 min-h-0 scrollbar-thin relative">
+      <div ref={scrollBoxRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-5 min-h-0 scrollbar-thin relative">
+        {loadingOlder && (
+          <div className="flex justify-center py-2">
+            <Loader2 size={14} className="animate-spin" style={{ color: 'hsl(var(--text-faint))' }} />
+          </div>
+        )}
+        {!hasMore && messages.length > 0 && (
+          <p
+            className="text-center text-[10px] uppercase tracking-[0.14em] py-2"
+            style={{ color: 'hsl(var(--text-faint))' }}
+          >
+            Beginning of conversation
+          </p>
+        )}
         {messages.length === 0 && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 pointer-events-none">
             <div
