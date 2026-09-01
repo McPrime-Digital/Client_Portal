@@ -14,6 +14,7 @@ export type Client = {
   // user_id is gone — retired by migration 0026. A company's people are its
   // client_members rows (S1 §5.2); resolve them with lib/team.ts, never from
   // a column on the company.
+  organization_id: string
   name: string
   email: string
   company: string | null

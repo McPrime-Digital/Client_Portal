@@ -115,7 +115,10 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
 
     // Realtime subscription still fires when replication is on
     const channel = supabase
-      .channel('sidebar-badges')
+      .channel(`badges:client:${clientId}`)
+      // Instant: the sender's browser pings this topic the moment a message
+      // lands (RoomThread.pingBadges) — no replication round trip in the way.
+      .on('broadcast', { event: 'badge' }, () => loadBadges())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' },
         () => loadBadges())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'invoices' },

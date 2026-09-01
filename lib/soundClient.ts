@@ -12,6 +12,34 @@ const THROTTLE_MS = 1500
 
 let lastPlayed = 0
 let ctx: AudioContext | null = null
+let primed = false
+
+/**
+ * Browsers refuse to start audio without a user gesture, and a chime whose
+ * AudioContext is born inside a realtime callback stays suspended forever —
+ * which is why "the sound is non-existent" until this exists. Call once per
+ * page (idempotent): the first pointer/key gesture creates and resumes the
+ * context, and every later chime plays.
+ */
+export function primeAudio(): void {
+  if (typeof window === 'undefined' || primed) return
+  primed = true
+  const unlock = () => {
+    try {
+      type AudioCtor = typeof AudioContext
+      const Ctor: AudioCtor | undefined =
+        window.AudioContext ??
+        (window as Window & { webkitAudioContext?: AudioCtor }).webkitAudioContext
+      if (!Ctor) return
+      ctx = ctx ?? new Ctor()
+      void ctx.resume().catch(() => {})
+    } catch { /* audio is a nicety */ }
+    window.removeEventListener('pointerdown', unlock)
+    window.removeEventListener('keydown', unlock)
+  }
+  window.addEventListener('pointerdown', unlock, { once: true })
+  window.addEventListener('keydown', unlock, { once: true })
+}
 
 export function messageSoundEnabled(): boolean {
   try {
@@ -35,6 +63,16 @@ export function playMessageChime(): void {
   const now = Date.now()
   if (now - lastPlayed < THROTTLE_MS) return
   lastPlayed = now
+  playChime()
+}
+
+/** The toggle plays this on enable so "is the sound working" answers itself. */
+export function playTestChime(): void {
+  if (typeof window === 'undefined') return
+  playChime()
+}
+
+function playChime(): void {
 
   try {
     type AudioCtor = typeof AudioContext
@@ -49,7 +87,7 @@ export function playMessageChime(): void {
 
     const t0 = ctx.currentTime
     const master = ctx.createGain()
-    master.gain.value = 0.05 // subtle — a presence, not an interruption
+    master.gain.value = 0.12 // subtle but AUDIBLE — a presence, not an interruption
     master.connect(ctx.destination)
 
     // Two soft sine notes a fourth apart, 90ms each, gentle decay.

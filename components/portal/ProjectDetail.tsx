@@ -13,11 +13,10 @@ import type {
   Message,
   Client,
 } from '@/lib/types/database'
-import MessageThread from '@/components/shared/MessageThread'
+import RoomThread from '@/components/shared/RoomThread'
 import TaskBoard from '@/components/shared/TaskBoard'
 import { useNotifications } from '@/lib/hooks/useNotifications'
 import { uploadFileToR2 } from '@/lib/uploadClient'
-import { playMessageChime } from '@/lib/soundClient'
 import ProgressBar from '@/components/shared/ProgressBar'
 import { computeProjectProgress, phaseColor } from '@/lib/projectProgress'
 import {
@@ -47,7 +46,6 @@ type Props = {
   phases: ProjectPhase[]
   tasks: Task[]
   files: FileRecord[]
-  initialMessages: Message[]
   client: Client
   /** The studio serving this client (S0-B §3) — resolved by the page. */
   studioName: string
@@ -102,7 +100,6 @@ export default function ProjectDetail({
   phases: initialPhases,
   tasks,
   files,
-  initialMessages,
   client,
   studioName,
   involvement,
@@ -121,7 +118,6 @@ export default function ProjectDetail({
   // The pipeline status is auto-derived from phase progress server-side; mirror
   // any change here so the client sees it without a reload.
   const [liveStatus, setLiveStatus] = useState(project.status)
-  const [messages, setMessages] = useState<Message[]>(initialMessages)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
   const [fileList, setFileList] = useState<FileRecord[]>(files)
@@ -133,21 +129,9 @@ export default function ProjectDetail({
   useEffect(() => { setPhases(initialPhases) }, [initialPhases])
   useEffect(() => { setLiveStatus(project.status) }, [project.status])
   useEffect(() => { setFileList(files) }, [files])
-  const [refreshing, setRefreshing] = useState(false)
   // Typing & presence state
   const [adminTyping, setAdminTyping] = useState(false)
   const [adminOnline, setAdminOnline] = useState(false)
-  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const typingBroadcastRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // The single subscribed typing channel. handleTyping() used to call
-  // supabase.channel(...) per keystroke — see the note on the send below.
-  const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
-  // Who am I — so a chime never plays for your own message.
-  const ownIdRef = useRef<string | null>(null)
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => { ownIdRef.current = data.user?.id ?? null })
-  }, [])
-  const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const clientUploadRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
@@ -161,47 +145,15 @@ export default function ProjectDetail({
       (n) => n.project_id === project.id && n.type === type && !n.read_at && !n.dismissed_at,
     ).length
 
-  const refreshMessages = useCallback(async () => {
-    if (refreshing) return
-    setRefreshing(true)
-    try {
-      const res = await fetch(
-        `/api/portal/messages?project_id=${project.id}`
-      )
-      const json = await res.json()
-      if (res.ok && json.messages) {
-        setMessages(json.messages as Message[])
-      }
-    } catch (err) {
-      console.error('Failed to refresh messages:', err)
-    } finally {
-      setRefreshing(false)
-    }
-  }, [project.id, refreshing])
-
-  // Mark admin messages as read when messages tab is active
+  // Opening the chat clears its bell notifications; the read watermark is
+  // RoomThread's job now (one code path — Batch 15 item 1).
   useEffect(() => {
     if (activeTab === 'messages') {
-      fetch('/api/portal/messages', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_id: project.id }),
-      }).catch(() => {})
-      // Clear this project's message notifications — they persist in the bell
-      // until the chat is actually opened.
       fetch('/api/portal/notifications', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ project_id: project.id, type: 'message' }),
       }).catch(() => {})
-      // Update local state so read receipts show immediately
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.sender_role === 'admin' && !m.read_at
-            ? { ...m, read_at: new Date().toISOString() }
-            : m
-        )
-      )
     }
   }, [activeTab, project.id])
 
@@ -225,91 +177,6 @@ export default function ProjectDetail({
   // Single source of truth — same helper the admin + lists use.
   const computedProgress = computeProjectProgress(phases, project.progress)
 
-  // Realtime messages subscription — instant delivery when replication is enabled
-  useEffect(() => {
-    const channel = supabase
-      .channel(`messages:${project.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `project_id=eq.${project.id}`,
-        },
-        (payload) => {
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === (payload.new as Message).id)) return prev
-            return [...prev, payload.new as Message]
-          })
-          if ((payload.new as Message).sender_id !== ownIdRef.current) playMessageChime()
-          // Acknowledge delivery of incoming admin messages.
-          if ((payload.new as Message).sender_role === 'admin') {
-            fetch('/api/portal/messages', {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ project_id: project.id, mode: 'delivered' }),
-            }).catch(() => {})
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'messages',
-          filter: `project_id=eq.${project.id}`,
-        },
-        (payload) => {
-          setMessages((prev) =>
-            prev.map((m) => m.id === payload.new.id ? { ...m, ...payload.new as Message } : m)
-          )
-        }
-      )
-      .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
-  }, [project.id])
-
-  // Acknowledge delivery of any already-loaded admin messages on mount.
-  useEffect(() => {
-    fetch('/api/portal/messages', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project_id: project.id, mode: 'delivered' }),
-    }).catch(() => {})
-  }, [project.id])
-
-  // The thread bus — ONE topic (`thread:<id>`) shared with the hubs on both
-  // sides (Batch 14 item 9). Before this, typing rode `typing:<id>` and hubs
-  // listened on `thread:<id>`, so hub↔page pairs were deaf to each other; and
-  // page SENDS never broadcast at all, which is why the studio hub learned of
-  // a portal project-page message only on its 60s poll — the "3 minute" bug.
-  useEffect(() => {
-    const ch = supabase
-      .channel(`thread:${project.id}`, { config: { broadcast: { self: false } } })
-      .on('broadcast', { event: 'typing' }, (payload) => {
-        if (payload.payload?.role === 'admin') {
-          setAdminTyping(true)
-          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
-          typingTimeoutRef.current = setTimeout(() => setAdminTyping(false), 3000)
-        }
-      })
-      .on('broadcast', { event: 'message' }, (p) => {
-        // The row itself arrives via postgres_changes; the broadcast is the
-        // instant signal — and the chime.
-        if (p.payload?.senderId && p.payload.senderId === ownIdRef.current) return
-        playMessageChime()
-      })
-      .subscribe()
-    typingChannelRef.current = ch
-    return () => {
-      typingChannelRef.current = null
-      supabase.removeChannel(ch)
-    }
-  }, [project.id])
-
   // Presence — track admin online status
   useEffect(() => {
     const ch = supabase.channel(`presence:${project.id}`, {
@@ -330,47 +197,6 @@ export default function ProjectDetail({
       })
     return () => { supabase.removeChannel(ch) }
   }, [project.id, client.id])
-
-  // Broadcast typing when client types
-  function handleTyping() {
-    if (typingBroadcastRef.current) return
-    // MUST reuse the subscribed channel. `supabase.channel(name)` REGISTERS a new
-    // RealtimeChannel on every call — supabase-js does not dedupe by name — so
-    // calling it here minted an orphaned channel per keystroke (throttled to one
-    // per 2s below, so ~30/minute per typing user) that nothing ever removed.
-    // They accumulated for the life of the page, client-side and on Realtime.
-    typingChannelRef.current?.send({
-      type: 'broadcast',
-      event: 'typing',
-      payload: { role: 'client' },
-    })
-    typingBroadcastRef.current = setTimeout(() => {
-      typingBroadcastRef.current = null
-    }, 2000)
-  }
-
-  // Polling fallback — every 10s, detect new messages AND read_at changes
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetch(`/api/portal/messages?project_id=${project.id}`)
-        .then((r) => r.json())
-        .then((json) => {
-          if (!json.messages) return
-          setMessages((prev) => {
-            const incoming: Message[] = json.messages
-            // Update if count changed OR any read_at changed
-            const hasChanges =
-              incoming.length !== prev.length ||
-              incoming.some((m, i) => m.read_at !== prev[i]?.read_at)
-            return hasChanges ? incoming : prev
-          })
-          // If messages tab is active, mark admin messages as read
-          // (covers new messages arriving while tab is already open)
-        })
-        .catch(() => {})
-    }, 60_000)
-    return () => clearInterval(interval)
-  }, [project.id])
 
   // Realtime phases subscription — drives live progress bar
   useEffect(() => {
@@ -415,139 +241,6 @@ export default function ProjectDetail({
 
     return () => { supabase.removeChannel(channel) }
   }, [project.id])
-
-  // Auto scroll messages
-  useEffect(() => {
-    if (activeTab === 'messages') {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
-  }, [messages, activeTab])
-
-  async function sendMessage(body: string, replyToId?: string, attachmentUrl?: string, attachmentName?: string, attachmentFileId?: string) {
-    // Optimistic insert — show the message instantly, then reconcile.
-    const optimistic: Message = {
-      id: `temp-${Date.now()}`,
-      room_id: null,
-      thread_root_id: null,
-      deleted_at: null,
-      project_id: project.id,
-      // The company id, matching MessagesHub.tsx:364. This read the deprecated
-      // clients.user_id pointer; the value is optimistic-only and replaced by the
-      // reconciled server row (which writes the auth user id), and nothing in this
-      // component reads sender_id — alignment is by sender_role.
-      sender_id: client.id,
-      sender_role: 'client',
-      sender_name: memberName ?? client.name,
-      body,
-      read_at: null,
-      delivered_at: null,
-      reply_to_id: replyToId || null,
-      attachment_url: attachmentUrl || null,
-      attachment_name: attachmentName || null,
-      is_deleted: false,
-      edited_at: null,
-      created_at: new Date().toISOString(),
-    }
-    setMessages((prev) => [...prev, optimistic])
-
-    try {
-      const res = await fetch('/api/portal/actions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'send_message',
-          project_id: project.id,
-          body,
-          reply_to_id: replyToId,
-          attachment_url: attachmentUrl,
-          attachment_name: attachmentName,
-          attachment_file_id: attachmentFileId,
-        }),
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error)
-      // Replace the optimistic placeholder with the persisted row.
-      if (json.message) {
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === json.message.id)) {
-            return prev.filter((m) => m.id !== optimistic.id)
-          }
-          return prev.map((m) => (m.id === optimistic.id ? json.message : m))
-        })
-        // Tell the studio INSTANTLY — their hub listens on this topic and has
-        // no replication subscription of its own (Batch 14 item 9).
-        typingChannelRef.current?.send({
-          type: 'broadcast',
-          event: 'message',
-          payload: {
-            projectId: project.id,
-            messageId: json.message.id,
-            senderRole: 'client',
-            senderId: json.message.sender_id,
-            senderName: json.message.sender_name,
-            body: json.message.body,
-            attachmentName: json.message.attachment_name,
-            createdAt: json.message.created_at,
-          },
-        })
-      }
-
-      // Plain chat is intentionally NOT written to the activity log / recent
-      // activity feed — only task-related events appear there.
-    } catch (err: any) {
-      console.error('Failed to send message:', err)
-      // Roll back the optimistic placeholder so it doesn't linger.
-      setMessages((prev) => prev.filter((m) => m.id !== optimistic.id))
-      throw err
-    }
-  }
-
-  async function handleAttachmentUpload(file: File): Promise<{ url: string; name: string; fileId?: string }> {
-    const uploaded = await uploadFileToR2({
-      file,
-      projectId: project.id,
-      direction: 'client-upload',
-      category: 'message',
-    })
-
-    // Also add to fileList so it appears in the Files tab!
-    setFileList((prev) => [uploaded as any, ...prev])
-
-    return {
-      url: `${uploaded.bucket}::${uploaded.file_path}`,
-      name: uploaded.file_name,
-      fileId: uploaded.id,
-    }
-  }
-
-  async function handleDeleteMessage(messageId: string) {
-    const res = await fetch('/api/portal/messages/delete', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message_id: messageId }),
-    })
-    if (!res.ok) {
-      const json = await res.json()
-      throw new Error(json.error || 'Delete failed')
-    }
-    // Soft delete locally
-    setMessages(prev => prev.map(m => m.id === messageId ? { ...m, is_deleted: true, body: '', attachment_url: null, attachment_name: null } : m))
-  }
-
-  async function handleEditMessage(messageId: string, newBody: string) {
-    const res = await fetch('/api/portal/messages/edit', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message_id: messageId, body: newBody }),
-    })
-    const json = await res.json()
-    if (!res.ok) {
-      alert(json.error || 'Edit failed')
-      throw new Error(json.error || 'Edit failed')
-    }
-    // Update locally
-    setMessages(prev => prev.map(m => m.id === messageId ? { ...m, body: newBody, edited_at: new Date().toISOString() } : m))
-  }
 
   async function handleFileUpload(
     e: React.ChangeEvent<HTMLInputElement>,
@@ -916,40 +609,19 @@ export default function ProjectDetail({
                 </p>
               </div>
             </div>
-            <button
-              onClick={refreshMessages}
-              disabled={refreshing}
-              title="Refresh messages"
-              className="p-2 rounded-lg transition-all disabled:opacity-50"
-              style={{ color: 'hsl(var(--text-faint))' }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = 'hsl(var(--primary))'
-                e.currentTarget.style.backgroundColor = 'hsl(var(--border))'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = 'hsl(var(--text-faint))'
-                e.currentTarget.style.backgroundColor = 'transparent'
-              }}
-            >
-              <RefreshCw
-                size={15}
-                className={refreshing ? 'animate-spin' : ''}
-              />
-            </button>
           </div>
 
           <div className="flex-1 min-h-0 relative">
-            <MessageThread
-              messages={messages}
-              currentRole="client"
+            <RoomThread
+              role="client"
+              clientId={client.id}
+              orgId={client.organization_id}
+              filter={{ kind: 'project', projectId: project.id }}
               currentName={memberName ?? client.name}
-              readOnly={canMessage === false}
               otherName={studioName}
-              projectId={project.id}
-              onSendMessage={sendMessage}
-              onUploadAttachment={handleAttachmentUpload}
-              onDeleteMessage={handleDeleteMessage}
-              onTyping={handleTyping}
+              canSend={canMessage !== false}
+              selfFallback
+              onTypingChange={setAdminTyping}
             />
             {/* Typing indicator overlay */}
             {adminTyping && (

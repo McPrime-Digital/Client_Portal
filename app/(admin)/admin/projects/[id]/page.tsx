@@ -2,7 +2,6 @@ import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { tenantBrand } from '@/lib/tenantBrand'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { scrubDeleted } from '@/lib/messageRead'
 import { redirect, notFound } from 'next/navigation'
 import AdminProjectDetail from '@/components/admin/AdminProjectDetail'
 import RealtimeRefresh from '@/components/shared/RealtimeRefresh'
@@ -44,11 +43,12 @@ export default async function AdminProjectDetailPage({
 
   if (!project) notFound()
 
+  // Messages are RoomThread's now — one bounded, client-fetched code path
+  // shared with the hub (Batch 15 item 1).
   const [
     { data: phases },
     { data: tasks },
     { data: files },
-    { data: messages },
   ] = await Promise.all([
     supabaseAdmin
       .from('project_phases')
@@ -68,12 +68,6 @@ export default async function AdminProjectDetailPage({
       .eq('project_id', project.id)
       .eq('organization_id', orgId)
       .order('created_at', { ascending: false }),
-    supabaseAdmin
-      .from('messages')
-      .select('*')
-      .eq('project_id', project.id)
-      .eq('organization_id', orgId)
-      .order('created_at', { ascending: true }),
   ])
 
   // Approvals & Records ledger — ONLY task-approval activity (client approvals,
@@ -153,7 +147,6 @@ export default async function AdminProjectDetailPage({
         phases={phases ?? []}
         tasks={tasks ?? []}
         files={files ?? []}
-        initialMessages={scrubDeleted(messages)}
         involvement={involvement}
         studioName={brand.name}
       />

@@ -37,32 +37,43 @@ export async function GET(req: NextRequest) {
   const scope = fromPrefix ? 'general' : req.nextUrl.searchParams.get('scope')
   const orgId = userOrgId(user)
 
-  let msgQ
+  // Batch 15 item 1: three views, ONE code path over one room. project_id
+  // arrives from the query string and is NOT trusted for tenancy — the room
+  // resolves through the verified org, so a foreign id returns empty.
+  let room: { id: string } | null = null
+  let tagId: string | null = null
   if (projectId) {
-    // project_id arrives from the query string and is NOT trusted for
-    // tenancy. The org comes from the verified session, and pairing the two
-    // means a foreign project_id returns an empty thread instead of another
-    // studio's chat.
-    msgQ = supabaseAdmin
-      .from('messages')
-      .select('*, message_attachments(file_id)')
-      .eq('project_id', projectId)
-      .eq('organization_id', orgId)
-      .order('created_at', { ascending: true })
-  } else if (clientId && scope === 'general') {
-    const room = await roomForClient(orgId, clientId)
-    if (!room) return NextResponse.json({ messages: [] })
-    msgQ = supabaseAdmin
-      .from('messages')
-      .select('*, message_attachments(file_id)')
-      .eq('room_id', room.id)
-      .is('project_id', null)
-      .order('created_at', { ascending: true })
+    const { data: proj } = await supabaseAdmin
+      .from('projects')
+      .select('id, client_id, organization_id')
+      .eq('id', projectId)
+      .maybeSingle()
+    if (!proj || proj.organization_id !== orgId || !proj.client_id) {
+      return NextResponse.json({ messages: [] })
+    }
+    room = await roomForClient(orgId, proj.client_id)
+    tagId = projectId
+  } else if (clientId && (scope === 'general' || scope === 'room')) {
+    room = await roomForClient(orgId, clientId)
   } else {
     return NextResponse.json({ error: 'Missing project_id' }, { status: 400 })
   }
+  if (!room) return NextResponse.json({ messages: [] })
 
-  const { data: messages, error } = await msgQ
+  const limitParam = parseInt(req.nextUrl.searchParams.get('limit') ?? '50', 10)
+  const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 100) : 50
+  let msgQ = supabaseAdmin
+    .from('messages')
+    .select('*, message_attachments(file_id)')
+    .eq('room_id', room.id)
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(limit)
+  if (tagId) msgQ = msgQ.or(`project_id.eq.${tagId},project_id.is.null`)
+  else if (scope === 'general') msgQ = msgQ.is('project_id', null)
+
+  const { data: newestFirst, error } = await msgQ
+  const messages = (newestFirst ?? []).slice().reverse()
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
@@ -79,7 +90,7 @@ export async function GET(req: NextRequest) {
       : m
   )
 
-  return NextResponse.json({ messages: scrubbed })
+  return NextResponse.json({ messages: scrubbed, roomId: room.id })
 }
 
 // Mark a thread read (advances THIS admin's room watermark) or delivered.
@@ -94,8 +105,9 @@ export async function PATCH(req: NextRequest) {
   const fromPrefix = typeof rawProjectId === 'string' && rawProjectId.startsWith('room:') ? rawProjectId.slice(5) : null
   const project_id = fromPrefix ? null : rawProjectId
   const client_id = fromPrefix ?? rawClientId
+  const roomScope = rawScope === 'room'
   const general = fromPrefix != null || rawScope === 'general'
-  if (!project_id && !(general && client_id)) {
+  if (!project_id && !((general || roomScope) && client_id)) {
     return NextResponse.json({ error: 'Missing project_id' }, { status: 400 })
   }
 
@@ -127,7 +139,8 @@ export async function PATCH(req: NextRequest) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const legacyScope = (q: any) => {
     let s = q.eq('organization_id', orgId).eq('sender_role', 'client')
-    if (project_id) s = s.eq('project_id', project_id)
+    if (project_id) s = s.eq('room_id', roomId).or(`project_id.eq.${project_id},project_id.is.null`)
+    else if (roomScope) s = s.eq('room_id', roomId)
     else s = s.eq('room_id', roomId).is('project_id', null)
     return s
   }
@@ -150,7 +163,7 @@ export async function PATCH(req: NextRequest) {
       await advanceWatermark(supabaseAdmin, {
         userId: user.id,
         roomId,
-        projectId: project_id ?? null,
+        ...(roomScope ? {} : { projectId: project_id ?? null, orUntagged: !!project_id }),
       })
     }
   }

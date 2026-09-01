@@ -2,7 +2,6 @@ import { clientCan } from '@/lib/permissions'
 import { portalClientId, portalAccess } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { scrubDeleted } from '@/lib/messageRead'
 import { tenantBrand } from '@/lib/tenantBrand'
 import { redirect, notFound } from 'next/navigation'
 import ProjectDetail from '@/components/portal/ProjectDetail'
@@ -71,11 +70,12 @@ export default async function ProjectDetailPage({
     involvement = data ?? []
   } catch { involvement = [] }
 
+  // Messages are RoomThread's now — fetched client-side, bounded, one code
+  // path with the hub (Batch 15 item 1). The page stops shipping the thread.
   const [
     { data: phases },
     { data: tasks },
     { data: files },
-    { data: messages },
   ] = await Promise.all([
     supabaseAdmin
       .from('project_phases')
@@ -92,18 +92,6 @@ export default async function ProjectDetailPage({
       .select('*')
       .eq('project_id', project.id)
       .order('created_at', { ascending: false }),
-    access?.historyFrom
-      ? supabaseAdmin
-          .from('messages')
-          .select('*')
-          .eq('project_id', project.id)
-          .gte('created_at', access.historyFrom)
-          .order('created_at', { ascending: true })
-      : supabaseAdmin
-          .from('messages')
-          .select('*')
-          .eq('project_id', project.id)
-          .order('created_at', { ascending: true }),
   ])
 
   return (
@@ -120,7 +108,6 @@ export default async function ProjectDetailPage({
         phases={phases ?? []}
       tasks={tasks ?? []}
       files={files ?? []}
-      initialMessages={scrubDeleted(messages)}
         client={client}
         studioName={brand.name}
         memberName={access?.name}

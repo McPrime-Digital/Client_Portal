@@ -40,7 +40,21 @@ export async function GET(req: NextRequest) {
   // Member scoping — project allowlist + owner-set message-history cutoff.
   const access = await portalAccess(user)
 
-  let msgQ
+  // Batch 15 item 1: three views, ONE code path over one room —
+  //   scope=room     → every message in the company's room ("All")
+  //   scope=general  → untagged only (the General thread)
+  //   project_id     → that project's tag PLUS untagged (S-F §2.2: the
+  //                    project page is the room filtered, not a second store)
+  const roomScope = scope === 'room'
+  const { data: room } = await supabaseAdmin
+    .from('message_rooms')
+    .select('id')
+    .eq('client_id', client.id)
+    .eq('kind', 'client')
+    .is('deleted_at', null)
+    .maybeSingle()
+  if (!room) return NextResponse.json({ messages: [] })
+
   if (projectId) {
     // Verify this project belongs to this client
     const { data: project } = await supabaseAdmin
@@ -55,30 +69,25 @@ export async function GET(req: NextRequest) {
     if (access?.projectIds && !access.projectIds.includes(projectId)) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 })
     }
-    msgQ = supabaseAdmin
-      .from('messages')
-      .select('*, message_attachments(file_id)')
-      .eq('project_id', projectId)
-      .order('created_at', { ascending: true })
-  } else {
-    // General thread: the untagged messages of the company's room.
-    const { data: room } = await supabaseAdmin
-      .from('message_rooms')
-      .select('id')
-      .eq('client_id', client.id)
-      .eq('kind', 'client')
-      .is('deleted_at', null)
-      .maybeSingle()
-    if (!room) return NextResponse.json({ messages: [] })
-    msgQ = supabaseAdmin
-      .from('messages')
-      .select('*, message_attachments(file_id)')
-      .eq('room_id', room.id)
-      .is('project_id', null)
-      .order('created_at', { ascending: true })
+  } else if (!general && !roomScope) {
+    return NextResponse.json({ error: 'Missing project_id' }, { status: 400 })
   }
+
+  // Bounded: the latest page only (I-1 — the keyset cursor extends this).
+  const limitParam = parseInt(req.nextUrl.searchParams.get('limit') ?? '50', 10)
+  const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 100) : 50
+  let msgQ = supabaseAdmin
+    .from('messages')
+    .select('*, message_attachments(file_id)')
+    .eq('room_id', room.id)
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(limit)
+  if (projectId) msgQ = msgQ.or(`project_id.eq.${projectId},project_id.is.null`)
+  else if (general) msgQ = msgQ.is('project_id', null)
   if (access?.historyFrom) msgQ = msgQ.gte('created_at', access.historyFrom)
-  const { data: messages, error } = await msgQ
+  const { data: newestFirst, error } = await msgQ
+  const messages = (newestFirst ?? []).slice().reverse()
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
@@ -98,7 +107,7 @@ export async function GET(req: NextRequest) {
       : m
   )
 
-  return NextResponse.json({ messages: scrubbed })
+  return NextResponse.json({ messages: scrubbed, roomId: room.id })
 }
 
 // Mark a thread read (advances THIS user's room watermark) or delivered.
@@ -110,9 +119,10 @@ export async function PATCH(req: NextRequest) {
   }
 
   const { project_id: rawProjectId, mode, scope } = await req.json()
+  const roomScope = scope === 'room'
   const general = scope === 'general' || (typeof rawProjectId === 'string' && rawProjectId.startsWith('room:'))
-  const project_id = general ? null : rawProjectId
-  if (!project_id && !general) {
+  const project_id = general || roomScope ? null : rawProjectId
+  if (!project_id && !general && !roomScope) {
     return NextResponse.json({ error: 'Missing project_id' }, { status: 400 })
   }
 
@@ -142,7 +152,8 @@ export async function PATCH(req: NextRequest) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const legacyScope = (q: any) => {
     let s = q.eq('sender_role', 'admin')
-    if (project_id) s = s.eq('project_id', project_id)
+    if (project_id) s = s.eq('room_id', room?.id ?? '00000000-0000-0000-0000-000000000000').or(`project_id.eq.${project_id},project_id.is.null`)
+    else if (roomScope) s = s.eq('room_id', room?.id ?? '00000000-0000-0000-0000-000000000000')
     else s = s.eq('room_id', room?.id ?? '00000000-0000-0000-0000-000000000000').is('project_id', null)
     return s
   }
@@ -166,7 +177,8 @@ export async function PATCH(req: NextRequest) {
       await advanceWatermark(supabaseAdmin, {
         userId: user.id,
         roomId: room.id,
-        projectId: project_id ?? null,
+        // room scope = whole-room read; a project view clears its untagged too
+        ...(roomScope ? {} : { projectId: project_id ?? null, orUntagged: !!project_id }),
       })
     }
   }

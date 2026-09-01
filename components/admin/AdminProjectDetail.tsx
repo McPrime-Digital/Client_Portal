@@ -6,14 +6,13 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import StatusBadge from '@/components/portal/StatusBadge'
 import AdminInvoicesTab from '@/components/admin/AdminInvoicesTab'
-import MessageThread from '@/components/shared/MessageThread'
+import RoomThread from '@/components/shared/RoomThread'
 import TaskBoard from '@/components/shared/TaskBoard'
 import type { Message } from '@/lib/types/database'
 import { uploadFileToR2 } from '@/lib/uploadClient'
 import ProgressBar from '@/components/shared/ProgressBar'
 import ProgressSlider from '@/components/shared/ProgressSlider'
 import { computeProjectProgress, phaseColor } from '@/lib/projectProgress'
-import { playMessageChime } from '@/lib/soundClient'
 import {
   ArrowLeft,
   LayoutDashboard,
@@ -83,7 +82,6 @@ export default function AdminProjectDetail({
   phases: initialPhases,
   tasks: initialTasks,
   files: initialFiles,
-  initialMessages,
   involvement,
   studioName,
 }: any) {
@@ -100,7 +98,6 @@ export default function AdminProjectDetail({
   const [phases, setPhases] = useState(initialPhases)
   const [tasks, setTasks] = useState(initialTasks)
   const [files, setFiles] = useState(initialFiles)
-  const [messages, setMessages] = useState(initialMessages)
 
   // Sync from the server on RealtimeRefresh/poll re-renders so client-driven
   // changes (approvals advancing phases, uploads) appear live for the admin
@@ -120,43 +117,9 @@ export default function AdminProjectDetail({
   const [uploadError, setUploadError] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Messages state
-  const [newMessage, setNewMessage] = useState('')
-  const [sending, setSending] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
   // Typing & presence state
   const [clientTyping, setClientTyping] = useState(false)
   const [clientOnline, setClientOnline] = useState(false)
-  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const typingBroadcastRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // The single subscribed typing channel. handleTyping() used to call
-  // supabase.channel(...) per keystroke — see the note on the send below.
-  const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
-  // Who am I — so a chime never plays for your own message.
-  const ownIdRef = useRef<string | null>(null)
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => { ownIdRef.current = data.user?.id ?? null })
-  }, [])
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-
-  const refreshMessages = useCallback(async () => {
-    if (refreshing) return
-    setRefreshing(true)
-    try {
-      const res = await fetch(
-        `/api/admin/messages?project_id=${project.id}`
-      )
-      const json = await res.json()
-      if (res.ok && json.messages) {
-        setMessages(json.messages)
-      }
-    } catch (err) {
-      console.error('Failed to refresh messages:', err)
-    } finally {
-      setRefreshing(false)
-    }
-  }, [project.id, refreshing])
-
   // Tasks state
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [addingTask, setAddingTask] = useState(false)
@@ -203,28 +166,15 @@ export default function AdminProjectDetail({
   const tabBadge = (type: string) =>
     adminNotifs.filter((n: any) => n.project_id === project.id && n.type === type && !n.read_at && !n.dismissed_at).length
 
-  // Mark client messages as read when messages tab opens
+  // Opening the chat clears its bell notifications; the read watermark is
+  // RoomThread's job now (one code path — Batch 15 item 1).
   useEffect(() => {
     if (activeTab === 'messages') {
-      fetch('/api/admin/messages', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_id: project.id }),
-      }).catch(() => {})
-      // Clear this project's message notifications from the admin bell — they
-      // persist until the chat is actually opened.
       fetch('/api/admin/notifications', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ project_id: project.id, type: 'message' }),
       }).catch(() => {})
-      setMessages((prev: any[]) =>
-        prev.map((m: any) =>
-          m.sender_role === 'client' && !m.read_at
-            ? { ...m, read_at: new Date().toISOString() }
-            : m
-        )
-      )
     }
   }, [activeTab, project.id])
 
@@ -246,75 +196,6 @@ export default function AdminProjectDetail({
     }).catch(() => {})
   }, [activeTab, project.id])
 
-  // Realtime messages — INSERT + UPDATE (read receipts)
-  useEffect(() => {
-    const channel = supabase
-      .channel(`admin-messages:${project.id}`)
-      .on('postgres_changes', {
-        event: 'INSERT', schema: 'public', table: 'messages',
-        filter: `project_id=eq.${project.id}`,
-      }, (payload) => {
-        setMessages((prev: any[]) => {
-          if (prev.some((m) => m.id === payload.new.id)) return prev
-          return [...prev, payload.new]
-        })
-        if (payload.new.sender_id !== ownIdRef.current) playMessageChime()
-        // Acknowledge delivery of incoming client messages.
-        if (payload.new.sender_role === 'client') {
-          fetch('/api/admin/messages', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ project_id: project.id, mode: 'delivered' }),
-          }).catch(() => {})
-        }
-      })
-      .on('postgres_changes', {
-        event: 'UPDATE', schema: 'public', table: 'messages',
-        filter: `project_id=eq.${project.id}`,
-      }, (payload) => {
-        setMessages((prev: any[]) =>
-          prev.map((m) => m.id === payload.new.id ? { ...m, ...payload.new } : m)
-        )
-      })
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [project.id])
-
-  // Acknowledge delivery of any already-loaded client messages on mount.
-  useEffect(() => {
-    fetch('/api/admin/messages', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project_id: project.id, mode: 'delivered' }),
-    }).catch(() => {})
-  }, [project.id])
-
-  // The thread bus — same topic as the hubs on both sides (Batch 14 item 9);
-  // see the note in ProjectDetail.tsx. This is what makes the client's hub
-  // hear a studio project-page send instantly, and typing work across
-  // hub↔page pairs.
-  useEffect(() => {
-    const ch = supabase
-      .channel(`thread:${project.id}`, { config: { broadcast: { self: false } } })
-      .on('broadcast', { event: 'typing' }, (payload) => {
-        if (payload.payload?.role === 'client') {
-          setClientTyping(true)
-          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
-          typingTimeoutRef.current = setTimeout(() => setClientTyping(false), 3000)
-        }
-      })
-      .on('broadcast', { event: 'message' }, (p) => {
-        if (p.payload?.senderId && p.payload.senderId === ownIdRef.current) return
-        playMessageChime()
-      })
-      .subscribe()
-    typingChannelRef.current = ch
-    return () => {
-      typingChannelRef.current = null
-      supabase.removeChannel(ch)
-    }
-  }, [project.id])
-
   // Presence — track client online status
   useEffect(() => {
     const ch = supabase.channel(`presence:${project.id}`, {
@@ -335,53 +216,6 @@ export default function AdminProjectDetail({
       })
     return () => { supabase.removeChannel(ch) }
   }, [project.id])
-
-  // Broadcast typing when admin types
-  function handleAdminTyping() {
-    if (typingBroadcastRef.current) return
-    // MUST reuse the subscribed channel. `supabase.channel(name)` REGISTERS a new
-    // RealtimeChannel on every call — supabase-js does not dedupe by name — so
-    // calling it here minted an orphaned channel per keystroke (throttled to one
-    // per 2s below, so ~30/minute per typing user) that nothing ever removed.
-    // They accumulated for the life of the page, client-side and on Realtime.
-    typingChannelRef.current?.send({
-      type: 'broadcast',
-      event: 'typing',
-      payload: { role: 'admin' },
-    })
-    typingBroadcastRef.current = setTimeout(() => {
-      typingBroadcastRef.current = null
-    }, 2000)
-  }
-
-  // Polling fallback — every 10s, detect new messages AND read_at changes
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetch(`/api/admin/messages?project_id=${project.id}`)
-        .then((r) => r.json())
-        .then((json) => {
-          if (!json.messages) return
-          setMessages((prev: any[]) => {
-            const incoming = json.messages
-            // Update if count changed OR any read_at changed
-            const hasChanges =
-              incoming.length !== prev.length ||
-              incoming.some((m: any, i: number) => m.read_at !== prev[i]?.read_at)
-            return hasChanges ? incoming : prev
-          })
-        })
-        .catch(() => {})
-    }, 60_000)
-    return () => clearInterval(interval)
-  }, [project.id])
-
-  useEffect(() => {
-    if (activeTab === 'messages') {
-      messagesEndRef.current?.scrollIntoView({
-        behavior: 'smooth',
-      })
-    }
-  }, [messages, activeTab])
 
   // ── API HELPER ──
   async function adminAction(action: string, payload: Record<string, any>) {
@@ -511,120 +345,6 @@ export default function AdminProjectDetail({
       console.error('Delete failed:', err)
       alert(`Failed to delete file: ${err.message}`)
     }
-  }
-
-  // ── MESSAGE HANDLERS ──
-  async function sendMessage(body: string, replyToId?: string, attachmentUrl?: string, attachmentName?: string, attachmentFileId?: string) {
-    if (!body.trim() && !attachmentUrl) return
-    setSending(true)
-
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      const optimistic: Message = {
-        id: `temp-${Date.now()}`,
-        room_id: null,
-        thread_root_id: null,
-        deleted_at: null,
-        project_id: project.id,
-        sender_id: user!.id,
-        sender_role: 'admin',
-        sender_name: studioName,
-        body: body.trim(),
-        read_at: null,
-        delivered_at: null,
-        reply_to_id: replyToId || null,
-        attachment_url: attachmentUrl || null,
-        attachment_name: attachmentName || null,
-        is_deleted: false,
-        edited_at: null,
-        created_at: new Date().toISOString(),
-      }
-
-      setMessages((prev: any[]) => [...prev, optimistic])
-
-      const { message } = await adminAction('send_message', {
-        project_id: project.id,
-        body: body.trim(),
-        reply_to_id: replyToId || null,
-        attachment_url: attachmentUrl || null,
-        attachment_name: attachmentName || null,
-        attachment_file_id: attachmentFileId || null,
-      })
-      
-      setMessages((prev: any[]) =>
-        prev.map((m) =>
-          m.id === optimistic.id ? message : m
-        )
-      )
-      // Tell the client INSTANTLY — their hub listens on this topic and has
-      // no replication subscription of its own (Batch 14 item 9).
-      if (message) {
-        typingChannelRef.current?.send({
-          type: 'broadcast',
-          event: 'message',
-          payload: {
-            projectId: project.id,
-            messageId: message.id,
-            senderRole: 'admin',
-            senderId: message.sender_id,
-            senderName: message.sender_name,
-            body: message.body,
-            attachmentName: message.attachment_name,
-            createdAt: message.created_at,
-          },
-        })
-      }
-
-      // Plain chat is intentionally NOT written to the activity log / recent
-      // activity feed — only task-related events appear there.
-    } catch (err: any) {
-      console.error('Failed to send message:', err)
-      alert(`Failed to send message: ${err.message}`)
-    } finally {
-      setSending(false)
-    }
-  }
-
-  async function handleAttachmentUpload(file: File): Promise<{ url: string; name: string; fileId?: string }> {
-    const uploaded = await uploadFileToR2({
-      file,
-      projectId: project.id,
-      direction: 'delivery',
-      category: 'message',
-    })
-
-    return {
-      url: `${uploaded.bucket}::${uploaded.file_path}`,
-      name: uploaded.file_name,
-      fileId: uploaded.id,
-    }
-  }
-
-  async function handleDeleteMessage(messageId: string) {
-    const res = await fetch('/api/portal/messages/delete', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message_id: messageId }),
-    })
-    if (!res.ok) {
-      const json = await res.json()
-      throw new Error(json.error || 'Delete failed')
-    }
-    setMessages((prev: any[]) => prev.map((m: any) => m.id === messageId ? { ...m, is_deleted: true, body: '', attachment_url: null, attachment_name: null } : m))
-  }
-
-  async function handleEditMessage(messageId: string, newBody: string) {
-    const res = await fetch('/api/portal/messages/edit', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message_id: messageId, body: newBody }),
-    })
-    const json = await res.json()
-    if (!res.ok) {
-      alert(json.error || 'Edit failed')
-      throw new Error(json.error || 'Edit failed')
-    }
-    setMessages((prev: any[]) => prev.map((m: any) => m.id === messageId ? { ...m, body: newBody, edited_at: new Date().toISOString() } : m))
   }
 
   // ── TASK HANDLERS ──
@@ -1044,37 +764,18 @@ export default function AdminProjectDetail({
                 </p>
               </div>
             </div>
-            <button
-              onClick={refreshMessages}
-              disabled={refreshing}
-              title="Refresh messages"
-              className="p-2 rounded-lg transition-all disabled:opacity-50"
-              style={{ color: 'hsl(var(--text-faint))' }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = 'hsl(var(--primary))'
-                e.currentTarget.style.backgroundColor = 'hsl(var(--border))'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = 'hsl(var(--text-faint))'
-                e.currentTarget.style.backgroundColor = 'transparent'
-              }}
-            >
-              <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
-            </button>
           </div>
 
           <div className="flex-1 min-h-0 relative">
-            <MessageThread
-              messages={messages}
-              currentRole="admin"
+            <RoomThread
+              role="admin"
+              clientId={client.id}
+              orgId={client.organization_id}
+              filter={{ kind: 'project', projectId: project.id }}
               currentName={studioName}
               otherName={client.name}
-              projectId={project.id}
-              onSendMessage={sendMessage}
-              onUploadAttachment={handleAttachmentUpload}
-              onDeleteMessage={handleDeleteMessage}
-              onEditMessage={handleEditMessage}
-              onTyping={handleAdminTyping}
+              selfFallback
+              onTypingChange={setClientTyping}
             />
             {/* Typing indicator overlay */}
             {clientTyping && (

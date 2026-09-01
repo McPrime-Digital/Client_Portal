@@ -34,12 +34,15 @@ export default function StudioSidebar({
   orgExtra = [],
   roleLabel = 'Owner',
   houseTools = false,
+  orgId = null,
 }: {
   userName: string
   orgName: string
   orgRoles?: OrgRole[]
   orgExtra?: string[]
   roleLabel?: string
+  /** scopes the instant badge topic (`badges:org:<id>`) to this tenant */
+  orgId?: string | null
   /** Whether this org's plan carries 'internal.pipeline' (house-only rail
    *  entries). Resolved server-side in the layout from the org's PLAN. */
   houseTools?: boolean
@@ -90,7 +93,9 @@ export default function StudioSidebar({
     loadBadge()
     const interval = setInterval(loadBadge, 90_000)
     const channel = supabase
-      .channel('studio-sidebar-badges')
+      .channel(orgId ? `badges:org:${orgId}` : 'studio-sidebar-badges')
+      // Instant: the sender's browser pings this topic on send (RoomThread).
+      .on('broadcast', { event: 'badge' }, () => loadBadge())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => loadBadge())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => loadBadge())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'invoices' }, () => loadBadge())
@@ -100,7 +105,8 @@ export default function StudioSidebar({
       clearInterval(interval)
       supabase.removeChannel(channel)
     }
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId])
 
   const clientAttention = counts.messages + counts.review + counts.invoices
 

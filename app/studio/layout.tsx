@@ -109,6 +109,7 @@ export default async function StudioLayout({ children }: { children: React.React
       <StudioSidebar
         userName={userName}
         orgName={orgName}
+        orgId={userOrgId(user)}
         orgRoles={[...roles]}
         orgExtra={orgAccess.extraCaps}
         roleLabel={roleLabel}

@@ -54,6 +54,8 @@ export type OrgUnread = {
   byProject: Record<string, number>
   /** untagged unread per client company (keyed by client_id) */
   generalByClient: Record<string, number>
+  /** ALL unread per client company's room (tagged + untagged) — the room list badge */
+  byClient: Record<string, number>
 }
 
 async function watermarksFor(
@@ -134,7 +136,7 @@ export async function orgUnread(
     .eq('organization_id', opts.orgId)
     .is('deleted_at', null)
   if (roomErr) throw new Error(`message_rooms read failed: ${roomErr.message}`)
-  if (!rooms?.length) return { total: 0, byProject: {}, generalByClient: {} }
+  if (!rooms?.length) return { total: 0, byProject: {}, generalByClient: {}, byClient: {} }
 
   const roomIds = rooms.map((r) => r.id)
   const wms = await watermarksFor(db, opts.userId, roomIds)
@@ -152,20 +154,22 @@ export async function orgUnread(
 
   const byProject: Record<string, number> = {}
   const generalByClient: Record<string, number> = {}
+  const byClient: Record<string, number> = {}
   let total = 0
   for (const m of msgs ?? []) {
     if (m.sender_id === opts.userId) continue
     const wm = wms.get(m.room_id)
     if (wm && m.created_at <= wm) continue
     total++
+    const cid = clientByRoom.get(m.room_id)
+    if (cid) byClient[cid] = (byClient[cid] ?? 0) + 1
     if (m.project_id != null) {
       byProject[m.project_id] = (byProject[m.project_id] ?? 0) + 1
-    } else {
-      const cid = clientByRoom.get(m.room_id)
-      if (cid) generalByClient[cid] = (generalByClient[cid] ?? 0) + 1
+    } else if (cid) {
+      generalByClient[cid] = (generalByClient[cid] ?? 0) + 1
     }
   }
-  return { total, byProject, generalByClient }
+  return { total, byProject, generalByClient, byClient }
 }
 
 /**
@@ -175,7 +179,7 @@ export async function orgUnread(
  */
 export async function advanceWatermark(
   db: SupabaseClient,
-  opts: { userId: string; roomId: string; projectId?: string | null }
+  opts: { userId: string; roomId: string; projectId?: string | null; orUntagged?: boolean }
 ): Promise<void> {
   let q = db
     .from('messages')
@@ -184,7 +188,13 @@ export async function advanceWatermark(
     .order('created_at', { ascending: false })
     .limit(1)
   if (opts.projectId === null) q = q.is('project_id', null)
-  else if (typeof opts.projectId === 'string') q = q.eq('project_id', opts.projectId)
+  else if (typeof opts.projectId === 'string') {
+    // A project view shows the tag PLUS untagged room messages (S-F §2.2 /
+    // Batch 15 item 1), so reading it clears both.
+    q = opts.orUntagged
+      ? q.or(`project_id.eq.${opts.projectId},project_id.is.null`)
+      : q.eq('project_id', opts.projectId)
+  }
   const { data: newest, error } = await q.maybeSingle()
   if (error) throw new Error(`watermark scope read failed: ${error.message}`)
   if (!newest) return
