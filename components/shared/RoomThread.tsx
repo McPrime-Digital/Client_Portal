@@ -124,6 +124,18 @@ export default function RoomThread({
   const [focusOn, setFocusOn] = useState(() => focusModeEnabled())
   const [people, setPeople] = useState<{ name: string; role: string; side: 'client' | 'crew' }[]>([])
   const [trigger, setTrigger] = useState<MentionTrigger>(() => mentionTrigger())
+  // Sticky composer tag (Batch 17): in All, the chosen project tags every
+  // send until changed — persisted per room, per device.
+  const [stickyTag, setStickyTag] = useState<string | null>(() => {
+    try { return localStorage.getItem(`genreline-room-tag:${clientId}`) } catch { return null }
+  })
+  const setSticky = useCallback((id: string | null) => {
+    setStickyTag(id)
+    try {
+      if (id) localStorage.setItem(`genreline-room-tag:${clientId}`, id)
+      else localStorage.removeItem(`genreline-room-tag:${clientId}`)
+    } catch { /* non-persistent */ }
+  }, [clientId])
   // Project colour-bonding (Batch 16): title + deterministic colour per tag,
   // built from the candidates roster the room already fetches.
   const projectMeta = (mentionCandidates?.projects ?? []).reduce<Record<string, { title: string; color: string }>>(
@@ -133,6 +145,12 @@ export default function RoomThread({
     },
     {}
   )
+  const effectiveTag =
+    filter.kind === 'project'
+      ? filter.projectId
+      : stickyTag && projectMeta[stickyTag]
+        ? stickyTag
+        : null
   const threadRootRef = useRef<string | null>(null)
   useEffect(() => { threadRootRef.current = threadRoot?.id ?? null }, [threadRoot])
 
@@ -743,7 +761,7 @@ export default function RoomThread({
       room_id: null,
       thread_root_id: null,
       deleted_at: null,
-      project_id: (filter.kind === 'project' ? filter.projectId : null) as unknown as string,
+      project_id: effectiveTag as unknown as string,
       sender_id: ownIdRef.current ?? '',
       sender_role: role,
       sender_name: currentName,
@@ -769,8 +787,8 @@ export default function RoomThread({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             action: 'send_message',
-            ...(filter.kind === 'project'
-              ? { project_id: filter.projectId }
+            ...(effectiveTag
+              ? { project_id: effectiveTag }
               : role === 'admin'
                 ? { client_id: clientId }
                 : {}),
@@ -840,7 +858,7 @@ export default function RoomThread({
       room_id: null,
       thread_root_id: null,
       deleted_at: null,
-      project_id: (filter.kind === 'project' ? filter.projectId : null) as unknown as string,
+      project_id: effectiveTag as unknown as string,
       sender_id: ownIdRef.current ?? '',
       sender_role: role,
       sender_name: currentName,
@@ -864,8 +882,8 @@ export default function RoomThread({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             action: 'send_message',
-            ...(filter.kind === 'project'
-              ? { project_id: filter.projectId }
+            ...(effectiveTag
+              ? { project_id: effectiveTag }
               : role === 'admin'
                 ? { client_id: clientId }
                 : {}),
@@ -918,9 +936,7 @@ export default function RoomThread({
   async function handleAttachmentUpload(file: File) {
     const uploaded = await uploadFileToR2({
       file,
-      ...(filter.kind === 'project'
-        ? { projectId: filter.projectId }
-        : { clientId }),
+      ...(effectiveTag ? { projectId: effectiveTag } : { clientId }),
       direction: role === 'admin' ? 'delivery' : 'client-upload',
       category: 'message',
     })
@@ -997,6 +1013,10 @@ export default function RoomThread({
             onTyping={handleTyping}
             onRecordingChange={handleRecordingChange}
             onSendVoice={allowAttachments ? sendVoice : undefined}
+            composerTag={effectiveTag ? { id: effectiveTag, ...projectMeta[effectiveTag] } : null}
+            composerTagOptions={Object.entries(projectMeta).map(([id, m]) => ({ id, ...m }))}
+            composerTagLocked={filter.kind === 'project'}
+            onComposerTagChange={setSticky}
             onLoadOlder={loadOlder}
             hasMore={hasMore}
             loadingOlder={loadingOlder}

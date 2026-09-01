@@ -93,17 +93,13 @@ export default function MessagesHub({
             (f.kind === 'project' && (row.project_id == null || row.project_id === f.projectId))
           if (!inActive) {
             playMessageChime()
-            setChipUnread((prev) =>
-              row.project_id == null
-                ? { ...prev, general: prev.general + 1 }
-                : {
-                    ...prev,
-                    byProject: {
-                      ...prev.byProject,
-                      [row.project_id]: (prev.byProject[row.project_id] ?? 0) + 1,
-                    },
-                  }
-            )
+            if (row.project_id != null) {
+              const pid = row.project_id
+              setChipUnread((prev) => ({
+                ...prev,
+                byProject: { ...prev.byProject, [pid]: (prev.byProject[pid] ?? 0) + 1 },
+              }))
+            }
           }
         }
       )
@@ -299,14 +295,6 @@ export default function MessagesHub({
         style={{ backgroundColor: 'hsl(var(--card) / 0.6)', borderColor: 'hsl(var(--border))' }}
       >
         {chip('all', 'All', filter.kind === 'all', 0, () => selectFilter({ kind: 'all' }))}
-        {chip(
-          'general',
-          'General',
-          filter.kind === 'general',
-          chipUnread.general,
-          () => selectFilter({ kind: 'general' }),
-          true
-        )}
         {projects.map((p) =>
           chip(
             p.id,

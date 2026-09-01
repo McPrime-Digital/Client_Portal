@@ -491,13 +491,6 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
               >
                 {[
                   { key: 'all', label: 'All', count: 0, f: { kind: 'all' } as RoomFilter, general: false },
-                  {
-                    key: 'general',
-                    label: 'General',
-                    count: active.generalUnread,
-                    f: { kind: 'general' } as RoomFilter,
-                    general: true,
-                  },
                   ...active.projects.map((p) => ({
                     key: p.id,
                     label: p.title,

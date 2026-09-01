@@ -69,6 +69,11 @@ type Props = {
   onRecordingChange?: (recording: boolean) => void
   /** instant voice send (Batch 17): bubble appears immediately, upload rides behind */
   onSendVoice?: (file: File) => void
+  /** sticky project tag in the composer (Batch 17): additive until changed */
+  composerTag?: { id: string; title: string; color: string } | null
+  composerTagOptions?: { id: string; title: string; color: string }[]
+  composerTagLocked?: boolean
+  onComposerTagChange?: (id: string | null) => void
   /** project colour-bonding (Batch 16): tagged bubbles carry their project's colour */
   projectMeta?: Record<string, { title: string; color: string }>
 }
@@ -172,6 +177,10 @@ export default function MessageThread({
   mentionCandidates = null,
   onRecordingChange,
   onSendVoice,
+  composerTag = null,
+  composerTagOptions = [],
+  composerTagLocked = false,
+  onComposerTagChange,
   projectMeta = {},
 }: Props) {
   const [newMessage, setNewMessage] = useState('')
@@ -186,6 +195,7 @@ export default function MessageThread({
   const [pickerFor, setPickerFor] = useState<string | null>(null)
   const [msgMenuFor, setMsgMenuFor] = useState<string | null>(null)
   const [emojiOpen, setEmojiOpen] = useState(false)
+  const [tagMenuOpen, setTagMenuOpen] = useState(false)
   // '@' autocomplete (item 5): people + projects from the roster prop.
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mentionIndex, setMentionIndex] = useState(0)
@@ -1052,6 +1062,60 @@ export default function MessageThread({
           )
         })()}
 
+        {/* Sticky project tag (Batch 17): what the next message is filed under.
+            In a project view it is locked to that project; in All it is
+            additive — it STAYS until changed. */}
+        {!readOnly && onComposerTagChange && (composerTagOptions.length > 0 || composerTag) && (
+          <div className="relative mb-2 flex items-center gap-2">
+            <button
+              type="button"
+              disabled={composerTagLocked}
+              onClick={() => setTagMenuOpen((v) => !v)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors disabled:cursor-default"
+              style={{
+                backgroundColor: composerTag ? 'transparent' : 'hsl(var(--background))',
+                border: `1px solid ${composerTag ? composerTag.color : 'hsl(var(--border))'}`,
+                color: composerTag ? composerTag.color : 'hsl(var(--muted-foreground))',
+              }}
+              title={composerTagLocked ? 'Messages here belong to this project' : 'File the next message under a project'}
+            >
+              <span
+                className="w-1.5 h-1.5 rounded-full"
+                style={{ backgroundColor: composerTag ? composerTag.color : 'hsl(var(--text-faint))' }}
+              />
+              {composerTag ? composerTag.title : 'No project'}
+              {!composerTagLocked && <span style={{ opacity: 0.6 }}>▾</span>}
+            </button>
+            {tagMenuOpen && !composerTagLocked && (
+              <div
+                className="absolute bottom-8 left-0 z-40 w-56 rounded-xl overflow-hidden shadow-2xl"
+                style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
+              >
+                <button
+                  type="button"
+                  onClick={() => { onComposerTagChange(null); setTagMenuOpen(false) }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-[hsl(var(--primary)/0.08)]"
+                  style={{ color: 'hsl(var(--muted-foreground))' }}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: 'hsl(var(--text-faint))' }} />
+                  No project
+                </button>
+                {composerTagOptions.map((o) => (
+                  <button
+                    key={o.id}
+                    type="button"
+                    onClick={() => { onComposerTagChange(o.id); setTagMenuOpen(false) }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-[hsl(var(--primary)/0.08)]"
+                    style={{ color: 'hsl(var(--foreground))' }}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: o.color }} />
+                    {o.title}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {!readOnly && mentionQuery != null && mentionMatches.length > 0 && (
           <div
             className="mb-2 rounded-xl overflow-hidden shadow-xl"

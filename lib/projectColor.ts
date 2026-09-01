@@ -5,13 +5,12 @@
  * Ten curated hues that hold up on card and gold in both themes.
  */
 
-const HUES = [340, 210, 150, 270, 25, 190, 55, 310, 90, 0]
-
 export function projectColor(projectId: string): string {
   let h = 0
   for (let i = 0; i < projectId.length; i++) {
     h = (h * 31 + projectId.charCodeAt(i)) >>> 0
   }
-  const hue = HUES[h % HUES.length]
-  return `hsl(${hue} 62% 55%)`
+  // Full 360° hue space (was a 10-hue palette — two projects in one company
+  // could collide, which defeats the entire point of colour-bonding).
+  return `hsl(${h % 360} 62% 55%)`
 }
