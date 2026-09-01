@@ -98,16 +98,31 @@ export default function VoiceRecorder({
         audioCtxRef.current = ctx
         const sourceNode = ctx.createMediaStreamSource(stream)
         const analyser = ctx.createAnalyser()
-        analyser.fftSize = 256
+        analyser.fftSize = 1024
         sourceNode.connect(analyser)
-        const data = new Uint8Array(analyser.frequencyBinCount)
+        const data = new Uint8Array(analyser.fftSize)
         const color = primaryColor()
 
+        // WhatsApp-style scrolling waveform: each ~50ms the mic's RMS level
+        // becomes a new bar entering from the right, history sliding left —
+        // the wave visibly MOVES with the voice instead of flickering in place.
+        const levels: number[] = []
+        let frame = 0
+        let smoothed = 0
         const draw = () => {
           rafRef.current = requestAnimationFrame(draw)
           const canvas = canvasRef.current
           if (!canvas) return
-          analyser.getByteFrequencyData(data)
+          analyser.getByteTimeDomainData(data)
+          let sum = 0
+          for (let i = 0; i < data.length; i++) {
+            const d = (data[i] - 128) / 128
+            sum += d * d
+          }
+          const rms = Math.sqrt(sum / data.length)
+          // Perceptual lift + smoothing so quiet speech still reads.
+          smoothed = smoothed * 0.6 + Math.min(1, rms * 3.2) * 0.4
+
           const dpr = window.devicePixelRatio || 1
           const w = canvas.clientWidth
           const h = canvas.clientHeight
@@ -115,19 +130,25 @@ export default function VoiceRecorder({
             canvas.width = w * dpr
             canvas.height = h * dpr
           }
+          const slot = 5
+          const maxBars = Math.floor(w / slot)
+          if (frame++ % 3 === 0) {
+            levels.push(smoothed)
+            if (levels.length > maxBars) levels.shift()
+          }
+
           const g = canvas.getContext('2d')!
           g.setTransform(dpr, 0, 0, dpr, 0, 0)
           g.clearRect(0, 0, w, h)
-          g.fillStyle = color
-          const bars = Math.min(56, Math.floor(w / 5))
-          const step = Math.floor(data.length / bars) || 1
-          const slot = w / bars
-          const bw = Math.max(2, slot * 0.55)
-          for (let i = 0; i < bars; i++) {
-            const v = data[i * step] / 255
-            const barH = Math.max(2, v * (h - 4))
-            const x = i * slot + (slot - bw) / 2
+          const bw = 3
+          for (let i = 0; i < levels.length; i++) {
+            const v = levels[i]
+            const barH = Math.max(3, v * (h - 4))
+            // Newest at the right edge; history slides left. Older bars fade.
+            const x = w - (levels.length - i) * slot
             const y = (h - barH) / 2
+            g.globalAlpha = 0.35 + 0.65 * (i / levels.length)
+            g.fillStyle = color
             if (g.roundRect) {
               g.beginPath()
               g.roundRect(x, y, bw, barH, bw / 2)
@@ -136,6 +157,7 @@ export default function VoiceRecorder({
               g.fillRect(x, y, bw, barH)
             }
           }
+          g.globalAlpha = 1
         }
         draw()
 
@@ -165,7 +187,12 @@ export default function VoiceRecorder({
   return (
     <div
       className="flex flex-1 items-center gap-3 rounded-xl px-3 py-2"
-      style={{ backgroundColor: 'hsl(var(--border))' }}
+      style={{
+        backgroundColor: 'hsl(var(--card) / 0.9)',
+        border: '1px solid hsl(var(--primary) / 0.35)',
+        boxShadow: '0 0 16px hsl(var(--primary) / 0.12)',
+        backdropFilter: 'blur(8px)',
+      }}
     >
       <button
         type="button"
