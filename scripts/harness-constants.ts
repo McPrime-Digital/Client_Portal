@@ -129,6 +129,7 @@ export const PERSONA_LIST: Persona[] = Object.values(PERSONAS)
 export const WORK_TABLES = [
   'projects', 'files', 'messages', 'tasks', 'invoices',
   'activity_log', 'clients', 'notifications', 'project_phases',
+  'message_rooms',
 ] as const
 
 export const MEMBERSHIP_TABLES = ['organization_members', 'client_members'] as const

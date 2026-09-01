@@ -1,7 +1,11 @@
 /**
  * scripts/test-rls.ts — S2 §6, Part B. The RLS test harness.
  *
- * Ten assertions, each a row count that must be zero. Every one runs through a
+ * Fourteen assertions (10 from S2 §6; 11–14 from S3-core §7, Batch 13 item 7 —
+ * rooms tenant-scoped, untagged visibility, sibling-tag isolation, history in
+ * the room). Most are a row count that must be zero; 12 is deliberately a
+ * POSITIVE assertion, because the room model's failure mode is hiding messages
+ * it must show. Every one runs through a
  * REAL user session obtained with signInWithPassword against the anon key.
  * This script never constructs a service-role client and never reads
  * SUPABASE_SERVICE_ROLE_KEY — a service-role read bypasses RLS entirely and
@@ -71,6 +75,7 @@ type Filter =
   | { op: 'neq'; col: string; val: Scalar }
   | { op: 'lt'; col: string; val: string }
   | { op: 'gte'; col: string; val: string }
+  | { op: 'is_null'; col: string }
 
 async function countRows(c: SupabaseClient, table: string, filters: Filter[] = []): Promise<number> {
   let q = c.from(table).select('*', { count: 'exact', head: true })
@@ -78,6 +83,7 @@ async function countRows(c: SupabaseClient, table: string, filters: Filter[] = [
     if (f.op === 'eq') q = q.eq(f.col, f.val)
     else if (f.op === 'neq') q = q.neq(f.col, f.val)
     else if (f.op === 'lt') q = q.lt(f.col, f.val)
+    else if (f.op === 'is_null') q = q.is(f.col, null)
     else q = q.gte(f.col, f.val)
   }
   const { count, error } = await q
@@ -341,6 +347,66 @@ async function main() {
     ])
     const control = await countRows(crew, 'tasks', [{ op: 'eq', col: 'project_id', val: PROJECT_1_ID }])
     judge(10, 'harness-crew (scoped to project 1) reads zero rows of project 2', leaks, control)
+  }
+
+  // ── 11 · rooms are tenant-scoped (S3-core §7.1) ───────────────────────────
+  // Both doors: the crew policy (owner must not see another org's rooms) and
+  // the client policy (a company-1 member must not see company 2's room).
+  {
+    const leaks = await leaksAcross(owner, [
+      { table: 'message_rooms', filters: notHarness },
+    ])
+    const c1ownForeignRoom = await countRows(c1own, 'message_rooms',
+      [{ op: 'eq', col: 'client_id', val: COMPANY_2_ID }])
+    if (c1ownForeignRoom > 0) leaks.push(`message_rooms(c1own→company2)=${c1ownForeignRoom}`)
+    const ownerOwn = await countRows(owner, 'message_rooms',
+      [{ op: 'eq', col: 'organization_id', val: HARNESS_ORG_ID }])
+    const c1ownOwn = await countRows(c1own, 'message_rooms',
+      [{ op: 'eq', col: 'client_id', val: COMPANY_1_ID }])
+    judge(11, 'tenant two reads zero of tenant one\'s rooms (crew + client doors)',
+      leaks, Math.min(ownerOwn, c1ownOwn))
+  }
+
+  // ── 12 · scoped teammate reads untagged + own-project tagged (§7.2) ───────
+  // A POSITIVE assertion: the room model must not hide the room from a scoped
+  // member. Reading zero here is a failure of the model, not a leak.
+  {
+    const untagged = await countRows(c1mate, 'messages',
+      [{ op: 'is_null', col: 'project_id' }, { op: 'gte', col: 'created_at', val: cutoff }])
+    const taggedOwn = await countRows(c1mate, 'messages',
+      [{ op: 'eq', col: 'project_id', val: PROJECT_1_ID }, { op: 'gte', col: 'created_at', val: cutoff }])
+    if (untagged > 0 && taggedOwn > 0) {
+      record(12, 'harness-c1-mate reads untagged room messages + own project\'s tagged', 'PASS',
+        `untagged ${untagged} + tagged ${taggedOwn} visible`)
+    } else {
+      record(12, 'harness-c1-mate reads untagged room messages + own project\'s tagged', 'FAIL',
+        `untagged=${untagged} tagged=${taggedOwn} — the room model is hiding messages it must show`)
+    }
+  }
+
+  // ── 13 · scoped teammate reads zero sibling-tagged messages (§7.3) ────────
+  // The exact leak this batch exists to prevent: one room now carries both
+  // projects' traffic, and only RLS separates them for a scoped member.
+  {
+    const leaks = await leaksAcross(c1mate, [
+      { table: 'messages', filters: [{ op: 'eq', col: 'project_id', val: PROJECT_2_ID }] },
+    ])
+    const control = await countRows(c1mate, 'messages',
+      [{ op: 'eq', col: 'project_id', val: PROJECT_1_ID }, { op: 'gte', col: 'created_at', val: cutoff }])
+    judge(13, 'harness-c1-mate reads zero messages tagged to sibling project 2', leaks, control)
+  }
+
+  // ── 14 · history_from holds on UNTAGGED messages too (§7.4) ───────────────
+  // Assertion 5 already proves the cutoff on tagged messages; untagged rows
+  // are new with the room model and must obey the same line.
+  {
+    const leaks = await leaksAcross(c1mate, [{
+      table: 'messages',
+      filters: [{ op: 'is_null', col: 'project_id' }, { op: 'lt', col: 'created_at', val: cutoff }],
+    }])
+    const control = await countRows(c1mate, 'messages',
+      [{ op: 'is_null', col: 'project_id' }, { op: 'gte', col: 'created_at', val: cutoff }])
+    judge(14, 'history_from holds inside the company room (untagged messages)', leaks, control)
   }
 
   // ── report ────────────────────────────────────────────────────────────────

@@ -317,20 +317,55 @@ async function main() {
     'member_id,project_id')
 
   // 6 · work rows
+  // Rooms are GET-OR-CREATE rather than fixed-id upserts, deliberately: the
+  // 0029 backfill already created the live rooms with generated ids, and
+  // 0027's one-live-room-per-company index would (correctly) reject a second.
+  // The seed honors the invariant instead of fighting it.
+  record(`\n-- ═══ message_rooms (get-or-create; 0029 may already own the live row) ═══`)
+  async function ensureRoom(clientId: string): Promise<string> {
+    const { data: hit, error: selErr } = await admin
+      .from('message_rooms').select('id')
+      .eq('organization_id', HARNESS_ORG_ID).eq('kind', 'client')
+      .eq('client_id', clientId).is('deleted_at', null).maybeSingle()
+    if (selErr) throw new Error(`message_rooms: ${selErr.message}`)
+    if (hit) { console.log(`  ✓ message_rooms              live room for …${clientId.slice(-4)}`); return hit.id as string }
+    if (!APPLY) { console.log(`  · message_rooms              would create room for …${clientId.slice(-4)}`); return `<room:${clientId}>` }
+    const { data: made, error: insErr } = await admin
+      .from('message_rooms')
+      .insert({ organization_id: HARNESS_ORG_ID, kind: 'client', client_id: clientId })
+      .select('id').single()
+    if (insErr) throw new Error(`message_rooms: ${insErr.message}`)
+    console.log(`  ✓ message_rooms              created room for …${clientId.slice(-4)}`)
+    return made.id as string
+  }
+  const roomC1 = await ensureRoom(COMPANY_1_ID)
+  const roomC2 = await ensureRoom(COMPANY_2_ID)
+
   record(`\n-- ═══ messages (2 either side of the history cutoff ${HISTORY_CUTOFF}) ═══`)
   const projects = [
-    { id: PROJECT_1_ID, n: 1 }, { id: PROJECT_2_ID, n: 2 }, { id: PROJECT_3_ID, n: 3 },
+    { id: PROJECT_1_ID, n: 1, room: roomC1 }, { id: PROJECT_2_ID, n: 2, room: roomC1 },
+    { id: PROJECT_3_ID, n: 3, room: roomC2 },
   ]
-  await seedRows(admin, 'messages', projects.flatMap((p, i) => [
-    { id: `0f0f0f0f-0005-4000-8000-00000000${i}001`, organization_id: HARNESS_ORG_ID, project_id: p.id,
-      sender_role: 'admin', sender_name: 'Harness Owner', body: `P${p.n} · before cutoff · 7d`, created_at: at(7 * DAY) },
-    { id: `0f0f0f0f-0005-4000-8000-00000000${i}002`, organization_id: HARNESS_ORG_ID, project_id: p.id,
-      sender_role: 'client', sender_name: 'Harness C1 Owner', body: `P${p.n} · before cutoff · 5d`, created_at: at(5 * DAY) },
-    { id: `0f0f0f0f-0005-4000-8000-00000000${i}003`, organization_id: HARNESS_ORG_ID, project_id: p.id,
-      sender_role: 'admin', sender_name: 'Harness Owner', body: `P${p.n} · after cutoff · 1d`, created_at: at(1 * DAY) },
-    { id: `0f0f0f0f-0005-4000-8000-00000000${i}004`, organization_id: HARNESS_ORG_ID, project_id: p.id,
-      sender_role: 'client', sender_name: 'Harness C1 Owner', body: `P${p.n} · after cutoff · 2h`, created_at: at(2 * 3_600_000) },
-  ]))
+  const messageRows: Row[] = [
+    ...projects.flatMap((p, i) => [
+      { id: `0f0f0f0f-0005-4000-8000-00000000${i}001`, organization_id: HARNESS_ORG_ID, project_id: p.id, room_id: p.room,
+        sender_role: 'admin', sender_name: 'Harness Owner', body: `P${p.n} · before cutoff · 7d`, created_at: at(7 * DAY) },
+      { id: `0f0f0f0f-0005-4000-8000-00000000${i}002`, organization_id: HARNESS_ORG_ID, project_id: p.id, room_id: p.room,
+        sender_role: 'client', sender_name: 'Harness C1 Owner', body: `P${p.n} · before cutoff · 5d`, created_at: at(5 * DAY) },
+      { id: `0f0f0f0f-0005-4000-8000-00000000${i}003`, organization_id: HARNESS_ORG_ID, project_id: p.id, room_id: p.room,
+        sender_role: 'admin', sender_name: 'Harness Owner', body: `P${p.n} · after cutoff · 1d`, created_at: at(1 * DAY) },
+      { id: `0f0f0f0f-0005-4000-8000-00000000${i}004`, organization_id: HARNESS_ORG_ID, project_id: p.id, room_id: p.room,
+        sender_role: 'client', sender_name: 'Harness C1 Owner', body: `P${p.n} · after cutoff · 2h`, created_at: at(2 * 3_600_000) },
+    ]),
+    // Untagged (room-level) messages — the shape the company-room model
+    // introduced. One either side of the cutoff so assertions 12 and 14 can
+    // tell enforcement from a persona that reads nothing.
+    { id: '0f0f0f0f-0005-4000-8000-000000000101', organization_id: HARNESS_ORG_ID, project_id: null, room_id: roomC1,
+      sender_role: 'admin', sender_name: 'Harness Owner', body: 'ROOM · untagged · before cutoff · 5d', created_at: at(5 * DAY) },
+    { id: '0f0f0f0f-0005-4000-8000-000000000102', organization_id: HARNESS_ORG_ID, project_id: null, room_id: roomC1,
+      sender_role: 'admin', sender_name: 'Harness Owner', body: 'ROOM · untagged · after cutoff · 2h', created_at: at(2 * 3_600_000) },
+  ]
+  await seedRows(admin, 'messages', messageRows)
 
   record(`\n-- ═══ tasks (visible_to_client so the client policy can match) ═══`)
   await seedRows(admin, 'tasks', projects.flatMap((p, i) => [
