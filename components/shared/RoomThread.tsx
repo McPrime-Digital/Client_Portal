@@ -95,6 +95,10 @@ export default function RoomThread({
   const [panel, setPanel] = useState<'pins' | 'saves' | null>(null)
   const [panelRows, setPanelRows] = useState<Message[]>([])
   const [highlightId, setHighlightId] = useState<string | null>(null)
+  // Mentions (item 5): per-viewer resolution rides each page; candidates
+  // come from the roster endpoint once per room.
+  const [mentionTargets, setMentionTargets] = useState<Record<string, Record<string, { label: string; sub?: string; href?: string } | null>> | null>(null)
+  const [mentionCandidates, setMentionCandidates] = useState<{ users: { id: string; name: string }[]; projects: { id: string; title: string }[] } | null>(null)
   const threadRootRef = useRef<string | null>(null)
   useEffect(() => { threadRootRef.current = threadRoot?.id ?? null }, [threadRoot])
 
@@ -195,6 +199,7 @@ export default function RoomThread({
       setHasMore(!!json.hasMore)
       if (json.replyMeta) setReplyMeta(json.replyMeta)
       if (json.pinnedIds) setPinnedIds(new Set(json.pinnedIds as string[]))
+      if (json.mentionTargets) setMentionTargets(json.mentionTargets)
       if (json.roomId) roomIdRef.current = json.roomId
       for (const r of rows) seenIdsRef.current.add(r.id)
     } catch {
@@ -228,6 +233,18 @@ export default function RoomThread({
     setMessages([])
     void load()
   }, [load])
+
+  useEffect(() => {
+    const base = role === 'admin' ? '/api/admin/messages' : '/api/portal/messages'
+    const p = new URLSearchParams({ mention_candidates: '1' })
+    if (role === 'admin') p.set('client_id', clientId)
+    fetch(`${base}?${p.toString()}`)
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.users) setMentionCandidates({ users: json.users, projects: json.projects ?? [] })
+      })
+      .catch(() => {})
+  }, [role, clientId])
 
   const refetch = useCallback(async () => {
     try {
@@ -740,6 +757,8 @@ export default function RoomThread({
             pinnedIds={pinnedIds}
             savedIds={savedIds}
             highlightId={highlightId}
+            mentionTargets={mentionTargets}
+            mentionCandidates={mentionCandidates}
           />
           {/* Room utilities: pinned + saved (item 4) */}
           <div className="absolute top-2 right-2 z-20 flex gap-1">
@@ -864,6 +883,8 @@ export default function RoomThread({
                   onDeleteMessage={handleDeleteMessage}
                   onEditMessage={handleEditMessage}
                   onTyping={handleTyping}
+                  mentionTargets={mentionTargets}
+                  mentionCandidates={mentionCandidates}
                 />
               </div>
             </div>

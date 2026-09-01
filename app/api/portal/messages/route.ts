@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { advanceWatermark } from '@/lib/messageRead'
 import { decodeCursor, encodeCursor, beforePredicate } from '@/lib/keyset'
+import { resolveMentionTargets } from '@/lib/messageMentions'
 
 // Thread reads and read-marking for the portal. Two thread shapes since
 // Batch 14: a PROJECT thread (?project_id=…) and the company's GENERAL
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
 
   const { data: client } = await supabaseAdmin
     .from('clients')
-    .select('id')
+    .select('id, organization_id')
     .eq('id', await portalClientId(user))
     .single()
 
@@ -40,6 +41,25 @@ export async function GET(req: NextRequest) {
 
   // Member scoping — project allowlist + owner-set message-history cutoff.
   const access = await portalAccess(user)
+
+  // Mention autocomplete sources (item 5): the roster that belongs in this
+  // room — the company's people plus the studio's crew — and the company's
+  // projects. Roster-resolved, never user_metadata.
+  if (req.nextUrl.searchParams.get('mention_candidates') === '1') {
+    const [{ data: cms }, { data: oms }, { data: projs }] = await Promise.all([
+      supabaseAdmin.from('client_members').select('user_id, name')
+        .eq('client_id', client.id).eq('status', 'active').not('user_id', 'is', null),
+      supabaseAdmin.from('organization_members').select('user_id, name')
+        .eq('organization_id', client.organization_id).eq('status', 'active').not('user_id', 'is', null),
+      supabaseAdmin.from('projects').select('id, title').eq('client_id', client.id),
+    ])
+    const users = [...(cms ?? []), ...(oms ?? [])]
+      .map((r) => ({ id: r.user_id as string, name: r.name as string }))
+    const projects = (projs ?? []).filter(
+      (p) => !access?.projectIds || access.projectIds.includes(p.id)
+    )
+    return NextResponse.json({ users, projects })
+  }
 
   // Batch 15 item 1: three views, ONE code path over one room —
   //   scope=room     → every message in the company's room ("All")
@@ -91,7 +111,7 @@ export async function GET(req: NextRequest) {
   if (threadRoot) {
     const { data: replies, error: thErr } = await supabaseAdmin
       .from('messages')
-      .select('*, message_attachments(file_id), message_reactions(user_id, emoji)')
+      .select('*, message_attachments(file_id), message_reactions(user_id, emoji), message_mentions(kind, target_id)')
       .eq('room_id', room.id)
       .eq('thread_root_id', threadRoot)
       .order('created_at', { ascending: true })
@@ -117,7 +137,7 @@ export async function GET(req: NextRequest) {
   }
   let msgQ = supabaseAdmin
     .from('messages')
-    .select('*, message_attachments(file_id), message_reactions(user_id, emoji)')
+    .select('*, message_attachments(file_id), message_reactions(user_id, emoji), message_mentions(kind, target_id)')
     .eq('room_id', room.id)
     .is('thread_root_id', null) // replies live in their panel (item 3)
     .order('created_at', { ascending: false })
@@ -147,7 +167,7 @@ export async function GET(req: NextRequest) {
     const half = Math.floor(limit / 2)
     let olderQ = supabaseAdmin
       .from('messages')
-      .select('*, message_attachments(file_id), message_reactions(user_id, emoji)')
+      .select('*, message_attachments(file_id), message_reactions(user_id, emoji), message_mentions(kind, target_id)')
       .eq('room_id', room.id)
       .or(`created_at.lt.${target.created_at},and(created_at.eq.${target.created_at},id.lte.${target.id})`)
       .order('created_at', { ascending: false })
@@ -155,7 +175,7 @@ export async function GET(req: NextRequest) {
       .limit(half + 1)
     let newerQ = supabaseAdmin
       .from('messages')
-      .select('*, message_attachments(file_id), message_reactions(user_id, emoji)')
+      .select('*, message_attachments(file_id), message_reactions(user_id, emoji), message_mentions(kind, target_id)')
       .eq('room_id', room.id)
       .or(`created_at.gt.${target.created_at},and(created_at.eq.${target.created_at},id.gt.${target.id})`)
       .order('created_at', { ascending: true })
@@ -202,13 +222,15 @@ export async function GET(req: NextRequest) {
   // authenticated reads only at migration 10, and this read runs on the
   // service role regardless.
   const withFk = messages.map((row) => {
-    const { message_attachments, message_reactions, ...m } = row as typeof row & {
+    const { message_attachments, message_reactions, message_mentions, ...m } = row as typeof row & {
       message_reactions?: { user_id: string; emoji: string }[]
+      message_mentions?: { kind: string; target_id: string }[]
     }
     return {
       ...m,
       attachment_file_id: message_attachments?.[0]?.file_id ?? null,
       reactions: message_reactions ?? [],
+      mentions: message_mentions ?? [],
     }
   })
   const scrubbed = withFk.map((m: Record<string, unknown>) =>
@@ -269,7 +291,20 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ messages: scrubbed, roomId: room.id, nextCursor, hasMore: !!hasMore, replyMeta, pinnedIds })
+  // Mention targets resolved for THIS viewer (item 5): scoped members see
+  // restricted chips, not names, for things outside their scope.
+  const pageMentions = scrubbed.flatMap((m) => (m.mentions as { kind: string; target_id: string }[] | undefined) ?? [])
+  const mentionTargets = pageMentions.length
+    ? await resolveMentionTargets(supabaseAdmin, pageMentions, {
+        role: 'client',
+        orgId: client.organization_id,
+        clientId: client.id,
+        visibleProjectIds: access?.projectIds ?? null,
+        projectHrefBase: '/projects',
+      })
+    : null
+
+  return NextResponse.json({ messages: scrubbed, roomId: room.id, nextCursor, hasMore: !!hasMore, replyMeta, pinnedIds, mentionTargets })
 }
 
 // Mark a thread read (advances THIS user's room watermark) or delivered.

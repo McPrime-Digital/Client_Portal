@@ -1,3 +1,5 @@
+import { stripMentionTokens } from '@/lib/mentionClient'
+
 // Renders a one-line chat-list preview for a message, indicating the kind of
 // media when there's an attachment (and no text). Mirrors the attachment
 // classification in MessageThread so previews match what's rendered in-thread.
@@ -10,6 +12,7 @@ export function messagePreview(
 ): string {
   if (!msg) return ''
   if (msg.is_deleted) return 'Message deleted'
+  const bodyText = stripMentionTokens(msg.body ?? '')
 
   const name = (msg.attachment_name || '').toLowerCase()
   let mediaLabel = ''
@@ -25,7 +28,7 @@ export function messagePreview(
     else mediaLabel = `📎 ${msg.attachment_name}`
   }
 
-  const body = (msg.body || '').trim()
+  const body = bodyText.trim()
   if (body) return body
   return mediaLabel
 }

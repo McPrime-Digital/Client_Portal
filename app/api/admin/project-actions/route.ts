@@ -10,6 +10,7 @@ import { recordActivity } from '@/lib/logActivity.server'
 import { seedDefaultTasks, buildPhaseTaskRows, safeCategory } from '@/lib/defaultTasks'
 import { ensureClientRoom, ensureCrewRoom } from '@/lib/messageRooms'
 import { verifyAttachment, writeAttachmentRow } from '@/lib/messageAttachments'
+import { writeMentions, notifyMentions } from '@/lib/messageMentions'
 
 // Records an approval-gate send into the Approvals & Records ledger when a
 // visible approval gate enters review (first send OR a resend for re-approval).
@@ -224,6 +225,24 @@ export async function POST(req: NextRequest) {
           .single()
         if (error) throw error
         if (att) await writeAttachmentRow(supabaseAdmin, data.id, att.fileId)
+        // Mentions: server-parsed, tenant-validated, server-written (I-6).
+        try {
+          const mentioned = await writeMentions(supabaseAdmin, {
+            messageId: data.id,
+            body: msgBody,
+            orgId: sendOrgId,
+            clientId: roomClientId,
+          })
+          await notifyMentions(supabaseAdmin, {
+            roomId: room.id,
+            mentionedUsers: mentioned,
+            senderUserId: user.id,
+            senderName: studioName,
+            preview: messagePreview({ body: msgBody, attachment_name: att?.name ?? null }),
+          })
+        } catch (e) {
+          console.error('[send_message] mention write failed:', e)
+        }
         // No in-app bell entry for plain chat (the Messages badge carries
         // unread). But push the client's device instantly IF they're away —
         // an active, in-app client is left alone (they see it live). Email/SMS

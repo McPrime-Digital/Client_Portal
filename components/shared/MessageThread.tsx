@@ -25,6 +25,7 @@ import {
   Bookmark,
 } from 'lucide-react'
 import type { Message } from '@/lib/types/database'
+import { splitBody, buildMentionToken, type BodyPart } from '@/lib/mentionClient'
 import FileViewer from './FileViewer'
 import AudioPlayer from './AudioPlayer'
 import VoiceRecorder from './VoiceRecorder'
@@ -59,6 +60,9 @@ type Props = {
   savedIds?: Set<string>
   /** jump-to-message flash target */
   highlightId?: string | null
+  /** mentions (Batch 15 item 5) */
+  mentionTargets?: Record<string, Record<string, { label: string; sub?: string; href?: string } | null>> | null
+  mentionCandidates?: { users: { id: string; name: string }[]; projects: { id: string; title: string }[] } | null
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -136,6 +140,8 @@ export default function MessageThread({
   pinnedIds,
   savedIds,
   highlightId = null,
+  mentionTargets = null,
+  mentionCandidates = null,
 }: Props) {
   const [newMessage, setNewMessage] = useState('')
   const [replyTo, setReplyTo] = useState<Message | null>(null)
@@ -147,6 +153,28 @@ export default function MessageThread({
   const [editingMsg, setEditingMsg] = useState<Message | null>(null)
   const [editText, setEditText] = useState('')
   const [pickerFor, setPickerFor] = useState<string | null>(null)
+  // '@' autocomplete (item 5): people + projects from the roster prop.
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+  const [mentionIndex, setMentionIndex] = useState(0)
+
+  const mentionMatches = (() => {
+    if (mentionQuery == null || !mentionCandidates) return []
+    const q = mentionQuery.toLowerCase()
+    const users = mentionCandidates.users
+      .filter((u) => u.name.toLowerCase().includes(q))
+      .map((u) => ({ kind: 'u' as const, id: u.id, label: u.name, sub: 'Person' }))
+    const projects = mentionCandidates.projects
+      .filter((p) => p.title.toLowerCase().includes(q))
+      .map((p) => ({ kind: 'p' as const, id: p.id, label: p.title, sub: 'Project' }))
+    return [...users, ...projects].slice(0, 6)
+  })()
+
+  function applyMention(m: { kind: 'u' | 'p'; id: string; label: string }) {
+    setNewMessage((prev) => prev.replace(/@[^@\s]*$/, buildMentionToken(m.kind, m.id, m.label) + ' '))
+    setMentionQuery(null)
+    setMentionIndex(0)
+    inputRef.current?.focus()
+  }
 
   // Jump-to-message: scroll the flash target into view when it arrives.
   useEffect(() => {
@@ -758,7 +786,57 @@ export default function MessageThread({
                         </div>
                       </div>
                     ) : msg.body ? (
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap px-4 py-3">{msg.body}</p>
+                      <div className="text-sm leading-relaxed whitespace-pre-wrap px-4 py-3">
+                        {splitBody(msg.body).map((part: BodyPart, pi: number) => {
+                          if (part.type === 'text') return <span key={pi}>{part.text}</span>
+                          const resolved = mentionTargets?.[part.kind]?.[part.id]
+                          if (part.kind === 'user') {
+                            return (
+                              <span
+                                key={pi}
+                                className="font-semibold px-1 rounded"
+                                style={{
+                                  color: isMe ? 'hsl(var(--background))' : 'hsl(var(--primary))',
+                                  backgroundColor: isMe
+                                    ? 'hsl(var(--background) / 0.15)'
+                                    : 'hsl(var(--primary) / 0.1)',
+                                }}
+                              >
+                                @{resolved?.label ?? part.label}
+                              </span>
+                            )
+                          }
+                          // Visibility is per VIEWER: an unresolved target
+                          // renders a restricted chip, never the name.
+                          if (resolved === null || (resolved === undefined && !mentionTargets)) {
+                            return resolved === null ? (
+                              <span key={pi} className="italic opacity-70">a restricted item</span>
+                            ) : (
+                              <span key={pi} className="font-semibold">@{part.label}</span>
+                            )
+                          }
+                          const card = resolved as { label: string; sub?: string; href?: string }
+                          const inner = (
+                            <span
+                              className="inline-flex items-center gap-1 px-1.5 rounded font-semibold"
+                              style={{
+                                backgroundColor: isMe
+                                  ? 'hsl(var(--background) / 0.15)'
+                                  : 'hsl(var(--primary) / 0.08)',
+                                border: '1px solid ' + (isMe ? 'hsl(var(--background) / 0.25)' : 'hsl(var(--primary) / 0.3)'),
+                              }}
+                            >
+                              {card.label}
+                              {card.sub && <span className="opacity-70 font-normal text-[11px]">· {card.sub}</span>}
+                            </span>
+                          )
+                          return card.href ? (
+                            <a key={pi} href={card.href} className="hover:opacity-80">{inner}</a>
+                          ) : (
+                            <span key={pi}>{inner}</span>
+                          )
+                        })}
+                      </div>
                     ) : null}
                     {!msg.body && !editingMsg && msg.attachment_url && (
                       <div className="h-1" /> 
@@ -937,6 +1015,30 @@ export default function MessageThread({
           )
         })()}
 
+        {!readOnly && mentionQuery != null && mentionMatches.length > 0 && (
+          <div
+            className="mb-2 rounded-xl overflow-hidden shadow-xl"
+            style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
+          >
+            {mentionMatches.map((m, i) => (
+              <button
+                key={`${m.kind}:${m.id}`}
+                type="button"
+                onClick={() => applyMention(m)}
+                className="w-full text-left px-3 py-2 text-sm flex items-center justify-between"
+                style={{
+                  backgroundColor: i === mentionIndex ? 'hsl(var(--primary) / 0.1)' : 'transparent',
+                  color: 'hsl(var(--foreground))',
+                }}
+              >
+                <span className="font-medium truncate">@{m.label}</span>
+                <span className="text-[10px] uppercase tracking-wide flex-shrink-0" style={{ color: 'hsl(var(--text-faint))' }}>
+                  {m.sub}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
         {!readOnly && (
         <form onSubmit={handleSubmit} className="flex items-center gap-2">
           {recording ? (
@@ -1027,6 +1129,24 @@ export default function MessageThread({
             onChange={(e) => {
               setNewMessage(e.target.value)
               if (onTyping) onTyping()
+              const m = e.target.value.match(/@([^@\s]*)$/)
+              setMentionQuery(mentionCandidates && m ? m[1] : null)
+              setMentionIndex(0)
+            }}
+            onKeyDown={(e) => {
+              if (mentionQuery == null || mentionMatches.length === 0) return
+              if (e.key === 'ArrowDown') {
+                e.preventDefault()
+                setMentionIndex((i) => (i + 1) % mentionMatches.length)
+              } else if (e.key === 'ArrowUp') {
+                e.preventDefault()
+                setMentionIndex((i) => (i - 1 + mentionMatches.length) % mentionMatches.length)
+              } else if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault()
+                applyMention(mentionMatches[mentionIndex])
+              } else if (e.key === 'Escape') {
+                setMentionQuery(null)
+              }
             }}
             placeholder={uploading ? 'Uploading…' : recording ? 'Recording…' : 'Write a message'}
             className="flex-1 px-4 py-3 rounded-xl text-sm outline-none transition-all focus:border-[hsl(var(--primary))] focus:shadow-[0_0_0_3px_hsl(var(--primary)/0.12)]"

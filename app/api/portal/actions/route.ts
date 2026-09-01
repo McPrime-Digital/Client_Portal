@@ -8,6 +8,7 @@ import { clientMembershipOf, type ClientRole } from '@/lib/team'
 import { clientCan } from '@/lib/permissions'
 import { ensureClientRoom } from '@/lib/messageRooms'
 import { verifyAttachment, writeAttachmentRow } from '@/lib/messageAttachments'
+import { writeMentions, notifyMentions } from '@/lib/messageMentions'
 
 // Verify the calling user belongs to a client company — the primary login
 // (clients.user_id) or an invited teammate (client_members). Returns the
@@ -281,6 +282,25 @@ export async function POST(req: NextRequest) {
 
         if (error) throw error
         if (att) await writeAttachmentRow(supabaseAdmin, data.id, att.fileId)
+        // Mentions: parsed from the BODY server-side, validated against this
+        // tenant, written by us — never accepted from the request (I-6).
+        try {
+          const mentioned = await writeMentions(supabaseAdmin, {
+            messageId: data.id,
+            body: msgBody,
+            orgId: client.organization_id,
+            clientId: client.id,
+          })
+          await notifyMentions(supabaseAdmin, {
+            roomId: room.id,
+            mentionedUsers: mentioned,
+            senderUserId: user.id,
+            senderName: auth.memberName,
+            preview: messagePreview({ body: msgBody, attachment_name: att?.name ?? null }),
+          })
+        } catch (e) {
+          console.error('[send_message] mention write failed:', e)
+        }
         // No in-app bell entry for plain chat (the Messages badge carries
         // unread). But push the admin's device instantly IF they're away —
         // an active, in-app admin is left alone (they see it live). Email/SMS
