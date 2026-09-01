@@ -37,10 +37,15 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: 'Messages can only be deleted within 5 minutes' }, { status: 403 })
   }
 
-  // Soft-delete: mark as deleted
+  // Soft-delete (S3-core-A A-2): set the timestamp the 90-day grace period
+  // and the §4.2 purge key on. The body and attachment are KEPT — blanking
+  // them here destroyed the message at delete time, which made the grace
+  // period a fiction. Invisibility is RLS's job (§4.1, migration 10); the
+  // purge is what actually destroys content. is_deleted is still written so
+  // deployed code keeps working until migration 12 retires it.
   const { error: updateErr } = await supabaseAdmin
     .from('messages')
-    .update({ is_deleted: true, body: '', attachment_url: null, attachment_name: null })
+    .update({ is_deleted: true, deleted_at: new Date().toISOString() })
     .eq('id', message_id)
 
   if (updateErr) {
