@@ -81,11 +81,19 @@ export default function MessagesHub({
       .channel(`hub-fallback:${roomId}`)
       .on(
         'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'messages', filter: `room_id=eq.${roomId}` },
+        (p) => {
+          // Ticks, edits, deletes — patch the open view, badges untouched.
+          setExternalRow({ row: p.new as Message, n: Date.now(), op: 'update' })
+        }
+      )
+      .on(
+        'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages', filter: `room_id=eq.${roomId}` },
         (p) => {
           const row = p.new as Message
           if (row.sender_id === ownIdRef.current) return
-          setExternalRow({ row, n: Date.now() })
+          setExternalRow({ row, n: Date.now(), op: 'insert' })
           const f = filterRef.current
           const inActive =
             f.kind === 'all' ||

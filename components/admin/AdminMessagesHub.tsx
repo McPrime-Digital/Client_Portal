@@ -138,6 +138,16 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
       .channel(`hub-fallback:${orgId}`)
       .on(
         'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'messages', filter: `organization_id=eq.${orgId}` },
+        (p) => {
+          const row = p.new as Message
+          const clientId = row.room_id ? roomToClient.current.get(row.room_id) : null
+          if (!clientId || activeRef.current.clientId !== clientId) return
+          setExternalRow({ row, n: Date.now(), op: 'update' })
+        }
+      )
+      .on(
+        'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages', filter: `organization_id=eq.${orgId}` },
         (p) => {
           const row = p.new as Message
@@ -152,7 +162,7 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
               (a.filter.kind === 'general' && row.project_id == null) ||
               (a.filter.kind === 'project' &&
                 (row.project_id == null || row.project_id === a.filter.projectId)))
-          if (isActiveRoom) setExternalRow({ row, n: Date.now() })
+          if (isActiveRoom) setExternalRow({ row, n: Date.now(), op: 'insert' })
           if (!inActiveView) playMessageChime()
           applyActivity(clientId, row, { bumpUnread: !inActiveView })
         }

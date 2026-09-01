@@ -48,7 +48,7 @@ export type RoomFilter =
   | { kind: 'general' }
   | { kind: 'project'; projectId: string }
 
-export type ExternalRow = { row: Message; n: number }
+export type ExternalRow = { row: Message; n: number; op?: 'insert' | 'update' }
 
 type Props = {
   role: 'admin' | 'client'
@@ -156,12 +156,15 @@ export default function RoomThread({
     },
     {}
   )
+  const projectIds = Object.keys(projectMeta)
   const effectiveTag =
     filter.kind === 'project'
       ? filter.projectId
       : stickyTag && projectMeta[stickyTag]
         ? stickyTag
-        : null
+        : projectIds.length === 1
+          ? projectIds[0] // one project: All IS that project's line — auto-tag
+          : null
   const threadRootRef = useRef<string | null>(null)
   useEffect(() => { threadRootRef.current = threadRoot?.id ?? null }, [threadRoot])
 
@@ -389,13 +392,25 @@ export default function RoomThread({
     [filter, role, patchBody, markRead, onActivity] // eslint-disable-line react-hooks/exhaustive-deps
   )
 
+  // Row UPDATES (read/delivered ticks, edits, deletes) patch in place —
+  // including YOUR OWN messages, whose ticks are the whole point (Batch 18:
+  // the receipts died when the project pages' UPDATE listeners were
+  // consolidated away without a replacement).
+  const patchRow = useCallback((row: Message) => {
+    const patch = (m: Message): Message => (m.id === row.id ? { ...m, ...row } : m)
+    setMessages((prev) => prev.map(patch))
+    setThreadReplies((prev) => prev.map(patch))
+    setThreadRoot((prev) => (prev && prev.id === row.id ? { ...prev, ...row } : prev))
+  }, [])
+
   // Hub-forwarded replication rows (one subscription in the hub, not two).
   const lastExternalN = useRef(0)
   useEffect(() => {
     if (!externalRow || externalRow.n === lastExternalN.current) return
     lastExternalN.current = externalRow.n
-    handleIncomingRow(externalRow.row)
-  }, [externalRow, handleIncomingRow])
+    if (externalRow.op === 'update') patchRow(externalRow.row)
+    else handleIncomingRow(externalRow.row)
+  }, [externalRow, handleIncomingRow, patchRow])
 
   // ── The thread bus ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -451,6 +466,11 @@ export default function RoomThread({
           { event: 'INSERT', schema: 'public', table: 'messages', filter: `room_id=eq.${roomId}` },
           (p) => handleIncomingRow(p.new as Message)
         )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'messages', filter: `room_id=eq.${roomId}` },
+          (p) => patchRow(p.new as Message)
+        )
         .subscribe()
     }
     if (roomIdRef.current) start(roomIdRef.current)
@@ -467,7 +487,7 @@ export default function RoomThread({
       cancelled = true
       if (ch) supabase.removeChannel(ch)
     }
-  }, [selfFallback, threadKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selfFallback, threadKey, patchRow]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const openThread = useCallback(
     async (root: Message) => {
