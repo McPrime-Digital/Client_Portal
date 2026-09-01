@@ -60,7 +60,8 @@ type Props = {
   externalRow?: ExternalRow | null
   /** list-movement hook: fires ONLY on real activity (new message), never on open */
   onActivity?: (latest: Message, direction: 'incoming' | 'sent') => void
-  onTypingChange?: (typing: boolean) => void
+  /** the other side's live composer state: typing, recording a voice note, or idle */
+  onTypingChange?: (kind: 'typing' | 'recording' | null) => void
 }
 
 function matchesFilter(filter: RoomFilter, projectId: string | null): boolean {
@@ -366,9 +367,10 @@ export default function RoomThread({
       .on('broadcast', { event: 'typing' }, (p) => {
         const otherRole = role === 'admin' ? 'client' : 'admin'
         if (p.payload?.role !== otherRole) return
-        onTypingChange?.(true)
+        const kind = p.payload?.kind === 'recording' ? 'recording' : 'typing'
+        onTypingChange?.(kind)
         if (typingClearRef.current) clearTimeout(typingClearRef.current)
-        typingClearRef.current = setTimeout(() => onTypingChange?.(false), 3000)
+        typingClearRef.current = setTimeout(() => onTypingChange?.(null), 3000)
       })
       .on('broadcast', { event: 'reaction' }, (p) => {
         const pl = p.payload as { messageId?: string; userId?: string; emoji?: string; op?: 'add' | 'remove' }
@@ -599,27 +601,74 @@ export default function RoomThread({
     [listUrl]
   )
 
-  // ── Typing (throttled, over the bus) ─────────────────────────────────────
+  // ── Typing / recording (throttled, over the bus) ─────────────────────────
+  // Clients also announce composer activity on the org's badge topic, so the
+  // STUDIO ROOM LIST shows "typing…" for rooms that aren't open (Batch 16).
+  const orgActivityRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+  useEffect(() => {
+    if (role !== 'client' || !orgId) return
+    const ch = supabase.channel(`badges:org:${orgId}`).subscribe()
+    orgActivityRef.current = ch
+    return () => {
+      orgActivityRef.current = null
+      supabase.removeChannel(ch)
+    }
+  }, [role, orgId, supabase])
+
+  const recordingRef = useRef(false)
+  const sendActivity = useCallback(
+    (kind: 'typing' | 'recording') => {
+      channelRef.current?.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: { role, kind },
+      })
+      orgActivityRef.current?.send({
+        type: 'broadcast',
+        event: 'activity',
+        payload: { clientId, kind },
+      })
+    },
+    [role, clientId]
+  )
+
   const handleTyping = useCallback(() => {
-    if (typingSendRef.current) return
-    channelRef.current?.send({
-      type: 'broadcast',
-      event: 'typing',
-      payload: { role },
-    })
+    if (typingSendRef.current || recordingRef.current) return
+    sendActivity('typing')
     typingSendRef.current = setTimeout(() => {
       typingSendRef.current = null
     }, 2000)
-  }, [role])
+  }, [sendActivity])
+
+  // Recording pings repeat while the mic is live so the indicator survives
+  // the 3s decay on the other side.
+  const recordingPingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const handleRecordingChange = useCallback(
+    (recording: boolean) => {
+      recordingRef.current = recording
+      if (recordingPingRef.current) {
+        clearInterval(recordingPingRef.current)
+        recordingPingRef.current = null
+      }
+      if (recording) {
+        sendActivity('recording')
+        recordingPingRef.current = setInterval(() => sendActivity('recording'), 2500)
+      }
+    },
+    [sendActivity]
+  )
+  useEffect(() => () => {
+    if (recordingPingRef.current) clearInterval(recordingPingRef.current)
+  }, [])
 
   // ── Badge bus: tell the OTHER side's rail instantly ──────────────────────
   const pingBadges = useCallback(() => {
-    const topics =
-      role === 'admin'
-        ? [`badges:client:${clientId}`, ...(orgId ? [`badges:org:${orgId}`] : [])]
-        : orgId
-          ? [`badges:org:${orgId}`]
-          : []
+    if (role === 'client') {
+      // The persistent org channel doubles as the badge pipe.
+      orgActivityRef.current?.send({ type: 'broadcast', event: 'badge', payload: {} })
+      return
+    }
+    const topics = [`badges:client:${clientId}`, ...(orgId ? [`badges:org:${orgId}`] : [])]
     for (const topic of topics) {
       const ch = supabase.channel(topic)
       ch.subscribe((status) => {
@@ -814,6 +863,7 @@ export default function RoomThread({
             onDeleteMessage={handleDeleteMessage}
             onEditMessage={handleEditMessage}
             onTyping={handleTyping}
+            onRecordingChange={handleRecordingChange}
             onLoadOlder={loadOlder}
             hasMore={hasMore}
             loadingOlder={loadingOlder}
@@ -1085,6 +1135,7 @@ export default function RoomThread({
                   onDeleteMessage={handleDeleteMessage}
                   onEditMessage={handleEditMessage}
                   onTyping={handleTyping}
+                  onRecordingChange={handleRecordingChange}
                   mentionTargets={mentionTargets}
                   mentionCandidates={mentionCandidates}
                 />

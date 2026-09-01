@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { usePresenceStore, type PresenceEntry } from '@/lib/stores/presence-store'
 import { isHubMounted } from '@/lib/realtimeBus'
+import { playMessageChime } from '@/lib/soundClient'
 
 // Mounted once per portal layout. Does three things, app-wide (every page):
 //   1. Tracks the current user in a shared presence channel so the *other*
@@ -124,7 +125,11 @@ export default function PresencePulse({
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
         (payload) => {
-          const msg = payload.new as { project_id?: string; sender_role?: string }
+          const msg = payload.new as { project_id?: string; sender_role?: string; sender_id?: string }
+          // The chime is APP-WIDE (Batch 16): you hear a message land from any
+          // page, not just the hub. soundClient throttles, so a hub that also
+          // chimes never doubles it; your own sends never chime.
+          if (msg?.sender_id && msg.sender_id !== userId) playMessageChime()
           // Only the recipient marks delivered (a message from the *other* role).
           if (msg?.project_id && msg.sender_role && msg.sender_role !== role) {
             markDelivered(msg.project_id)

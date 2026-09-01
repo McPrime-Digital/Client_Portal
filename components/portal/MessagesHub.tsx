@@ -52,7 +52,7 @@ export default function MessagesHub({
   const [filter, setFilter] = useState<RoomFilter>({ kind: 'all' })
   const [chipUnread, setChipUnread] = useState(initialUnread)
   const [externalRow, setExternalRow] = useState<ExternalRow | null>(null)
-  const [adminTyping, setAdminTyping] = useState(false)
+  const [adminActivity, setAdminActivity] = useState<'typing' | 'recording' | null>(null)
   const [soundOn, setSoundOn] = useState(() => messageSoundEnabled())
 
   const online = usePresenceStore((s) => s.online)
@@ -195,14 +195,14 @@ export default function MessagesHub({
           <p
             className="text-xs flex items-center gap-1.5"
             style={{
-              color: adminTyping
+              color: adminActivity
                 ? 'hsl(var(--primary))'
                 : adminOnline
                   ? 'hsl(var(--status-green))'
                   : 'hsl(var(--text-faint))',
             }}
           >
-            {!adminTyping && (
+            {!adminActivity && (
               <span
                 className="w-1.5 h-1.5 rounded-full"
                 style={{
@@ -212,7 +212,13 @@ export default function MessagesHub({
                 }}
               />
             )}
-            {adminTyping ? 'typing…' : adminOnline ? 'Online' : 'Away'}
+            {adminActivity === 'recording'
+              ? 'recording audio…'
+              : adminActivity === 'typing'
+                ? 'typing…'
+                : adminOnline
+                  ? 'Online'
+                  : 'Away'}
           </p>
         </div>
         {totalUnread > 0 && (
@@ -281,7 +287,7 @@ export default function MessagesHub({
           otherName={studioName}
           canSend={canSend}
           externalRow={externalRow}
-          onTypingChange={setAdminTyping}
+          onTypingChange={setAdminActivity}
         />
       </div>
     </div>

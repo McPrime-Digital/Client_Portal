@@ -61,7 +61,11 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
   const [activeClientId, setActiveClientId] = useState<string | null>(null)
   const [filter, setFilter] = useState<RoomFilter>({ kind: 'all' })
   const [externalRow, setExternalRow] = useState<ExternalRow | null>(null)
-  const [clientTyping, setClientTyping] = useState(false)
+  const [clientActivity, setClientActivity] = useState<'typing' | 'recording' | null>(null)
+  // Per-room composer activity for the LIST (clients announce on the org
+  // badge topic; 3s decay per room).
+  const [activityByClient, setActivityByClient] = useState<Record<string, 'typing' | 'recording'>>({})
+  const activityTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const [soundOn, setSoundOn] = useState(() => messageSoundEnabled())
   const [mobileView, setMobileView] = useState<'list' | 'thread'>('list')
 
@@ -154,11 +158,35 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
     return () => { supabase.removeChannel(ch) }
   }, [orgId, supabase, applyActivity])
 
+  // The org badge topic carries client composer activity (Batch 16): the
+  // list shows "typing…" / "recording audio…" for rooms that are not open.
+  useEffect(() => {
+    const ch = supabase
+      .channel(`badges:org:${orgId}`)
+      .on('broadcast', { event: 'activity' }, (p) => {
+        const pl = p.payload as { clientId?: string; kind?: 'typing' | 'recording' }
+        if (!pl?.clientId || !pl.kind) return
+        const cid = pl.clientId
+        const kind = pl.kind
+        setActivityByClient((prev) => ({ ...prev, [cid]: kind }))
+        if (activityTimers.current[cid]) clearTimeout(activityTimers.current[cid])
+        activityTimers.current[cid] = setTimeout(() => {
+          setActivityByClient((prev) => {
+            const next = { ...prev }
+            delete next[cid]
+            return next
+          })
+        }, 3000)
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [orgId, supabase])
+
   const selectRoom = useCallback((clientId: string) => {
     setActiveClientId(clientId)
     setFilter({ kind: 'all' })
     setMobileView('thread')
-    setClientTyping(false)
+    setClientActivity(null)
     // Opening clears the badge — the watermark PATCH inside RoomThread is the
     // durable half. The row does NOT move: opening is not activity.
     setRooms((prev) =>
@@ -307,7 +335,11 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                       >
                         {room.company ?? room.name}
                       </p>
-                      {room.latest ? (
+                      {activityByClient[room.clientId] ? (
+                        <p className="text-xs mt-0.5 italic font-medium" style={{ color: 'hsl(var(--primary))' }}>
+                          {activityByClient[room.clientId] === 'recording' ? 'recording audio…' : 'typing…'}
+                        </p>
+                      ) : room.latest ? (
                         <p
                           className="text-xs mt-0.5 truncate"
                           style={{
@@ -380,14 +412,14 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                   <p
                     className="text-xs flex items-center gap-1.5"
                     style={{
-                      color: clientTyping
+                      color: clientActivity
                         ? 'hsl(var(--primary))'
                         : isClientOnline(online, active.clientId)
                           ? 'hsl(var(--status-green))'
                           : 'hsl(var(--text-faint))',
                     }}
                   >
-                    {!clientTyping && (
+                    {!clientActivity && (
                       <span
                         className="w-1.5 h-1.5 rounded-full"
                         style={{
@@ -397,11 +429,13 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                         }}
                       />
                     )}
-                    {clientTyping
-                      ? 'typing…'
-                      : isClientOnline(online, active.clientId)
-                        ? `${active.name} · Online`
-                        : `${active.name} · Away`}
+                    {clientActivity === 'recording'
+                      ? 'recording audio…'
+                      : clientActivity === 'typing'
+                        ? 'typing…'
+                        : isClientOnline(online, active.clientId)
+                          ? `${active.name} · Online`
+                          : `${active.name} · Away`}
                   </p>
                 </div>
               </div>
@@ -486,7 +520,7 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                   otherName={active.name}
                           externalRow={externalRow}
                   onActivity={onActivity}
-                  onTypingChange={setClientTyping}
+                  onTypingChange={setClientActivity}
                 />
               </div>
             </>

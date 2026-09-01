@@ -63,6 +63,8 @@ type Props = {
   /** mentions (Batch 15 item 5) */
   mentionTargets?: Record<string, Record<string, { label: string; sub?: string; href?: string } | null>> | null
   mentionCandidates?: { users: { id: string; name: string }[]; projects: { id: string; title: string }[] } | null
+  /** live composer state for presence (Batch 16): recording on/off */
+  onRecordingChange?: (recording: boolean) => void
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -142,6 +144,7 @@ export default function MessageThread({
   highlightId = null,
   mentionTargets = null,
   mentionCandidates = null,
+  onRecordingChange,
 }: Props) {
   const [newMessage, setNewMessage] = useState('')
   const [replyTo, setReplyTo] = useState<Message | null>(null)
@@ -314,6 +317,7 @@ export default function MessageThread({
   // uploads the finished clip as a pending attachment.
   async function handleRecordingComplete(file: File) {
     setRecording(false)
+    onRecordingChange?.(false)
     if (!onUploadAttachment) return
     setUploading(true)
     try {
@@ -1044,7 +1048,7 @@ export default function MessageThread({
           {recording ? (
             <VoiceRecorder
               onComplete={handleRecordingComplete}
-              onCancel={() => setRecording(false)}
+              onCancel={() => { setRecording(false); onRecordingChange?.(false) }}
             />
           ) : (
           <>
@@ -1158,7 +1162,7 @@ export default function MessageThread({
           {onUploadAttachment && (
             <button
               type="button"
-              onClick={() => setRecording(true)}
+              onClick={() => { setRecording(true); onRecordingChange?.(true) }}
               disabled={uploading}
               className="w-10 h-10 rounded-xl flex items-center justify-center transition-all disabled:opacity-50"
               style={{ backgroundColor: 'hsl(var(--border))', color: 'hsl(var(--muted-foreground))' }}

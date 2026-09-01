@@ -621,7 +621,7 @@ export default function ProjectDetail({
               otherName={studioName}
               canSend={canMessage !== false}
               selfFallback
-              onTypingChange={setAdminTyping}
+              onTypingChange={(k) => setAdminTyping(k !== null)}
             />
             {/* Typing indicator overlay */}
             {adminTyping && (

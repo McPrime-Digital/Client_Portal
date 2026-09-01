@@ -775,7 +775,7 @@ export default function AdminProjectDetail({
               currentName={studioName}
               otherName={client.name}
               selfFallback
-              onTypingChange={setClientTyping}
+              onTypingChange={(k) => setClientTyping(k !== null)}
             />
             {/* Typing indicator overlay */}
             {clientTyping && (
