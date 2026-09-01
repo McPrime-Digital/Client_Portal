@@ -569,3 +569,23 @@ svg .gl-rise, svg .gl-pop { transform-origin: 50% 50%; }
     linear-gradient(90deg, hsl(var(--foreground) / 0.08) 1px, transparent 1px);
   background-size: 24px 24px;
 }
+
+/* ── Stickers (Batch 17): jumbo emoji land with life ── */
+@keyframes tl-sticker-pop {
+  0% { transform: scale(0.3) rotate(-8deg); opacity: 0; }
+  60% { transform: scale(1.18) rotate(3deg); }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+@keyframes tl-sticker-sway {
+  0%, 100% { transform: rotate(-4deg); }
+  50% { transform: rotate(4deg); }
+}
+.tl-sticker {
+  display: inline-block;
+  animation: tl-sticker-pop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1),
+             tl-sticker-sway 1.4s ease-in-out 0.5s 2;
+  transform-origin: 50% 80%;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tl-sticker { animation: none; }
+}

@@ -84,11 +84,16 @@ type Props = {
 
 // Curated picker — four rows people actually use. No dependency, no fetch.
 const EMOJI_GROUPS: { label: string; emojis: string[] }[] = [
-  { label: 'Smileys', emojis: ['😀','😄','😂','🤣','😊','😍','😘','😎','🤔','😅','😢','😭','😤','😡','🥳','🤯','😴','🙃','😬','🤝'] },
-  { label: 'Gestures', emojis: ['👍','👎','👏','🙌','🙏','💪','✌️','🤞','👌','🤙','👊','✊','🖐️','👋','🫡','🤌','☝️','👇','👉','👈'] },
+  { label: 'Smileys', emojis: ['😀','😄','😂','🤣','😊','😍','😘','😎','🤔','😅','😢','😭','😤','😡','🥳','🤯','😴','🙃','😬','🤝','😉','😇','🥰','😜','🤪','😐','😶','🙄','😳','🥺','😱','🤗','🤫','🤭','🫠','😌','😷','🤒','🤠','🥸'] },
+  { label: 'Gestures', emojis: ['👍','👎','👏','🙌','🙏','💪','✌️','🤞','👌','🤙','👊','✊','🖐️','👋','🫡','🤌','☝️','👇','👉','👈','🤲','🫶','🤟','🖖','✍️','💅','🦾','👂','👀','🧠'] },
   { label: 'Hearts & marks', emojis: ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','💯','✨','⭐','🔥','⚡','✅','❌','❗','❓','💬','👀'] },
-  { label: 'Work & film', emojis: ['🎬','🎥','📷','🎞️','👏','🎵','🎧','📝','📌','📎','📁','📀','🚀','🏆','⏰','📅','💡','🔔','🔒','🎯'] },
+  { label: 'Work & film', emojis: ['🎬','🎥','📷','🎞️','🎭','🎵','🎧','📝','📌','📎','📁','📀','🚀','🏆','⏰','📅','💡','🔔','🔒','🎯'] },
+  { label: 'Animals & nature', emojis: ['🐶','🐱','🦁','🐼','🦊','🐸','🐢','🦋','🌵','🌴','🌸','🌻','🌙','☀️','🌈','⛰️','🌊','❄️','🍀','🔥'] },
+  { label: 'Food & drink', emojis: ['☕','🍕','🍔','🌮','🍣','🍜','🍩','🍪','🎂','🍾','🥂','🍺','🍷','🧋','🍿','🥐','🍎','🥑','🍫','🍭'] },
 ]
+
+// Stickers: jumbo expressive emoji that SEND on tap and land animated.
+const STICKERS = ['🎉','🔥','❤️','😂','👏','💯','🚀','🏆','🙌','😍','🤯','💪','✨','🥳','😎','🎬','🫡','👀','🤝','⚡','🌟','💡','🎯','☕']
 
 // A message that is ONLY a few emoji renders jumbo — WhatsApp's move.
 function isJumboEmoji(body: string): boolean {
@@ -198,6 +203,7 @@ export default function MessageThread({
   const [pickerFor, setPickerFor] = useState<string | null>(null)
   const [msgMenuFor, setMsgMenuFor] = useState<string | null>(null)
   const [emojiOpen, setEmojiOpen] = useState(false)
+  const [pickerTab, setPickerTab] = useState<'emoji' | 'stickers'>('emoji')
   const [tagMenuOpen, setTagMenuOpen] = useState(false)
   // '@' autocomplete (item 5): people + projects from the roster prop.
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
@@ -215,11 +221,25 @@ export default function MessageThread({
     return [...users, ...projects].slice(0, 6)
   })()
 
+  // The INPUT shows "@Name" (Batch 17 — the raw token was "a long text");
+  // the token substitutes in at submit time, first occurrence per mention.
+  const pendingMentionsRef = useRef<{ display: string; token: string }[]>([])
   function applyMention(m: { kind: 'u' | 'p'; id: string; label: string }) {
-    setNewMessage((prev) => replaceTrailingMentionQuery(prev, buildMentionToken(m.kind, m.id, m.label)))
+    const display = `@${m.label}`
+    pendingMentionsRef.current.push({ display, token: buildMentionToken(m.kind, m.id, m.label) })
+    setNewMessage((prev) => replaceTrailingMentionQuery(prev, display))
     setMentionQuery(null)
     setMentionIndex(0)
     inputRef.current?.focus()
+  }
+  function materializeMentions(text: string): string {
+    let out = text
+    for (const p of pendingMentionsRef.current) {
+      const i = out.indexOf(p.display)
+      if (i !== -1) out = out.slice(0, i) + p.token + out.slice(i + p.display.length)
+    }
+    pendingMentionsRef.current = []
+    return out
   }
 
   // Jump-to-message: scroll the flash target into view when it arrives.
@@ -286,7 +306,7 @@ export default function MessageThread({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if ((!newMessage.trim() && !attachment) || uploading) return
-    const body = newMessage.trim()
+    const body = materializeMentions(newMessage.trim())
     // Never send a reply that points at an unsent (optimistic) message —
     // its temp id is not a valid row and would be rejected by the DB.
     const replyId = replyTo && !isPending(replyTo) ? replyTo.id : undefined
@@ -880,7 +900,7 @@ export default function MessageThread({
                         </div>
                       </div>
                     ) : msg.body ? (
-                      <div className={`${isJumboEmoji(msg.body) ? 'text-4xl leading-tight px-2.5 py-1.5' : 'text-[13px] leading-[1.45] px-3 py-2'} whitespace-pre-wrap`}>
+                      <div className={`${isJumboEmoji(msg.body) ? 'tl-sticker text-4xl leading-tight px-2.5 py-1.5' : 'text-[13px] leading-[1.45] px-3 py-2'} whitespace-pre-wrap`}>
                         {splitBody(msg.body).map((part: BodyPart, pi: number) => {
                           if (part.type === 'text') return <span key={pi}>{part.text}</span>
                           const resolved = mentionTargets?.[part.kind]?.[part.id]
@@ -1246,9 +1266,45 @@ export default function MessageThread({
             </button>
             {emojiOpen && (
               <div
-                className="absolute bottom-12 left-0 z-30 w-72 max-h-64 overflow-y-auto scrollbar-thin rounded-2xl p-3 shadow-2xl"
+                className="absolute bottom-12 left-0 z-30 w-72 rounded-2xl shadow-2xl overflow-hidden"
                 style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
               >
+                <div className="flex border-b" style={{ borderColor: 'hsl(var(--border))' }}>
+                  {(['emoji', 'stickers'] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setPickerTab(tab)}
+                      className="flex-1 py-2 text-[11px] font-semibold uppercase tracking-widest transition-colors"
+                      style={{
+                        color: pickerTab === tab ? 'hsl(var(--primary))' : 'hsl(var(--text-faint))',
+                        boxShadow: pickerTab === tab ? 'inset 0 -2px 0 hsl(var(--primary))' : 'none',
+                      }}
+                    >
+                      {tab === 'emoji' ? 'Emoji' : 'Stickers'}
+                    </button>
+                  ))}
+                </div>
+                {pickerTab === 'stickers' && (
+                  <div className="grid grid-cols-6 gap-1 p-3 max-h-56 overflow-y-auto scrollbar-thin">
+                    {STICKERS.map((e) => (
+                      <button
+                        key={e}
+                        type="button"
+                        onClick={() => {
+                          setEmojiOpen(false)
+                          void onSendMessage(e).catch(() => {})
+                        }}
+                        className="text-3xl hover:scale-125 transition-transform py-1"
+                        title="Send sticker"
+                      >
+                        {e}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {pickerTab === 'emoji' && (
+                <div className="p-3 max-h-56 overflow-y-auto scrollbar-thin">
                 {EMOJI_GROUPS.map((g) => (
                   <div key={g.label} className="mb-2">
                     <p className="text-[9px] font-semibold uppercase tracking-[0.14em] mb-1" style={{ color: 'hsl(var(--text-faint))' }}>
@@ -1271,6 +1327,8 @@ export default function MessageThread({
                     </div>
                   </div>
                 ))}
+                </div>
+                )}
               </div>
             )}
           </div>
