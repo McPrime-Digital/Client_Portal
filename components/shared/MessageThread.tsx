@@ -72,6 +72,26 @@ type Props = {
 }
 
 // ── Helpers ──────────────────────────────────────────────────
+
+// Curated picker — four rows people actually use. No dependency, no fetch.
+const EMOJI_GROUPS: { label: string; emojis: string[] }[] = [
+  { label: 'Smileys', emojis: ['😀','😄','😂','🤣','😊','😍','😘','😎','🤔','😅','😢','😭','😤','😡','🥳','🤯','😴','🙃','😬','🤝'] },
+  { label: 'Gestures', emojis: ['👍','👎','👏','🙌','🙏','💪','✌️','🤞','👌','🤙','👊','✊','🖐️','👋','🫡','🤌','☝️','👇','👉','👈'] },
+  { label: 'Hearts & marks', emojis: ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','💯','✨','⭐','🔥','⚡','✅','❌','❗','❓','💬','👀'] },
+  { label: 'Work & film', emojis: ['🎬','🎥','📷','🎞️','👏','🎵','🎧','📝','📌','📎','📁','📀','🚀','🏆','⏰','📅','💡','🔔','🔒','🎯'] },
+]
+
+// A message that is ONLY a few emoji renders jumbo — WhatsApp's move.
+function isJumboEmoji(body: string): boolean {
+  const t = body.trim()
+  if (!t || t.length > 16) return false
+  try {
+    const re = /^(?:\p{Extended_Pictographic}[\u200d\uFE0F]*){1,3}$/u
+    return re.test(t.replace(/\s/g, ''))
+  } catch {
+    return false
+  }
+}
 // Today / Yesterday / date — the divider speaks the reader's calendar.
 function dayLabel(dateStr: string): string {
   const d = new Date(dateStr)
@@ -162,6 +182,7 @@ export default function MessageThread({
   const [editText, setEditText] = useState('')
   const [pickerFor, setPickerFor] = useState<string | null>(null)
   const [msgMenuFor, setMsgMenuFor] = useState<string | null>(null)
+  const [emojiOpen, setEmojiOpen] = useState(false)
   // '@' autocomplete (item 5): people + projects from the roster prop.
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mentionIndex, setMentionIndex] = useState(0)
@@ -701,7 +722,7 @@ export default function MessageThread({
                         <img
                           src={resolvedAttachUrl}
                           alt={attachName}
-                          className="w-full max-h-[300px] object-cover"
+                          className="w-full max-h-[300px] object-cover transition-transform duration-300 hover:scale-[1.03]"
                           loading="lazy"
                         />
                       </div>
@@ -717,7 +738,11 @@ export default function MessageThread({
                           src={resolvedAttachUrl}
                           className="w-full max-h-[300px] object-cover"
                           muted
+                          loop
+                          playsInline
                           preload="metadata"
+                          onMouseEnter={(e) => { void e.currentTarget.play().catch(() => {}) }}
+                          onMouseLeave={(e) => { e.currentTarget.pause(); e.currentTarget.currentTime = 0 }}
                         />
                         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                           <div className="w-12 h-12 rounded-full bg-black/50 flex items-center justify-center">
@@ -826,7 +851,7 @@ export default function MessageThread({
                         </div>
                       </div>
                     ) : msg.body ? (
-                      <div className="text-sm leading-relaxed whitespace-pre-wrap px-4 py-3">
+                      <div className={`${isJumboEmoji(msg.body) ? 'text-4xl leading-tight px-3 py-2' : 'text-sm leading-relaxed px-4 py-3'} whitespace-pre-wrap`}>
                         {splitBody(msg.body).map((part: BodyPart, pi: number) => {
                           if (part.type === 'text') return <span key={pi}>{part.text}</span>
                           const resolved = mentionTargets?.[part.kind]?.[part.id]
@@ -1121,6 +1146,51 @@ export default function MessageThread({
               )}
             </div>
           )}
+
+          {/* Emoji picker (Batch 16) */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setEmojiOpen((v) => !v)}
+              className="w-10 h-10 rounded-xl flex items-center justify-center transition-all"
+              style={{
+                backgroundColor: emojiOpen ? 'hsl(var(--primary))' : 'hsl(var(--border))',
+                color: emojiOpen ? 'hsl(var(--background))' : 'hsl(var(--muted-foreground))',
+              }}
+              title="Emoji"
+            >
+              <SmilePlus size={17} />
+            </button>
+            {emojiOpen && (
+              <div
+                className="absolute bottom-12 left-0 z-30 w-72 max-h-64 overflow-y-auto scrollbar-thin rounded-2xl p-3 shadow-2xl"
+                style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
+              >
+                {EMOJI_GROUPS.map((g) => (
+                  <div key={g.label} className="mb-2">
+                    <p className="text-[9px] font-semibold uppercase tracking-[0.14em] mb-1" style={{ color: 'hsl(var(--text-faint))' }}>
+                      {g.label}
+                    </p>
+                    <div className="grid grid-cols-10 gap-0.5">
+                      {g.emojis.map((e) => (
+                        <button
+                          key={e}
+                          type="button"
+                          onClick={() => {
+                            setNewMessage((prev) => prev + e)
+                            inputRef.current?.focus()
+                          }}
+                          className="text-lg hover:scale-125 transition-transform"
+                        >
+                          {e}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* Text input */}
           <input
