@@ -45,6 +45,7 @@ export default function AudioPlayer({
   const [vol, setVol] = useState(1)
   const [muted, setMuted] = useState(false)
   const [rate, setRate] = useState(1)
+  const [failed, setFailed] = useState(false)
 
   // Stable pseudo-random bar heights for the compact voice-note waveform.
   const waveBars = useMemo(
@@ -119,8 +120,22 @@ export default function AudioPlayer({
       onEnded={() => setPlaying(false)}
       onPlay={() => setPlaying(true)}
       onPause={() => setPlaying(false)}
+      onError={() => setFailed(true)}
     />
   )
+
+  if (failed) {
+    // Say so instead of sitting at a dead 0:00 — and hand over the file.
+    return (
+      <div className="flex items-center gap-2 text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
+        <VolumeX size={14} className="flex-shrink-0" style={{ color: 'hsl(var(--destructive))' }} />
+        <span>This recording can’t play in this browser.</span>
+        <a href={src} target="_blank" rel="noreferrer" className="font-semibold underline" style={{ color: 'hsl(var(--primary))' }}>
+          Open
+        </a>
+      </div>
+    )
+  }
 
   if (compact) {
     const played = dur > 0 ? cur / dur : 0
