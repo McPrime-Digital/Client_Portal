@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
 import {
   Send,
-  Loader2,
   X,
   Reply,
   FileText,
@@ -510,16 +509,15 @@ export default function MessageThread({
 
       {/* Messages Area */}
       <div
-        ref={scrollBoxRef}
-        onScroll={handleScroll}
-        className={`${wallpaper.pattern !== 'none' ? `tl-chat-bg tl-wp-${wallpaper.pattern}` : ''} flex-1 overflow-y-auto px-4 py-3 min-h-0 scrollbar-thin relative`}
+        className={`${wallpaper.pattern !== 'none' ? `tl-chat-bg tl-wp-${wallpaper.pattern}` : ''} flex-1 min-h-0 relative`}
         style={{ ['--tl-wp-a' as string]: wallpaper.alpha }}
       >
-        {loadingOlder && (
-          <div className="flex justify-center py-2">
-            <Loader2 size={14} className="animate-spin" style={{ color: 'hsl(var(--text-faint))' }} />
-          </div>
-        )}
+      <div
+        ref={scrollBoxRef}
+        onScroll={handleScroll}
+        className="h-full overflow-y-auto px-4 py-3 scrollbar-thin relative"
+      >
+
         {!hasMore && messages.length > 0 && (
           <p
             className="text-center text-[9px] uppercase tracking-[0.14em] py-1.5"
@@ -595,8 +593,8 @@ export default function MessageThread({
                 </div>
               )}
 
-              <div className={`flex group ${isMe ? 'justify-end' : 'justify-start'}`}>
-                <div className="max-w-[78%] md:max-w-[66%] min-w-[110px] flex flex-col relative">
+              <div className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                <div className="group max-w-[78%] md:max-w-[66%] min-w-[110px] flex flex-col relative">
                   {/* Horizontal action bar (Batch 16): floats over the group
                       on hover — react · quote · thread · more. */}
                   <div
@@ -794,7 +792,7 @@ export default function MessageThread({
                           backgroundColor: isMe ? 'hsl(var(--background) / 0.12)' : 'hsl(var(--background) / 0.35)',
                         }}
                       >
-                        <Loader2 size={18} className="animate-spin opacity-70" />
+                        <FileText size={18} className="opacity-30" />
                       </div>
                     )}
 
@@ -1051,6 +1049,7 @@ export default function MessageThread({
         })}
         <div ref={messagesEndRef} />
       </div>
+      </div>
 
       {/* ── Input Area — glass bar, the shell's material ───── */}
       <div
@@ -1103,7 +1102,7 @@ export default function MessageThread({
                       <video src={previewUrl} className="w-full h-full object-cover" muted preload="metadata" />
                     )
                   ) : isMedia && !previewUrl ? (
-                    <Loader2 size={16} className="animate-spin" style={{ color: 'hsl(var(--primary))' }} />
+                    <FileText size={16} className="opacity-40" style={{ color: 'hsl(var(--primary))' }} />
                   ) : kind === 'audio' ? (
                     <Mic size={18} style={{ color: 'hsl(var(--primary))' }} />
                   ) : (
@@ -1231,11 +1230,10 @@ export default function MessageThread({
                   color: showAttachMenu ? 'hsl(var(--background))' : 'hsl(var(--muted-foreground))',
                 }}
               >
-                {uploading ? (
-                  <Loader2 size={18} className="animate-spin" />
-                ) : (
-                  <Plus size={18} className={`transition-transform duration-200 ${showAttachMenu ? 'rotate-45' : ''}`} />
-                )}
+                <Plus
+                  size={18}
+                  className={`transition-transform duration-200 ${showAttachMenu ? 'rotate-45' : ''} ${uploading ? 'opacity-40' : ''}`}
+                />
               </button>
 
               {/* Flyout */}

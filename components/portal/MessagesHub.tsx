@@ -270,7 +270,7 @@ export default function MessagesHub({
                 ['pins', 'Pinned messages'],
                 ['saves', 'Saved for you'],
                 ['people', 'People in this room'],
-                ['settings', 'Notification settings'],
+                ['settings', 'Chat settings & wallpaper'],
               ] as const).map(([which, label]) => (
                 <button
                   key={which}

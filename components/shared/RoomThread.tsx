@@ -998,17 +998,7 @@ export default function RoomThread({
           {sendError}
         </div>
       )}
-      {loading && messages.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center">
-          <div
-            className="w-6 h-6 rounded-full border-2 animate-spin"
-            style={{
-              borderColor: 'hsl(var(--border))',
-              borderTopColor: 'hsl(var(--primary))',
-            }}
-          />
-        </div>
-      ) : (
+      {(
         <>
           <MessageThread
             messages={messages}
@@ -1071,7 +1061,7 @@ export default function RoomThread({
                     ['pins', 'Pinned messages', Pin],
                     ['saves', 'Saved for you', Bookmark],
                     ['people', 'People in this room', Users],
-                    ['settings', 'Notification settings', Settings2],
+                    ['settings', 'Chat settings & wallpaper', Settings2],
                   ] as const).map(([which, label, Icon]) => (
                     <button
                       key={which}
@@ -1100,7 +1090,7 @@ export default function RoomThread({
                   className="text-xs font-semibold uppercase tracking-widest flex-1"
                   style={{ color: 'hsl(var(--text-faint))' }}
                 >
-                  {panel === 'pins' ? 'Pinned' : panel === 'saves' ? 'Saved for you' : panel === 'people' ? 'People' : panel === 'search' ? 'Search' : 'Notifications'}
+                  {panel === 'pins' ? 'Pinned' : panel === 'saves' ? 'Saved for you' : panel === 'people' ? 'People' : panel === 'search' ? 'Search' : 'Chat settings'}
                 </p>
                 <button
                   onClick={() => setPanel(null)}
