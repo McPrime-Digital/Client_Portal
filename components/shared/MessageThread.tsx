@@ -74,7 +74,7 @@ type Props = {
   composerTagLocked?: boolean
   onComposerTagChange?: (id: string | null) => void
   /** viewer's wallpaper (Batch 17): pattern class + intensity alpha */
-  wallpaper?: { pattern: 'film' | 'dots' | 'grid' | 'none'; alpha: number }
+  wallpaper?: { pattern: 'film' | 'aurora' | 'waves' | 'dots' | 'grid' | 'none'; alpha: number }
   /** forward + bulk select (Batch 18) */
   onForward?: (msgs: Message[]) => void
   selectionMode?: boolean

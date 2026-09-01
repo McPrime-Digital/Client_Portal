@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Trash2, Check, Mic } from 'lucide-react'
+import { toWavFile } from '@/lib/audioWav'
 
 function fmt(s: number) {
   const m = Math.floor(s / 60)
@@ -80,11 +81,17 @@ export default function VoiceRecorder({
         mr.onstop = () => {
           if (cancelledRef.current) return
           const type = mr.mimeType || 'audio/webm'
-          const ext = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm'
           const blob = new Blob(chunksRef.current, { type })
-          onCompleteRef.current(
-            new File([blob], `voice-${Date.now()}.${ext}`, { type })
-          )
+          // Universal container (Batch 19): the sender transcodes to WAV so
+          // Chrome-recorded notes play on Safari and vice versa — the codec
+          // dialect never leaves this device. Falls back to the raw container
+          // only if WebAudio decode fails.
+          void toWavFile(blob)
+            .catch(() => {
+              const ext = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm'
+              return new File([blob], `voice-${Date.now()}.${ext}`, { type })
+            })
+            .then((file) => onCompleteRef.current(file))
         }
         mr.start()
         recorderRef.current = mr

@@ -7,7 +7,7 @@
 const PATTERN_KEY = 'genreline-wallpaper'
 const INTENSITY_KEY = 'genreline-wallpaper-intensity'
 
-export type WallpaperPattern = 'film' | 'dots' | 'grid' | 'none'
+export type WallpaperPattern = 'film' | 'aurora' | 'waves' | 'dots' | 'grid' | 'none'
 export type WallpaperIntensity = 'faint' | 'medium' | 'bold'
 
 export const INTENSITY_ALPHA: Record<WallpaperIntensity, number> = {
@@ -19,7 +19,7 @@ export const INTENSITY_ALPHA: Record<WallpaperIntensity, number> = {
 export function wallpaperPattern(): WallpaperPattern {
   try {
     const v = localStorage.getItem(PATTERN_KEY)
-    return v === 'dots' || v === 'grid' || v === 'none' ? v : 'film'
+    return v === 'dots' || v === 'grid' || v === 'none' || v === 'aurora' || v === 'waves' ? v : 'film'
   } catch {
     return 'film'
   }

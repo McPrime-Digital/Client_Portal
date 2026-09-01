@@ -80,6 +80,15 @@ type Props = {
   forwardRooms?: { id: string; label: string }[]
 }
 
+// Instant-open cache (Batch 19): every view keeps its last rows across
+// filter switches AND remounts, so a tap renders at 0ms from memory while
+// the network refresh reconciles silently. A first-ever project view seeds
+// from the All cache by local filtering — All is a superset.
+const threadCache = new Map<
+  string,
+  { rows: Message[]; cursor: string | null; hasMore: boolean; roomId: string | null }
+>()
+
 function matchesFilter(filter: RoomFilter, projectId: string | null): boolean {
   if (filter.kind === 'all') return true
   if (filter.kind === 'general') return projectId == null
@@ -267,7 +276,7 @@ export default function RoomThread({
       const res = await fetch(listUrl())
       const json = await res.json()
       const rows: Message[] = res.ok ? json.messages ?? [] : []
-      setMessages(rows)
+      setMessages((prev) => (prev.length ? mergeRows(prev, rows) : rows))
       setPageCursor(json.nextCursor ?? null)
       setHasMore(!!json.hasMore)
       if (json.replyMeta) setReplyMeta(json.replyMeta)
@@ -281,7 +290,7 @@ export default function RoomThread({
       setLoading(false)
     }
     markRead()
-  }, [listUrl, markRead])
+  }, [listUrl, markRead, mergeRows])
 
   const loadOlder = useCallback(async () => {
     if (!pageCursor || loadingOlder) return
@@ -301,11 +310,38 @@ export default function RoomThread({
     }
   }, [pageCursor, loadingOlder, listUrl, mergeRows])
 
+  const cacheKey = `${role}:${clientId}:${filterKey}`
   useEffect(() => {
-    seenIdsRef.current.clear()
-    setMessages([])
+    // 0ms render: this view's cache, or a local filter of the All superset.
+    const cached = threadCache.get(cacheKey)
+    const allCached = threadCache.get(`${role}:${clientId}:all`)
+    if (cached) {
+      setMessages(cached.rows)
+      setPageCursor(cached.cursor)
+      setHasMore(cached.hasMore)
+      if (cached.roomId) roomIdRef.current = cached.roomId
+      for (const r of cached.rows) seenIdsRef.current.add(r.id)
+    } else if (filter.kind !== 'all' && allCached) {
+      const seeded = allCached.rows.filter((m) => matchesFilter(filter, m.project_id ?? null))
+      setMessages(seeded)
+      for (const r of seeded) seenIdsRef.current.add(r.id)
+    } else {
+      setMessages([])
+    }
     void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load])
+
+  // Keep the cache current so the NEXT tap is instant too.
+  useEffect(() => {
+    if (messages.length === 0 && loading) return
+    threadCache.set(cacheKey, {
+      rows: messages.filter((m) => !m.id.startsWith('temp-')),
+      cursor: pageCursor,
+      hasMore,
+      roomId: roomIdRef.current,
+    })
+  }, [messages, pageCursor, hasMore, cacheKey, loading])
 
   useEffect(() => {
     const base = role === 'admin' ? '/api/admin/messages' : '/api/portal/messages'
@@ -1370,9 +1406,11 @@ export default function RoomThread({
                         style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))' }}
                       >
                         <p className="text-sm mb-2" style={{ color: 'hsl(var(--foreground))' }}>Wallpaper</p>
-                        <div className="flex gap-1.5 mb-2">
+                        <div className="grid grid-cols-3 gap-1.5 mb-2">
                           {([
                             ['film', 'Film'],
+                            ['aurora', 'Aurora'],
+                            ['waves', 'Waves'],
                             ['dots', 'Dots'],
                             ['grid', 'Grid'],
                             ['none', 'None'],
@@ -1380,7 +1418,7 @@ export default function RoomThread({
                             <button
                               key={value}
                               onClick={() => { setWpPattern(value); setWallpaperPattern(value) }}
-                              className="flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                              className="px-2 py-1.5 rounded-lg text-xs font-medium transition-colors"
                               style={{
                                 backgroundColor: wpPattern === value ? 'hsl(var(--primary))' : 'hsl(var(--card))',
                                 color: wpPattern === value ? 'hsl(var(--primary-foreground))' : 'hsl(var(--foreground))',

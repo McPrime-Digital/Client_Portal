@@ -184,15 +184,26 @@ export default function MessagesHub({
         style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
       >
         <div
-          className="w-9 h-9 rounded-xl overflow-hidden flex items-center justify-center flex-shrink-0"
-          style={{
-            backgroundColor: 'hsl(var(--primary) / 0.1)',
-            border: '1px solid hsl(var(--primary) / 0.3)',
-          }}
+          className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center flex-shrink-0"
+          style={
+            studioLogoUrl
+              ? {
+                  // Logos are drawn for light ground: give them one, whole and
+                  // uncropped — a Slack-workspace-style chip, not a zoomed crop.
+                  backgroundColor: '#ffffff',
+                  border: '1px solid hsl(var(--border))',
+                  padding: 4,
+                  boxShadow: '0 1px 3px hsl(var(--background) / 0.4)',
+                }
+              : {
+                  backgroundColor: 'hsl(var(--primary) / 0.1)',
+                  border: '1px solid hsl(var(--primary) / 0.3)',
+                }
+          }
         >
           {studioLogoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={studioLogoUrl} alt={studioName} className="w-full h-full object-cover" />
+            <img src={studioLogoUrl} alt={studioName} className="w-full h-full object-contain" />
           ) : (
             <span className="text-sm font-bold" style={{ color: 'hsl(var(--primary))' }}>
               {studioName.charAt(0).toUpperCase()}
