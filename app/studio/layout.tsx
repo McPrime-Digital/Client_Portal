@@ -10,6 +10,7 @@ import PrimeOSDock from '@/components/studio/PrimeOSDock'
 import PresencePulse from '@/components/shared/PresencePulse'
 import { GOOGLE_FONTS_HREF } from '@/lib/studio/fonts'
 import { tenantBrand } from '@/lib/tenantBrand'
+import { planAllows } from '@/lib/billing/plans'
 import { PRODUCT_NAME, PRODUCT_TAGLINE } from '@/lib/product'
 import type { Metadata } from 'next'
 
@@ -105,7 +106,17 @@ export default async function StudioLayout({ children }: { children: React.React
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       <link rel="stylesheet" href={GOOGLE_FONTS_HREF} />
-      <StudioSidebar userName={userName} orgName={orgName} orgRoles={[...roles]} orgExtra={orgAccess.extraCaps} roleLabel={roleLabel} />
+      <StudioSidebar
+        userName={userName}
+        orgName={orgName}
+        orgRoles={[...roles]}
+        orgExtra={orgAccess.extraCaps}
+        roleLabel={roleLabel}
+        // Plan-gated rail entries (CRM · Pipeline, Lead-Gen) — resolved from the
+        // org's plan, never from an org id (lib/billing/plans.ts). The server
+        // gate in lib/studio/guard.ts enforces the same answer for typed URLs.
+        houseTools={planAllows(brand.plan, 'internal.pipeline')}
+      />
       <div className="flex min-w-0 flex-1 flex-col gap-2 overflow-hidden sm:gap-3">
         <StudioTopbar />
         {/* Every page renders into this squircle panel; the panel clips, the

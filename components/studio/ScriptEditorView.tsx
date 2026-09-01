@@ -289,7 +289,7 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
   return (
     <div className="flex h-full flex-col">
       <Link
-        href="/studio/workspace/script"
+        href="/studio/suite/script"
         className="mb-2 inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
         <ArrowLeft size={15} /> All documents
@@ -498,14 +498,14 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
               <Link2 size={15} className="ml-1 flex-shrink-0 text-muted-foreground" />
               <input
                 readOnly
-                value={typeof window !== 'undefined' ? `${window.location.origin}/studio/workspace/script?doc=${docId}` : ''}
+                value={typeof window !== 'undefined' ? `${window.location.origin}/studio/suite/script?doc=${docId}` : ''}
                 className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none"
                 onFocus={(e) => e.currentTarget.select()}
               />
               <button
                 onClick={async () => {
                   try {
-                    await navigator.clipboard.writeText(`${window.location.origin}/studio/workspace/script?doc=${docId}`)
+                    await navigator.clipboard.writeText(`${window.location.origin}/studio/suite/script?doc=${docId}`)
                     setCopied(true)
                     setTimeout(() => setCopied(false), 1800)
                   } catch {

@@ -69,10 +69,10 @@ Accurate notes on the dependency list — several packages are installed but not
   `components/ui/button` and is itself unused. Everything else is hand-written Tailwind.
 - **`react-hook-form` / `@hookform/resolvers`** are in `package.json` with **zero imports**
   anywhere in `app/`, `lib/`, `components/`, `hooks/`. Forms are `useState` + hand-rolled
-  validation. **`zod` is now used, but at exactly one site** —
+  validation. **`zod` is used at exactly two sites** —
   `app/api/activity/route.ts:1` (Batch 6.1, so the activity ledger stops accepting forged
-  entries). **[VIOLATES S0 I-7 — one of 41 route handlers validates against a schema; the
-  other 40 do not.]**
+  entries) and `app/api/admin/erase-person/route.ts` (Batch 12.2). **[VIOLATES S0 I-7 — two
+  of 44 route handlers validate against a schema; the rest do not.]**
 - **`resend`** is a dependency but still never imported. Email goes out as a raw `fetch`
   to `https://api.resend.com/emails` from **one place** — `lib/email/send.ts`. There
   were briefly two (Batch 10.4); if you add a third, the second one's failures will
@@ -131,10 +131,14 @@ shrunk. An inline client imports nothing, so the import rule cannot see it; the
 **[VIOLATES S0 AD-001 and I-8 — pending remediation.]** S0 decides that RLS owns tenancy and
 service-role access is an enumerated allowlist. Today the opposite is true:
 
-- **The application reads and writes almost everything with `supabaseAdmin`.** 65 modules
-  import it, including page-level Server Components on user-session paths
+- **The application reads and writes almost everything with `supabaseAdmin`.** ~70 modules
+  touch it, including page-level Server Components on user-session paths
   (`app/(portal)/layout.tsx`, `app/(portal)/dashboard/page.tsx`, `app/studio/layout.tsx`, …)
-  and 33 of the 41 route handlers. There is no allowlist and no lint rule.
+  and most route handlers. **The allowlist and lint rules exist since Batch 7.9**:
+  `lib/supabase/admin-allowlist.mjs` (PERMANENT + TRANSITIONAL, each entry justified) is
+  consumed by `eslint.config.mjs` — a ratchet, so removing an entry is the migration and
+  adding one needs a reason. This entry previously said "no allowlist and no lint rule";
+  that was stale.
 - **RLS is enabled on every table**, and the policies are real — but for the app's own reads
   they are mostly bypassed. What RLS *is* load-bearing for is **Realtime**: browser
   subscriptions authenticate as the user, so a missing SELECT policy silently kills live
@@ -217,14 +221,20 @@ Walk each of these paths mentally before saving an edit to `proxy.ts`.
   never runs for them). Whether to retire those three is owned by S4 (S0 §7).
   This entry previously read "dead code … none of these 17 pages is reachable". That was
   wrong on both counts and would have taken the studio down with a cleanup sweep.
-- `app/studio/` — the Throughline studio shell (admin-only; `app/studio/layout.tsx` enforces
-  `isAdmin`). Three spaces — Crew / Client / Workspace — declared in `lib/studio/spaces.ts`.
+- `app/studio/` — the Genreline studio shell (admin-only; `app/studio/layout.tsx` enforces
+  `isAdmin`). Three spaces — Crew / Client / **Suite** — declared in `lib/studio/spaces.ts`.
+  The Suite was "Workspace" until Batch 12.2; `proxy.ts` redirects old `/studio/workspace/*`
+  URLs, and the OrgCap named `'workspace'` in `lib/permissions.ts` deliberately keeps its
+  name (it is stored in `organization_members.extra_caps` rows — renaming the string strips
+  granted access). CRM · Pipeline and Lead-Gen in Crew are gated to plan feature
+  `internal.pipeline` (house org only) via the sidebar filter and `requireOrgFeature`.
   Features without an implementation render a "Phase N · coming soon" card
   (`app/studio/[space]/[feature]/page.tsx:40-66`). Whether stubs stay advertised is owned by S4.
-- `app/api/` — **42** route handlers (files, portal, admin, studio, cron, presence, push,
-  Stripe webhook, and since Batch 10: `studio/organization/logo`, `auth/password-reset`).
-  This entry read 41 before Batch 10 added two, so it was already off by one — count it,
-  don't quote it.
+- `app/api/` — **44** route handlers (files, portal, admin, studio, cron, presence, push,
+  Stripe webhook; Batch 10 added `studio/organization/logo` + `auth/password-reset`, Batch
+  12.2 added `admin/erase-person` — and found the previous count of 42 was already one
+  short before it landed). This entry has now been off by one twice — count it
+  (`find app/api -name route.ts | wc -l`), don't quote it.
 - `app/auth/callback/route.ts` — **implemented, not reserved.** It handles the PKCE
   `exchangeCodeForSession` flow and the `token_hash`/`verifyOtp` magic-link/invite flow, and
   marks clients onboarded. Its admin success path still redirects to `/admin/dashboard`

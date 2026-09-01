@@ -2,6 +2,8 @@ import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { cutMemberAccess } from '@/lib/memberAccess'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { deleteFromR2 } from '@/lib/r2'
+import { captureError } from '@/lib/errors'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(req: NextRequest) {
@@ -66,6 +68,41 @@ export async function POST(req: NextRequest) {
       .from('projects')
       .update({ client_id: null })
       .eq('client_id', clientId)
+
+    // THE BLOBS GO WITH THE ROWS. Deleting only the `files` rows left every
+    // object in storage — unindexed, unbilled-for by anyone, and the worst
+    // kind of retained data: a deleted client's actual deliverables with no
+    // record pointing at them (S0 §5). Objects first, rows second: a re-run
+    // after a partial failure finds the rows still present and retries the
+    // remaining objects (deleting an already-deleted key is a no-op).
+    const { data: fileRows } = await supabaseAdmin
+      .from('files')
+      .select('file_path, bucket')
+      .eq('client_id', clientId)
+    let blobFailures = 0
+    for (const f of fileRows ?? []) {
+      if (!f.file_path) continue
+      try {
+        if (f.bucket === 'r2') {
+          await deleteFromR2(f.file_path)
+        } else if (f.bucket) {
+          const { error } = await supabaseAdmin.storage.from(f.bucket).remove([f.file_path])
+          if (error) throw error
+        }
+      } catch (e) {
+        blobFailures++
+        captureError(e, { where: 'delete-client blob cleanup', clientId, path: f.file_path })
+      }
+    }
+    if (blobFailures > 0) {
+      // Surface rather than proceed (I-10): the rows still exist, so the
+      // admin can retry; silently deleting them here would recreate the
+      // orphaned-blob state this block exists to end.
+      return NextResponse.json(
+        { error: `${blobFailures} stored file(s) could not be removed. Nothing was deleted — try again.` },
+        { status: 502 }
+      )
+    }
 
     // Remove rows that reference this client so the delete can't fail on
     // a foreign-key constraint. (Projects are preserved/unlinked above.)

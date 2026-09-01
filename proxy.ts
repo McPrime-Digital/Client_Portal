@@ -59,6 +59,16 @@ export async function proxy(request: NextRequest) {
     return supabaseResponse
   }
 
+  // The Workspace space became the Suite (Batch 12.2) — old bookmarks and
+  // stale deep links land on the new slug, deep segments and queries intact.
+  // Before the auth gates for the same reason the /admin map is: the /studio
+  // gate below still enforces auth + role after the redirect.
+  if (pathname === '/studio/workspace' || pathname.startsWith('/studio/workspace/')) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/studio/suite' + pathname.slice('/studio/workspace'.length)
+    return NextResponse.redirect(url)
+  }
+
   // Legacy /admin chrome is retired — every old admin URL maps to its
   // Genreline home (deep segments and query strings preserved). The /studio
   // gate below still enforces auth + role after the redirect.

@@ -52,7 +52,7 @@ export default function StoryboardHome() {
       setCreating(false)
       return
     }
-    router.push(`/studio/workspace/storyboard?board=${data.id}`)
+    router.push(`/studio/suite/storyboard?board=${data.id}`)
   }
 
   return (
@@ -90,7 +90,7 @@ export default function StoryboardHome() {
           {boards.map((b) => (
             <Link
               key={b.id}
-              href={`/studio/workspace/storyboard?board=${b.id}`}
+              href={`/studio/suite/storyboard?board=${b.id}`}
               className="group flex items-center gap-3 rounded-2xl border border-border bg-card p-4 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg"
             >
               <span className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-xl bg-secondary text-primary">

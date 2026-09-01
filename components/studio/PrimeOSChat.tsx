@@ -10,7 +10,7 @@ import { PERSONAS, COMMANDS, QUICK_NONE, type Turn } from '@/lib/studio/primePro
 import PrimeOSMark from './PrimeOSMark'
 import Markdown from './Markdown'
 
-// Full-page PrimeOS workspace — the dedicated chat at /studio/workspace/ai-chat.
+// Full-page PrimeOS suite — the dedicated chat at /studio/suite/ai-chat.
 // Shares the engine (/api/studio/muse), prompt library, voice, history and model
 // memory with the floating assistant, in an enterprise full-height layout.
 export default function PrimeOSChat() {

@@ -48,9 +48,18 @@ export function planLimits(plan?: string | null): PlanLimits {
 export type PlanFeature =
   /** Remove the "Powered by Genreline" attribution from client-facing surfaces. */
   | 'attribution.hide'
+  /** The platform operator's internal business tools (CRM · Pipeline, Lead-Gen
+   *  Pipelines) — pre-platform features kept for the house org's own selling,
+   *  never advertised or sold to tenants. Not a roadmap item wearing a flag:
+   *  a tenant plan must never carry this. */
+  | 'internal.pipeline'
+  /** Run a person-level data erasure (AD-003 tombstone + auth-account delete).
+   *  Erasure pseudonymizes by user id ACROSS tenants, so until S3 ships
+   *  per-tenant erasure it is a platform-operator action — house plan only. */
+  | 'platform.erasure'
 
 const PLAN_FEATURES: Record<PlanId, readonly PlanFeature[]> = {
-  house: ['attribution.hide'],
+  house: ['attribution.hide', 'internal.pipeline', 'platform.erasure'],
   agency: [],
   studio: ['attribution.hide'],
   enterprise: ['attribution.hide'],

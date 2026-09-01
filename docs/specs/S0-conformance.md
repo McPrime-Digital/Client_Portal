@@ -249,7 +249,7 @@ disk and sort **after** `0000` (see I-12). Whether they are currently applied to
 | Field | Content |
 |---|---|
 | **ID** | AD-003 |
-| **Status** | **PARTIAL** |
+| **Status** | **PARTIAL** — FK half done; tombstone exists as an on-demand erasure (Batch 12.2), not yet as an automatic step of removal |
 
 **Conforming (the FK half)**
 
@@ -258,10 +258,25 @@ disk and sort **after** `0000` (see I-12). Whether they are currently applied to
   `push_subscriptions` deliberately left `ON DELETE CASCADE` (lines 39-42). Deleting a person
   no longer deletes their work.
 
-**Violations (the tombstone half — none of it is built)**
+**Conforming since Batch 12.2 (the tombstone half, on demand)**
 
-- **No pseudonymisation function or trigger exists.** No migration defines one; grep for a
-  rename/tombstone routine returns nothing.
+- `lib/erasure.ts` is the pseudonymisation routine: one stable pseudonym across
+  `messages.sender_name`, `files.uploaded_by_name` (both author columns),
+  `activity_log.actor_name`, `document_versions.created_by_name`,
+  `document_comments.author_name`; the raw address scrubbed from
+  `notifications` copy and `activity_log.meta`; leftover `revoked` membership
+  rows deleted; the auth account deleted last so a partial run is resumable.
+  App-level, not a SQL function — no pending-migration window.
+- Surfaced at `POST /api/admin/erase-person` (zod-validated, I-7) and in
+  Settings → Data & Privacy. Gated to an owner on the plan carrying
+  `platform.erasure` (house only) because the rewrite crosses tenants; S3 owns
+  per-tenant self-serve erasure.
+
+**Still open (the automatic half)**
+
+- Ordinary member REMOVAL still keeps names verbatim — the tombstone runs only
+  when erasure is invoked, which AD-003's wording permits but S0 §5's 30-day
+  erasure clock now has an answer for. No trigger exists.
 - Denormalised display names therefore survive deletion verbatim at every site:
   - `messages.sender_name` — `supabase/migrations/0000_baseline_schema.sql:146` (`not null`),
     written at `app/api/portal/actions/route.ts:223`,
@@ -277,12 +292,16 @@ disk and sort **after** `0000` (see I-12). Whether they are currently applied to
   - `document_versions.created_by_name` — `supabase/migrations/0005_document_versions.sql:20`.
   - `document_comments.author_name` — `supabase/migrations/0006_document_comments.sql:20`.
   - `client_members.name` / `organization_members.name` — `0012:18`, `0012:35`.
-- **Deletion is currently hard and unscoped.** `app/api/portal/team/route.ts:188-189` and
-  `app/api/admin/client-team/route.ts:154-155` and `app/api/admin/team/route.ts:154-155` call
-  `supabaseAdmin.auth.admin.deleteUser(target.user_id)`. Because `client_members.user_id` has
-  no unique constraint, a company owner removing a teammate destroys that person's auth account
-  globally — including their membership of any *other* client company and of the org crew.
-  `app/api/admin/delete-client/route.ts:64-66` does the same for a whole company's primary login.
+- ~~**Deletion is currently hard and unscoped.**~~ **CORRECTED, Batch 12.2 —
+  this bullet described code that no longer exists.** Batch 6.2 replaced every
+  one of these `auth.admin.deleteUser` calls with `cutMemberAccess()`
+  (`lib/memberAccess.ts:55`): removal now deletes the MEMBERSHIP row and strips
+  the claims, and the auth account survives every app path. The only
+  `deleteUser` calls in the repo today are the provisioning rollback
+  (`scripts/provision-tenant.ts`) and the erasure routine (`lib/erasure.ts`),
+  which deletes the account deliberately, last, behind the platform-operator
+  gate. The original text stands struck-through as the record of what this
+  audit believed.
 - `supabase/migrations/0016_member_lifecycle.sql:55-66` already ran one such purge (deleting
   every previously-`revoked` member's auth user and rows).
 - **No soft-delete grace period anywhere.** S0 §5 specifies 90 days; no table has a

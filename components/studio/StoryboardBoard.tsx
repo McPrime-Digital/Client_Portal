@@ -150,7 +150,7 @@ export default function StoryboardBoard({ boardId }: { boardId: string }) {
   return (
     <div className="mx-auto max-w-6xl">
       <Link
-        href="/studio/workspace/storyboard"
+        href="/studio/suite/storyboard"
         className="mb-2 inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
         <ArrowLeft size={15} /> All boards

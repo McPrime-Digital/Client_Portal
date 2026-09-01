@@ -1,6 +1,10 @@
 // The 3-space information architecture for Genreline's internal/studio shell.
-// Crew (team only) · Client (client-facing) · Workspace (the work). Each space
+// Crew (team only) · Client (client-facing) · Suite (the work). Each space
 // lists its features; `phase` ties to the Genreline build plan (docs/throughline-master-plan.md).
+// "Suite" replaced "Workspace" (Batch 12.2) — film-native (edit suite, color
+// suite) and the deck reads CREW · CLIENT · SUITE at equal visual weight.
+// The OrgCap named 'workspace' in lib/permissions.ts deliberately keeps its
+// old name: it is stored in organization_members.extra_caps rows.
 import type { LucideIcon } from 'lucide-react'
 import {
   UsersRound, Handshake, Clapperboard,
@@ -10,12 +14,17 @@ import {
   CalendarDays, Settings, Palette, FileText, Package,
 } from 'lucide-react'
 
-export type SpaceId = 'crew' | 'client' | 'workspace'
+export type SpaceId = 'crew' | 'client' | 'suite'
 // `legacyHref`: the working admin-portal tool this feature routes to until its
 // studio-native version ships — keeps every space entry functional, never a stub.
+// `planFeature`: the entitlement that must be on the org's plan for this
+// feature to exist at all (rail + route). The exemption is the PLAN, never an
+// org id (lib/billing/plans.ts) — enforcement lives in requireOrgFeature and
+// the sidebar filter, both reading planAllows().
 export type Feature = {
   readonly slug: string; readonly label: string; readonly icon: LucideIcon
   readonly phase: number; readonly badge?: string; readonly legacyHref?: string
+  readonly planFeature?: 'internal.pipeline'
 }
 export type Space = {
   readonly id: SpaceId; readonly label: string; readonly icon: LucideIcon
@@ -39,8 +48,10 @@ const SPACES_LITERAL = defineSpaces([
       { slug: 'tasks', label: 'Tasks & Assignments', icon: ListChecks, phase: 4 },
       { slug: 'calendar', label: 'Calendar', icon: CalendarDays, phase: 4 },
       { slug: 'meetings', label: 'Meetings', icon: Video, phase: 5 },
-      { slug: 'crm', label: 'CRM · Pipeline', icon: GitBranchPlus, phase: 5 },
-      { slug: 'leads', label: 'Lead-Gen Pipelines', icon: Radar, phase: 5 },
+      // House-only (plan feature 'internal.pipeline'): the platform operator's
+      // own selling tools from the client-portal era. Tenants never see these.
+      { slug: 'crm', label: 'CRM · Pipeline', icon: GitBranchPlus, phase: 5, planFeature: 'internal.pipeline' },
+      { slug: 'leads', label: 'Lead-Gen Pipelines', icon: Radar, phase: 5, planFeature: 'internal.pipeline' },
       { slug: 'control-tower', label: 'Control Tower', icon: Gauge, phase: 3, badge: 'COST' },
       { slug: 'directory', label: 'Team', icon: Contact, phase: 1, badge: 'LIVE' },
       { slug: 'settings', label: 'Settings', icon: Settings, phase: 1, badge: 'LIVE' },
@@ -66,7 +77,7 @@ const SPACES_LITERAL = defineSpaces([
     ],
   },
   {
-    id: 'workspace', label: 'Workspace', icon: Clapperboard,
+    id: 'suite', label: 'Suite', icon: Clapperboard,
     blurb: 'Where the work is made — storyboard, the pipeline graph, and the AI production engine.',
     features: [
       // Lifecycle order: pre-pro → produce → finish → cross-cutting tools.
@@ -80,8 +91,10 @@ const SPACES_LITERAL = defineSpaces([
       // the retired three read consumer-AI/game, not enterprise chrome.
       { slug: 'generation', label: 'The Stage', icon: MonitorPlay, phase: 3 },
       { slug: 'remaster', label: 'Remaster', icon: ImageUpscale, phase: 3 },
-      // Finishing Suite: AI-native post — edit assist, sound, VO, mastering, color.
-      { slug: 'finishing', label: 'Finishing Suite', icon: SlidersHorizontal, phase: 3 },
+      // Finishing: AI-native post — edit assist, sound, VO, mastering, color.
+      // (Was "Finishing Suite"; the space is the Suite now, so the feature
+      // dropped the redundant word.)
+      { slug: 'finishing', label: 'Finishing', icon: SlidersHorizontal, phase: 3 },
       // PrimeOS AI: brainstorm → draft → architect scripts, automations, and film. Switchable model mid-chat.
       { slug: 'ai-chat', label: 'PrimeOS', icon: Aperture, phase: 3 },
       { slug: 'continuity', label: 'Continuity', icon: Fingerprint, phase: 2, badge: 'NEW' },

@@ -10,7 +10,9 @@ const COPY: Record<SpaceId, { eyebrow: string; lead: string; body: string; capti
   crew: {
     eyebrow: 'Team only · Operations',
     lead: 'The studio behind the studio.',
-    body: 'Chat, tasks, calendar, meetings and the CRM pipeline — with the control tower watching cost and cadence over every AI run. This is the operational spine your clients never see: every department on one rhythm, every handoff on the record, nothing living in someone’s inbox.',
+    // No CRM mention here: CRM · Pipeline / Lead-Gen are house-plan-only rail
+    // entries (internal.pipeline) and this copy renders for every tenant.
+    body: 'Chat, tasks, calendar and meetings — with the control tower watching cost and cadence over every AI run. This is the operational spine your clients never see: every department on one rhythm, every handoff on the record, nothing living in someone’s inbox.',
     caption: 'Crew — live operations',
   },
   client: {
@@ -19,11 +21,11 @@ const COPY: Record<SpaceId, { eyebrow: string; lead: string; body: string; capti
     body: 'Projects, frame-accurate review and approvals, deliverables, files, messages and invoices — the whole client relationship in one place, wearing your studio’s brand. Clients get a portal that feels built by you; you see every cut, comment and payment the moment it lands.',
     caption: 'Client — frame-accurate review',
   },
-  workspace: {
+  suite: {
     eyebrow: 'The craft floor · End to end',
     lead: 'Where the film gets made.',
-    body: 'Script Design through storyboard into the pipeline graph — then The Stage for generation, Remaster for restoration and the Finishing Suite for sound, color and mastering. One production engine carries a project from first line to final frame, with continuity and provenance tracked shot by shot.',
-    caption: 'Workspace — the production pipeline',
+    body: 'Script Design through storyboard into the pipeline graph — then The Stage for generation, Remaster for restoration and Finishing for sound, color and mastering. One production engine carries a project from first line to final frame, with continuity and provenance tracked shot by shot.',
+    caption: 'Suite — the production pipeline',
   },
 }
 
@@ -225,7 +227,7 @@ function WorkspaceStage() {
 const STAGES: Record<SpaceId, () => ReactNode> = {
   crew: CrewStage,
   client: ClientStage,
-  workspace: WorkspaceStage,
+  suite: WorkspaceStage,
 }
 
 export default function SpaceShowcase({ space, label }: { space: SpaceId; label: string }) {

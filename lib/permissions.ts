@@ -94,7 +94,10 @@ export type OrgCap =
   | 'manage_clients'  // create/edit clients, client teams, invite policies
   | 'client_money'    // invoices: create, send, mark paid
   | 'run_projects'    // projects, tasks, approvals, files, messages
-  | 'workspace'       // script, storyboard, PrimeOS, generation tools
+  // The Suite's capability keeps its pre-rename name: 'workspace' is stored in
+  // organization_members.extra_caps rows, so renaming the string would strip
+  // every member's granted Suite access. The SPACE is 'suite'; the CAP stays.
+  | 'workspace'       // the Suite — script, storyboard, PrimeOS, generation tools
   | 'cost_control'    // Control Tower, budgets, usage
 
 const ORG_CAPS: Record<OrgRole, OrgCap[]> = {
@@ -111,8 +114,8 @@ export const ORG_ROLE_HELP: Record<OrgRole, string> = {
   admin: 'Manage team, clients, settings, and money',
   producer: 'Run projects and the client relationship',
   finance: 'Invoices, billing, and cost control',
-  editor: 'Workspace craft — script, storyboard, AI tools',
-  member: 'Work inside projects and the workspace',
+  editor: 'Suite craft — script, storyboard, AI tools',
+  member: 'Work inside projects and the Suite',
 }
 
 /** Union-of-roles capability check, plus per-member grants on top. */
@@ -129,7 +132,7 @@ export function orgCan(
 /** Org-side capabilities an owner/admin may grant individually, with labels. */
 export const ORG_GRANTABLE: { cap: OrgCap; label: string }[] = [
   { cap: 'run_projects', label: 'Projects & delivery' },
-  { cap: 'workspace', label: 'Workspace tools' },
+  { cap: 'workspace', label: 'Suite tools' },
   { cap: 'manage_clients', label: 'Client management' },
   { cap: 'client_money', label: 'Invoices & billing' },
   { cap: 'cost_control', label: 'Cost control' },
@@ -171,19 +174,20 @@ const ORG_FEATURE_CAP: Record<FeatureKey, OrgCap | null> = {
   'client/brand-kit': 'manage_clients',
   'client/guest-links': 'run_projects',
   'client/settings': 'org_settings',
-  // Workspace (the craft floor)
-  'workspace/script': 'workspace',
-  'workspace/storyboard': 'workspace',
-  'workspace/workflow': 'workspace',
-  'workspace/generation': 'workspace',
-  'workspace/remaster': 'workspace',
-  'workspace/finishing': 'workspace',
-  'workspace/ai-chat': 'workspace',
-  'workspace/continuity': 'workspace',
-  'workspace/arena': 'workspace',
-  'workspace/studio-kits': 'workspace',
-  'workspace/library': 'workspace',
-  'workspace/provenance': 'workspace',
+  // Suite (the craft floor) — the VALUE 'workspace' is the stored capability
+  // name (see OrgCap above); only the space half of the key was renamed.
+  'suite/script': 'workspace',
+  'suite/storyboard': 'workspace',
+  'suite/workflow': 'workspace',
+  'suite/generation': 'workspace',
+  'suite/remaster': 'workspace',
+  'suite/finishing': 'workspace',
+  'suite/ai-chat': 'workspace',
+  'suite/continuity': 'workspace',
+  'suite/arena': 'workspace',
+  'suite/studio-kits': 'workspace',
+  'suite/library': 'workspace',
+  'suite/provenance': 'workspace',
 }
 
 /**

@@ -55,6 +55,13 @@ export type TenantBrand = {
    * than none (S-C §7).
    */
   replyTo: string | null
+  /**
+   * The raw `organizations.plan` tier, for server-side entitlement checks via
+   * lib/billing/plans.ts (`planAllows`). Carried, not decided, exactly like
+   * `showsAttribution` — it comes off the same row this module already reads,
+   * so callers that need a second plan decision don't pay a second query.
+   */
+  plan: string | null
 }
 
 const NEUTRAL: TenantBrand = {
@@ -63,6 +70,7 @@ const NEUTRAL: TenantBrand = {
   resolved: false,
   showsAttribution: true,
   replyTo: null,
+  plan: null,
 }
 
 /**
@@ -108,6 +116,7 @@ export const tenantBrand = cache(async function tenantBrand(
       resolved: name !== NEUTRAL_TENANT_NAME,
       showsAttribution: !planAllows(org?.plan, 'attribution.hide'),
       replyTo: settings?.business_email?.trim() || null,
+      plan: org?.plan ?? null,
     }
   } catch (e) {
     captureError(e, { where: 'tenantBrand', organizationId })

@@ -12,9 +12,19 @@ import { orgFeatureAllowed, type OrgRole } from '@/lib/permissions'
 import { useSidebarStore } from '@/lib/stores/sidebar-store'
 import PrimeOSMark from './PrimeOSMark'
 
+// Live attention counts, keyed by the feature they badge. A tab shows a badge
+// ONLY when a real count source exists and is non-zero — no static markers.
+type BadgeCounts = { messages: number; review: number; invoices: number }
+const ZERO_COUNTS: BadgeCounts = { messages: 0, review: 0, invoices: 0 }
+const FEATURE_COUNT: Record<string, keyof BadgeCounts> = {
+  'client/messages': 'messages',
+  'client/review': 'review',
+  'client/invoices': 'invoices',
+}
+
 // The studio rail — three floating squircle layers on the app canvas:
 // the Genreline brand card, then the rail card holding the liquid-glass
-// space deck (CREW / CLIENT / WORKSPACE) and the feature card, which runs
+// space deck (CREW / CLIENT / SUITE) and the feature card, which runs
 // to the bottom. On phones it becomes a slide-over drawer (same store the
 // portal sidebar uses; the two shells never mount together).
 export default function StudioSidebar({
@@ -23,19 +33,23 @@ export default function StudioSidebar({
   orgRoles = ['owner'],
   orgExtra = [],
   roleLabel = 'Owner',
+  houseTools = false,
 }: {
   userName: string
   orgName: string
   orgRoles?: OrgRole[]
   orgExtra?: string[]
   roleLabel?: string
+  /** Whether this org's plan carries 'internal.pipeline' (house-only rail
+   *  entries). Resolved server-side in the layout from the org's PLAN. */
+  houseTools?: boolean
 }) {
   const pathname = usePathname()
   const parts = pathname.split('/').filter(Boolean) // ['studio', space?, feature?]
   const activeId = parts[1] ?? 'crew'
   const activeFeature = parts[2]
   const space = getSpace(activeId) ?? SPACES[0]
-  const [unreadClientMessages, setUnreadClientMessages] = useState(0)
+  const [counts, setCounts] = useState<BadgeCounts>(ZERO_COUNTS)
   const router = useRouter()
   const { isOpen, close } = useSidebarStore()
 
@@ -53,8 +67,9 @@ export default function StudioSidebar({
     router.push('/login')
   }
 
-  // Live unread-from-clients badge — same source + realtime channel the legacy
-  // admin sidebar used, so counts stay in lockstep with the messages hub.
+  // Live attention badges — unread client messages, change requests on review
+  // gates, overdue invoices. One channel, three table listeners; same source
+  // the messages hub reads, so counts stay in lockstep with it.
   useEffect(() => {
     const supabase = createClient()
 
@@ -63,7 +78,11 @@ export default function StudioSidebar({
         const res = await fetch('/api/admin/badge-counts')
         if (res.ok) {
           const json = await res.json()
-          setUnreadClientMessages(json.unreadClientMessages ?? 0)
+          setCounts({
+            messages: json.unreadClientMessages ?? 0,
+            review: json.changesRequested ?? 0,
+            invoices: json.overdueInvoices ?? 0,
+          })
         }
       } catch {}
     }
@@ -73,6 +92,8 @@ export default function StudioSidebar({
     const channel = supabase
       .channel('studio-sidebar-badges')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => loadBadge())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => loadBadge())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'invoices' }, () => loadBadge())
       .subscribe()
 
     return () => {
@@ -80,6 +101,8 @@ export default function StudioSidebar({
       supabase.removeChannel(channel)
     }
   }, [])
+
+  const clientAttention = counts.messages + counts.review + counts.invoices
 
   return (
     <>
@@ -117,13 +140,13 @@ export default function StudioSidebar({
                     aria-current={active ? 'page' : undefined}
                     className={`group flex flex-1 flex-col items-center gap-1.5 squircle-sm px-0.5 py-3 font-display text-[9px] font-bold uppercase tracking-[0.12em] transition-all duration-200 ${
                       active
-                        ? 'glass-tile-active text-foreground'
+                        ? 'glass-tile-active text-primary'
                         : 'glass-tile text-muted-foreground hover:-translate-y-px hover:text-foreground'
                     }`}
                   >
                     <span className="relative">
                       <Icon size={17} className={`icon-live ${active ? 'text-primary' : ''}`} />
-                      {s.id === 'client' && unreadClientMessages > 0 && (
+                      {s.id === 'client' && clientAttention > 0 && (
                         <span className="absolute -right-1.5 -top-1 h-2 w-2 rounded-full bg-destructive" />
                       )}
                     </span>
@@ -136,9 +159,15 @@ export default function StudioSidebar({
 
           {/* Feature card — one box, squircle edges, extended to the bottom. */}
           <nav className="glass-inset squircle mt-3 min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2 scrollbar-thin">
-            {space.features.filter((f) => orgFeatureAllowed(orgRoles, space.id, f.slug, orgExtra)).map((f) => {
+            {space.features
+              .filter((f) => !f.planFeature || houseTools)
+              .filter((f) => orgFeatureAllowed(orgRoles, space.id, f.slug, orgExtra))
+              .map((f) => {
               const Icon = f.icon
               const active = f.slug === activeFeature
+              // Only a live attention count earns a badge — no static ★ markers.
+              const countKey = FEATURE_COUNT[`${space.id}/${f.slug}`]
+              const count = countKey ? counts[countKey] : 0
               return (
                 <Link
                   key={f.slug}
@@ -153,12 +182,10 @@ export default function StudioSidebar({
                     ? <PrimeOSMark size={17} className="icon-live flex-shrink-0" />
                     : <Icon size={16} className="icon-live flex-shrink-0" />}
                   <span className="flex-1 truncate">{f.label}</span>
-                  {space.id === 'client' && f.slug === 'messages' && unreadClientMessages > 0 ? (
+                  {count > 0 && (
                     <span className="min-w-[18px] rounded-full bg-destructive px-1.5 py-0.5 text-center text-[10px] font-bold text-destructive-foreground">
-                      {unreadClientMessages > 9 ? '9+' : unreadClientMessages}
+                      {count > 9 ? '9+' : count}
                     </span>
-                  ) : (
-                    f.badge && <span className="text-[9px] font-bold tracking-wide text-primary">★ {f.badge}</span>
                   )}
                 </Link>
               )

@@ -1,4 +1,4 @@
-import { isAdmin } from '@/lib/auth/role'
+import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { NextRequest, NextResponse } from 'next/server'
@@ -21,14 +21,27 @@ export async function POST(req: NextRequest) {
   const clean: Record<string, unknown> = {}
   for (const k of allowed) if (k in updates) clean[k] = updates[k]
 
+  // Org-scoped like every other admin write: clientId comes from the body, so
+  // without the predicate an admin of one tenant could rewrite another
+  // tenant's company (this was the last admin write missing it). A foreign
+  // uuid 404s like any other miss.
+  //
+  // Known drift, deliberate here: this edits clients.email only — the
+  // company's CONTACT address. client_members.email and auth.users.email are
+  // separate records of who can log in and are not touched by a contact-info
+  // edit; reconciling the three is S1's identity question, not this route's.
   const { data, error } = await supabaseAdmin
     .from('clients')
     .update(clean)
     .eq('id', clientId)
+    .eq('organization_id', userOrgId(user))
     .select()
-    .single()
+    .maybeSingle()
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+  if (!data) {
+    return NextResponse.json({ error: 'Client not found.' }, { status: 404 })
   }
   return NextResponse.json({ client: data })
 }

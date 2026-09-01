@@ -33,8 +33,8 @@ export async function POST(req: NextRequest) {
         },
       ],
       metadata: { organization_id: orgId, credit_cents: String(amount), kind: 'credit_topup' },
-      success_url: `${origin}/studio/workspace/script?topup=success`,
-      cancel_url: `${origin}/studio/workspace/script?topup=cancel`,
+      success_url: `${origin}/studio/suite/script?topup=success`,
+      cancel_url: `${origin}/studio/suite/script?topup=cancel`,
     })
     return NextResponse.json({ url: session.url })
   } catch (e) {

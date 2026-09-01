@@ -60,6 +60,7 @@ Two further cardinality facts S1 inherits:
 
 - **A person in two client companies breaks the app.** The schema permits it (`client_members.user_id` has no unique constraint), but `lib/team.ts:142-147` and `:218-223` both use `.single()`, which errors on two rows and resolves the person to *no* client account at all. Uploads break with it, via `lib/uploadScope.ts:35`.
 - **Removing a teammate deletes their account globally.** `app/api/portal/team/route.ts:188-189` and both admin equivalents call `auth.admin.deleteUser()`. A company owner removing one collaborator destroys that person's access to every other company and to the crew.
+  *(CORRECTED, Batch 12.2: true when written, no longer true. Batch 6.2 replaced all of these calls with `cutMemberAccess()` — removal takes the membership row and the claims, never the account. The account is deleted only by the deliberate erasure path, `lib/erasure.ts`.)*
 
 ---
 
@@ -68,6 +69,7 @@ Two further cardinality facts S1 inherits:
 **I-5 — the credit gate default is inverted in schema.** S0 §4 records "hard-stop at zero balance: on by default, opt-out only" as a DECISION. `org_budgets.hard_stop` is declared `not null default false` (`0002:28`), and `app/api/studio/muse/route.ts:75` gates on `credit.hardStop && balanceCents <= 0`. The shipped default is therefore *no gate*. One migration flips the default and backfills existing rows; it has no upstream dependency and the highest ratio of financial exposure to remediation cost in the report.
 
 **Retention (S0 §5) has no expression surface.** No table has a `deleted_at` column, no purge job exists, no export path exists. The 90-day grace and the 7-year activity-log policy are currently unimplementable statements rather than violated ones. S3 owns the schema for this.
+*(PARTIALLY CORRECTED, Batch 12.2: the erasure-request half of §5 is now expressible — `lib/erasure.ts` + `POST /api/admin/erase-person` answer a right-to-erasure request. `deleted_at`, the 90-day grace, purge jobs and the export path remain unbuilt and remain S3's.)*
 
 **Default-deny is not in force.** `lib/permissions.ts:183-185` returns `true` when a capability key is unknown, contradicting its own comment at `:136-138`. Any feature slug added to `lib/studio/spaces.ts` without a matching `ORG_FEATURE_CAP` entry is visible to every crew member. This moves the default-deny question from S4 to **S2**, since it is an authorization defect rather than an IA one.
 

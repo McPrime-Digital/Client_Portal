@@ -5,21 +5,25 @@ import { createClient } from '@/lib/supabase/client'
 import type { User } from '@supabase/supabase-js'
 import {
   Shield, Lock, Check, Loader2, AlertCircle, Eye, EyeOff,
-  CreditCard, Building2, Users, ChevronRight, Bell,
+  CreditCard, Building2, Users, ChevronRight, Bell, Eraser,
 } from 'lucide-react'
 import NotificationPreferences, { type PrefMap } from '@/components/shared/NotificationPreferences'
 import StudioLogoField from '@/components/admin/StudioLogoField'
+import DataPrivacySection from '@/components/admin/DataPrivacySection'
 
 type Props = {
   user: User
   /** The studio's own brand, resolved server-side (S-C §6). */
   studioName: string
   studioLogoUrl: string | null
+  /** Owner on the platform operator's plan (server-computed) — shows the
+   *  Data & Privacy erasure console. The route re-checks both gates. */
+  canErase?: boolean
 }
 
-type SectionKey = 'business' | 'payments' | 'notifications' | 'profile' | 'security' | 'team'
+type SectionKey = 'business' | 'payments' | 'notifications' | 'profile' | 'security' | 'team' | 'privacy'
 
-export default function AdminSettings({ user, studioName, studioLogoUrl }: Props) {
+export default function AdminSettings({ user, studioName, studioLogoUrl, canErase = false }: Props) {
   const supabase = createClient()
   const [section, setSection] = useState<SectionKey>('business')
 
@@ -163,6 +167,9 @@ export default function AdminSettings({ user, studioName, studioLogoUrl }: Props
     { key: 'profile', label: 'Admin Profile', icon: Shield, desc: 'Your account', tint: 'status-blue' },
     { key: 'security', label: 'Security', icon: Lock, desc: 'Password & access', tint: 'status-violet' },
     { key: 'team', label: 'Team & Roles', icon: Users, desc: 'Seats & permissions', tint: 'status-amber' },
+    ...(canErase
+      ? [{ key: 'privacy' as SectionKey, label: 'Data & Privacy', icon: Eraser, desc: 'Erasure & retention', tint: 'destructive' }]
+      : []),
   ]
 
   return (
@@ -348,6 +355,9 @@ export default function AdminSettings({ user, studioName, studioLogoUrl }: Props
               </div>
             </div>
           )}
+
+          {/* Data & Privacy — platform-operator erasure console */}
+          {section === 'privacy' && canErase && <DataPrivacySection />}
         </div>
       </div>
     </div>

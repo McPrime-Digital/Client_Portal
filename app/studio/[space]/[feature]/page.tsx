@@ -25,13 +25,13 @@ export default async function FeaturePage({
   if (feature.legacyHref) redirect(feature.legacyHref)
 
   // Real features progressively replace the stub below.
-  if (space.id === 'workspace' && feature.slug === 'script') {
+  if (space.id === 'suite' && feature.slug === 'script') {
     return <ScriptDesign />
   }
-  if (space.id === 'workspace' && feature.slug === 'storyboard') {
+  if (space.id === 'suite' && feature.slug === 'storyboard') {
     return <Storyboard />
   }
-  if (space.id === 'workspace' && feature.slug === 'ai-chat') {
+  if (space.id === 'suite' && feature.slug === 'ai-chat') {
     return <PrimeOSChat />
   }
 

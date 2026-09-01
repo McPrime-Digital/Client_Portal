@@ -57,6 +57,24 @@ export async function POST(req: NextRequest) {
     .maybeSingle()
   if (existing) return NextResponse.json({ error: 'That email is already on the team.' }, { status: 409 })
 
+  // A crew seat is globally exclusive today: organization_members.user_id is
+  // unique across ALL orgs (0012:17), so an address already on any roster —
+  // another studio's, or a stale revoked row — would pass the per-tenant check
+  // above, SEND the invite email, and then die on the insert with a raw 23505.
+  // Check before the email goes out. The message is deliberately identical to
+  // the same-org 409: a distinguishable answer would disclose who another
+  // studio employs (the T-2 probe the comment above describes). Whether one
+  // identity may hold two crew seats is an open S1 §2 question — this handles
+  // the constraint as it stands, it does not decide the question.
+  const { data: anywhere } = await supabaseAdmin
+    .from('organization_members')
+    .select('id')
+    .eq('email', cleanEmail)
+    .limit(1)
+  if ((anywhere ?? []).length > 0) {
+    return NextResponse.json({ error: 'That email is already on the team.' }, { status: 409 })
+  }
+
   const invite = await sendTenantInvite({
     email: cleanEmail,
     orgId: userOrgId(user),
@@ -89,7 +107,15 @@ export async function POST(req: NextRequest) {
     })
     .select()
     .single()
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    // Backstop for the pre-check above: the same person invited under a
+    // different address still trips the global user_id uniqueness. Same
+    // non-disclosing 409 instead of a raw Postgres 23505.
+    if (error.code === '23505') {
+      return NextResponse.json({ error: 'That email is already on the team.' }, { status: 409 })
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
 
   // crew members are studio users: role 'admin' opens the studio; the
   // membership row's role governs what they may actually do.

@@ -304,7 +304,7 @@ export default function ScriptHome() {
       return
     }
     const tpl = templateKey && templateKey !== 'blank' ? `&template=${templateKey}` : ''
-    router.push(`/studio/workspace/script?doc=${data.id}${tpl}`)
+    router.push(`/studio/suite/script?doc=${data.id}${tpl}`)
   }
 
   async function rename(d: Doc) {
@@ -320,7 +320,7 @@ export default function ScriptHome() {
     await supabase.from('documents').delete().eq('id', d.id)
     void load()
   }
-  const open = (id: string) => router.push(`/studio/workspace/script?doc=${id}`)
+  const open = (id: string) => router.push(`/studio/suite/script?doc=${id}`)
 
   return (
     <div>

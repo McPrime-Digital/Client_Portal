@@ -106,7 +106,13 @@ paying"** (S-V §13).
 - **AD-003 — deleting a person never deletes their work.** FKs onto
   `auth.users` are `ON DELETE SET NULL` (0016). Batch 6.2 extended the
   spirit: removing a member deletes the membership, never the auth account.
-  Pseudonymisation of denormalized names is still open (S3).
+  Batch 12.2 built the tombstone half as an on-demand erasure
+  (`lib/erasure.ts`, `POST /api/admin/erase-person`, Settings → Data &
+  Privacy): stable pseudonym across the five name columns, address scrubbed
+  from notifications and activity meta, auth account deleted last. Gated to
+  an owner on the plan carrying `platform.erasure` (house only) because the
+  rewrite crosses tenants. Still S3's: automatic tombstone on removal,
+  `deleted_at`/grace, purge jobs, export.
 - **AD-004(-R) — one file pipeline.** Chat attachments already are `files`
   rows, metered and vaulted (S0's original premise was wrong — S0-A corrects
   it). The real work: attachment FK instead of `"bucket::path"` strings,
@@ -218,6 +224,7 @@ The audited era, each batch with what it *found*:
 | 11.3 | Flow B's refusal explained; `invite-client`'s duplicate check org-scoped | **The confirmation state is the variable, and an intermediate probe got it backwards.** `generateLink` type `invite` returns 422 `email_exists` for a CONFIRMED account and 200 for an unconfirmed one — so a probe on the wrong account "disproved" a fix that was correct. Verified by running the real `sendTenantInvite` against production auth |
 | 10.4 | Second Resend send path collapsed | 10.3's own commit message claimed `send.ts` was "extracted from notify.ts". It was not — `send.ts` was *added* and notify.ts kept its `fetch`, ending in `catch {}`. Every notification email since 10.2 went out through the copy **without** the error sink |
 | 12.1 | Shell overhaul, both portals: liquid-glass squircle chrome (`--glow` token + glass utilities in `globals.css`), Geist + Schibsted Grotesk, `/studio` lands on **crew**, space landings become animated stages (`SpaceShowcase.tsx`) instead of feature grids, premium icon swaps, studio mobile drawer, route-level loading skeletons | The studio had **no mobile navigation at all** — `StudioSidebar` rendered unconditionally and squeezed every page on a phone; only the portal had a drawer. And "4-second navigation" is two problems, not one: dev-mode compile dominates (prefetch is disabled in dev), but the studio layout also serialized three independent round trips, and the space landings paid auth + roster queries to draw a grid duplicating the rail |
+| 12.2 | **Workspace → Suite** (slug + label; proxy redirect for old URLs; the `workspace` OrgCap keeps its name — it lives in `extra_caps` rows); CRM · Pipeline / Lead-Gen gated to plan feature `internal.pipeline` (house only, sidebar + `requireOrgFeature`); rail badges are live counts only (unread client messages, `changes_requested` gates, overdue invoices — ★ markers gone); active space tile double-bevel + gold type; **erasure built** (`lib/erasure.ts` + `erase-person` route + Settings → Data & Privacy, plan feature `platform.erasure`); `update-client` org-scoped (the last unscoped admin write); `delete-client` deletes the R2/storage blobs before the rows; crew re-invite returns a clean 409 instead of a raw 23505 (pre-check before the invite email fires); AD-003/deleteUser doc drift corrected in S0-conformance + S0-A | The conformance and amendment docs still asserted four live `deleteUser` call sites that Batch 6.2 had removed — anyone designing from those docs was designing against dead code. `tenantBrand` already read `organizations.plan` and threw it away; exposing it made every plan gate free. And the crew-invite 23505 fired **after** `sendTenantInvite` — the person got a working invite email while the roster insert died |
 
 ## 7. Current state (verified 2026-08-28 after Batch 8; Batch 9 deltas from the
 code 2026-08-30, with one live read; Batch 10 deltas from the code 2026-08-31)
@@ -596,9 +603,11 @@ sequencing, not design:
 - **Approval decoupling (X-2)** — approvals are welded to the Client space;
   S1 §9 needs them free of it before archetype `internal` (P-9) is expressible.
 - **File version stacking** — one `files` row per upload today, no lineage.
-- **Retention columns** — S0 §5's 90-day grace, 7-year activity log and 30-day
-  erasure have **no expression surface at all**: no table has `deleted_at`, no
-  purge job exists, no export path exists (S0-A §3).
+- **Retention columns** — S0 §5's 90-day grace and 7-year activity log still
+  have no expression surface: no table has `deleted_at`, no purge job exists,
+  no export path exists (S0-A §3). The 30-day erasure clock is answerable
+  since Batch 12.2 (`lib/erasure.ts`), but only by the platform operator —
+  per-tenant self-serve erasure is still S3's.
 - **Attachment FK** — `messages.attachment_file_id → files(id)`, replacing the
   `"bucket::path"` string, plus the body-trust fix and orphan cleanup
   (AD-004-R items 1–3, §8.3 items 1–2).
