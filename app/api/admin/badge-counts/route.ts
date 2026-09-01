@@ -2,6 +2,7 @@ import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { orgUnread } from '@/lib/messageRead'
 
 export async function GET() {
   const supabase = await createClient()
@@ -16,13 +17,9 @@ export async function GET() {
   const today = new Date().toISOString().slice(0, 10)
 
   const [msgRes, reviewRes, invoiceRes] = await Promise.all([
-    // Unread client messages across this tenant's projects.
-    supabaseAdmin
-      .from('messages')
-      .select('*', { count: 'exact', head: true })
-      .eq('organization_id', orgId)
-      .eq('sender_role', 'client')
-      .is('read_at', null),
+    // Unread for THIS person (message_read_state, A-7) — a colleague reading
+    // a thread no longer silences this caller's badge.
+    orgUnread(supabaseAdmin, { userId: user.id, orgId }),
     // Review gates a client sent back — the studio's actionable state
     // ('pending' means waiting on the CLIENT, so it does not badge here).
     supabaseAdmin
@@ -41,7 +38,7 @@ export async function GET() {
   ])
 
   return NextResponse.json({
-    unreadClientMessages: msgRes.count ?? 0,
+    unreadClientMessages: msgRes.total,
     changesRequested: reviewRes.count ?? 0,
     overdueInvoices: invoiceRes.count ?? 0,
   })

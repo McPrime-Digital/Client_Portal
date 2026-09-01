@@ -1,7 +1,8 @@
-import { portalClientId } from '@/lib/team'
+import { portalClientId, portalAccess } from '@/lib/team'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { clientUnread } from '@/lib/messageRead'
 
 export async function GET() {
   const supabase = await createClient()
@@ -29,17 +30,20 @@ export async function GET() {
 
   const projectIds = (projects ?? []).map((p) => p.id)
 
-  if (projectIds.length === 0) {
-    return NextResponse.json({ unreadMessages: 0, unpaidInvoices: 0, pendingApprovals: 0 })
-  }
+  // Unread is per PERSON now (message_read_state, A-7) and per ROOM — so it
+  // counts untagged messages too, and a project-less client still gets a
+  // badge. This caller's scope + history cutoff apply exactly as the hub's.
+  const access = await portalAccess(user)
+  const { total: unreadMessages } = await clientUnread(supabaseAdmin, {
+    userId: user.id,
+    clientId: client.id,
+    historyFrom: access?.historyFrom ?? null,
+    visibleProjectIds: access?.projectIds ?? null,
+  })
 
-  // Count unread admin messages across all projects
-  const { count: unreadMessages } = await supabaseAdmin
-    .from('messages')
-    .select('*', { count: 'exact', head: true })
-    .in('project_id', projectIds)
-    .eq('sender_role', 'admin')
-    .is('read_at', null)
+  if (projectIds.length === 0) {
+    return NextResponse.json({ unreadMessages, unpaidInvoices: 0, pendingApprovals: 0 })
+  }
 
   // Count unpaid/overdue invoices
   const { count: unpaidInvoices } = await supabaseAdmin

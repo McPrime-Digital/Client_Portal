@@ -3,6 +3,7 @@ import { tenantBrand } from '@/lib/tenantBrand'
 import { portalClientId, portalAccess } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { clientUnread } from '@/lib/messageRead'
 import { redirect } from 'next/navigation'
 import MessagesHub from '@/components/portal/MessagesHub'
 
@@ -57,15 +58,14 @@ export default async function MessagesPage() {
     if (access?.historyFrom) latestQ = latestQ.gte('created_at', access.historyFrom)
     const { data: latestMessages } = await latestQ
 
-    // Get unread counts (admin messages not yet read)
-    let unreadQ = supabaseAdmin
-      .from('messages')
-      .select('project_id')
-      .in('project_id', projectIds)
-      .eq('sender_role', 'admin')
-      .is('read_at', null)
-    if (access?.historyFrom) unreadQ = unreadQ.gte('created_at', access.historyFrom)
-    const { data: unreadMessages } = await unreadQ
+    // Unread is per PERSON now (message_read_state, A-7): this member's own
+    // watermark, not whether ANYONE at the company opened the thread.
+    const { byProject: unreadByProject } = await clientUnread(supabaseAdmin, {
+      userId: user.id,
+      clientId: client.id,
+      historyFrom: access?.historyFrom ?? null,
+      visibleProjectIds: access?.projectIds ?? null,
+    })
 
     // Build thread map
     const latestByProject: Record<string, any> = {}
@@ -73,12 +73,6 @@ export default async function MessagesPage() {
       if (!latestByProject[msg.project_id]) {
         latestByProject[msg.project_id] = msg
       }
-    }
-
-    const unreadByProject: Record<string, number> = {}
-    for (const msg of unreadMessages ?? []) {
-      unreadByProject[msg.project_id] =
-        (unreadByProject[msg.project_id] ?? 0) + 1
     }
 
     threads = visibleProjects.map((p) => ({

@@ -2,6 +2,7 @@ import { clientCan } from '@/lib/permissions'
 import { portalClientId, portalAccess } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { clientUnread } from '@/lib/messageRead'
 import { tenantBrand } from '@/lib/tenantBrand'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
@@ -178,7 +179,7 @@ export default async function DashboardPage() {
   const [
     { data: tasks },
     { data: deliveredFiles },
-    { data: unreadMsgs },
+    unread,
     { data: recentNotifs },
     { data: invoices },
     { data: phases },
@@ -195,14 +196,14 @@ export default async function DashboardPage() {
       .eq('direction', 'delivery')
       .order('created_at', { ascending: false })
       .limit(200),
-    hasProjects
-      ? supabaseAdmin
-          .from('messages')
-          .select('id')
-          .is('read_at', null)
-          .eq('sender_role', 'admin')
-          .in('project_id', projectIds)
-      : Promise.resolve({ data: [] as any[] }),
+    // Per-person unread (message_read_state, A-7) — counts untagged room
+    // messages too, so a project-less client still sees their badge.
+    clientUnread(supabaseAdmin, {
+      userId: user.id,
+      clientId: client.id,
+      historyFrom: access?.historyFrom ?? null,
+      visibleProjectIds: access?.projectIds ?? null,
+    }),
     // Recent Activity stream — every alert type for this client (messages,
     // deliveries, status changes, invoices, task approvals), not just messages.
     supabaseAdmin
@@ -265,7 +266,7 @@ export default async function DashboardPage() {
   const totalTasks = clientTasks.length
   const tasksRemaining = Math.max(0, totalTasks - completedTasks)
   const taskPct = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0
-  const unreadMessages = (unreadMsgs ?? []).length
+  const unreadMessages = unread.total
 
   // Per-project task rollup for the Task Process overview card.
   const taskByProject = scopedProjects

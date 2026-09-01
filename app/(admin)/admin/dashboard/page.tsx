@@ -1,5 +1,6 @@
 import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { orgUnread } from '@/lib/messageRead'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import AdminDashboard from
@@ -101,13 +102,8 @@ export default async function AdminDashboardPage() {
       .reduce((a, i) => a + Number(i.amount), 0),
   }
 
-  // Unread messages count
-  const { count: unreadMessages } = await supabaseAdmin
-    .from('messages')
-    .select('*', { count: 'exact', head: true })
-    .eq('organization_id', orgId)
-    .is('read_at', null)
-    .eq('sender_role', 'client')
+  // Unread messages — per PERSON since Batch 14 (message_read_state, A-7).
+  const { total: unreadMessages } = await orgUnread(supabaseAdmin, { userId: user.id, orgId })
 
   return (
     <AdminDashboard

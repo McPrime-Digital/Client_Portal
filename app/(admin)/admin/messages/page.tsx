@@ -3,8 +3,9 @@ import { tenantBrand } from '@/lib/tenantBrand'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
-import AdminMessagesHub from 
+import AdminMessagesHub from
   '@/components/admin/AdminMessagesHub'
+import { orgUnread } from '@/lib/messageRead'
 
 export default async function AdminMessagesPage() {
   const supabase = await createClient()
@@ -46,25 +47,18 @@ export default async function AdminMessagesPage() {
       .in('project_id', projectIds)
       .order('created_at', { ascending: false })
 
-    const { data: unreadMessages } = await supabaseAdmin
-      .from('messages')
-      .select('project_id')
-      .eq('organization_id', orgId)
-      .in('project_id', projectIds)
-      .eq('sender_role', 'client')
-      .is('read_at', null)
+    // Per-person unread (message_read_state, A-7): this admin's watermark —
+    // a colleague opening the thread no longer marks it read for them.
+    const { byProject: unreadByProject } = await orgUnread(supabaseAdmin, {
+      userId: user.id,
+      orgId,
+    })
 
     const latestByProject: Record<string, any> = {}
     for (const msg of latestMessages ?? []) {
       if (!latestByProject[msg.project_id]) {
         latestByProject[msg.project_id] = msg
       }
-    }
-
-    const unreadByProject: Record<string, number> = {}
-    for (const msg of unreadMessages ?? []) {
-      unreadByProject[msg.project_id] =
-        (unreadByProject[msg.project_id] ?? 0) + 1
     }
 
     threads = (projects ?? []).map((p: any) => ({
