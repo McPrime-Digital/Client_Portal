@@ -67,6 +67,8 @@ type Props = {
   mentionCandidates?: { users: { id: string; name: string }[]; projects: { id: string; title: string }[] } | null
   /** live composer state for presence (Batch 16): recording on/off */
   onRecordingChange?: (recording: boolean) => void
+  /** instant voice send (Batch 17): bubble appears immediately, upload rides behind */
+  onSendVoice?: (file: File) => void
   /** project colour-bonding (Batch 16): tagged bubbles carry their project's colour */
   projectMeta?: Record<string, { title: string; color: string }>
 }
@@ -169,6 +171,7 @@ export default function MessageThread({
   mentionTargets = null,
   mentionCandidates = null,
   onRecordingChange,
+  onSendVoice,
   projectMeta = {},
 }: Props) {
   const [newMessage, setNewMessage] = useState('')
@@ -297,7 +300,7 @@ export default function MessageThread({
       setAttachment(result)
     } catch (err) {
       console.error('Upload failed', err)
-      alert('Failed to upload file.')
+      alert(`Upload failed: ${err instanceof Error ? err.message : 'unknown error'}`)
     } finally {
       setUploading(false)
       e.target.value = ''
@@ -345,13 +348,20 @@ export default function MessageThread({
   async function handleRecordingComplete(file: File) {
     setRecording(false)
     onRecordingChange?.(false)
+    // Instant send (Batch 17): the voice note appears as a playing bubble the
+    // moment recording stops — no staging, no upload spinner. The upload and
+    // send ride behind the optimistic message.
+    if (onSendVoice) {
+      onSendVoice(file)
+      return
+    }
     if (!onUploadAttachment) return
     setUploading(true)
     try {
       const result = await onUploadAttachment(file)
       setAttachment(result)
-    } catch {
-      alert('Failed to upload recording.')
+    } catch (err) {
+      alert(`Recording upload failed: ${err instanceof Error ? err.message : 'unknown error'}`)
     } finally {
       setUploading(false)
     }

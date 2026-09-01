@@ -831,6 +831,89 @@ export default function RoomThread({
     }
   }
 
+  // ── Instant voice send (Batch 17): optimistic bubble on a blob URL, the
+  //    upload + send ride behind it, reconciled or rolled back with a reason.
+  async function sendVoice(file: File) {
+    const blobUrl = URL.createObjectURL(file)
+    const optimistic: Message = {
+      id: `temp-${Date.now()}`,
+      room_id: null,
+      thread_root_id: null,
+      deleted_at: null,
+      project_id: (filter.kind === 'project' ? filter.projectId : null) as unknown as string,
+      sender_id: ownIdRef.current ?? '',
+      sender_role: role,
+      sender_name: currentName,
+      body: '',
+      read_at: null,
+      delivered_at: null,
+      reply_to_id: null,
+      attachment_url: blobUrl,
+      attachment_name: file.name,
+      is_deleted: false,
+      edited_at: null,
+      created_at: new Date().toISOString(),
+    }
+    setMessages((prev) => [...prev, optimistic])
+    try {
+      const uploaded = await handleAttachmentUpload(file)
+      const res = await fetch(
+        role === 'admin' ? '/api/admin/project-actions' : '/api/portal/actions',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'send_message',
+            ...(filter.kind === 'project'
+              ? { project_id: filter.projectId }
+              : role === 'admin'
+                ? { client_id: clientId }
+                : {}),
+            body: '',
+            attachment_url: uploaded.url,
+            attachment_name: uploaded.name,
+            attachment_file_id: uploaded.fileId ?? null,
+          }),
+        }
+      )
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Send failed')
+      const inserted: Message | null = json.message ?? null
+      if (inserted) {
+        seenIdsRef.current.add(inserted.id)
+        setMessages((prev) =>
+          prev.some((m) => m.id === inserted.id)
+            ? prev.filter((m) => m.id !== optimistic.id)
+            : prev.map((m) => (m.id === optimistic.id ? inserted : m))
+        )
+        onActivity?.(inserted, 'sent')
+        channelRef.current?.send({
+          type: 'broadcast',
+          event: 'message',
+          payload: {
+            projectId: threadKey,
+            messageId: inserted.id,
+            senderRole: role,
+            senderId: inserted.sender_id,
+            senderName: inserted.sender_name,
+            body: inserted.body,
+            attachmentName: inserted.attachment_name,
+            createdAt: inserted.created_at,
+          },
+        })
+        pingBadges()
+      }
+    } catch (err) {
+      setMessages((prev) => prev.filter((m) => m.id !== optimistic.id))
+      setSendError(
+        `Voice note failed: ${err instanceof Error ? err.message : 'unknown error'}`
+      )
+      setTimeout(() => setSendError(null), 8000)
+    } finally {
+      URL.revokeObjectURL(blobUrl)
+    }
+  }
+
   // ── Attachments (project scope, or the client's `_general` scope) ────────
   async function handleAttachmentUpload(file: File) {
     const uploaded = await uploadFileToR2({
@@ -913,6 +996,7 @@ export default function RoomThread({
             onEditMessage={handleEditMessage}
             onTyping={handleTyping}
             onRecordingChange={handleRecordingChange}
+            onSendVoice={allowAttachments ? sendVoice : undefined}
             onLoadOlder={loadOlder}
             hasMore={hasMore}
             loadingOlder={loadingOlder}
@@ -1229,6 +1313,7 @@ export default function RoomThread({
                   onEditMessage={handleEditMessage}
                   onTyping={handleTyping}
                   onRecordingChange={handleRecordingChange}
+                  onSendVoice={allowAttachments ? sendVoice : undefined}
                   mentionTargets={mentionTargets}
                   mentionCandidates={mentionCandidates}
                   projectMeta={projectMeta}
