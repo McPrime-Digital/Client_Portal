@@ -75,6 +75,11 @@ type Props = {
   onComposerTagChange?: (id: string | null) => void
   /** viewer's wallpaper (Batch 17): pattern class + intensity alpha */
   wallpaper?: { pattern: 'film' | 'dots' | 'grid' | 'none'; alpha: number }
+  /** forward + bulk select (Batch 18) */
+  onForward?: (msgs: Message[]) => void
+  selectionMode?: boolean
+  selectedIds?: Set<string>
+  onToggleSelect?: (id: string) => void
   /** project colour-bonding (Batch 16): tagged bubbles carry their project's colour */
   projectMeta?: Record<string, { title: string; color: string }>
 }
@@ -188,6 +193,10 @@ export default function MessageThread({
   composerTagLocked = false,
   onComposerTagChange,
   wallpaper = { pattern: 'film', alpha: 0.75 },
+  onForward,
+  selectionMode = false,
+  selectedIds,
+  onToggleSelect,
   projectMeta = {},
 }: Props) {
   const [newMessage, setNewMessage] = useState('')
@@ -594,11 +603,19 @@ export default function MessageThread({
               )}
 
               <div className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                <div className="group max-w-[78%] md:max-w-[66%] min-w-[110px] flex flex-col relative">
+                <div
+                  className={`group max-w-[78%] md:max-w-[66%] min-w-[110px] flex flex-col relative ${selectionMode ? 'cursor-pointer' : ''}`}
+                  onClick={selectionMode ? () => onToggleSelect?.(msg.id) : undefined}
+                  style={
+                    selectionMode && selectedIds?.has(msg.id)
+                      ? { outline: '2px solid hsl(var(--primary))', outlineOffset: 2, borderRadius: 18 }
+                      : undefined
+                  }
+                >
                   {/* Horizontal action bar (Batch 16): floats over the group
                       on hover — react · quote · thread · more. */}
                   <div
-                    className={`absolute -top-4 ${isMe ? 'right-0' : 'left-0'} z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex items-center rounded-full shadow-lg`}
+                    className={`absolute -top-4 ${isMe ? 'right-0' : 'left-0'} z-20 ${selectionMode ? 'hidden' : 'opacity-0 group-hover:opacity-100'} transition-opacity duration-150 flex items-center rounded-full shadow-lg`}
                     style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
                   >
                     {onToggleReaction && (
@@ -655,6 +672,16 @@ export default function MessageThread({
                       className={`absolute top-5 ${isMe ? 'right-0' : 'left-0'} z-30 w-44 rounded-xl overflow-hidden shadow-2xl`}
                       style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
                     >
+                      {onForward && (
+                        <button
+                          onClick={() => { onForward([msg]); setMsgMenuFor(null) }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-left transition-colors hover:bg-[hsl(var(--primary)/0.08)]"
+                          style={{ color: 'hsl(var(--foreground))' }}
+                        >
+                          <Reply size={12} style={{ color: 'hsl(var(--text-faint))', transform: 'scaleX(-1)' }} />
+                          Forward
+                        </button>
+                      )}
                       {onTogglePin && (
                         <button
                           onClick={() => { onTogglePin(msg); setMsgMenuFor(null) }}

@@ -573,6 +573,7 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                   onTypingChange={setClientActivity}
                   panelCommand={panelCommand}
                   showMenuButton={false}
+                  forwardRooms={rooms.map((r) => ({ id: r.clientId, label: r.company ?? r.name }))}
                 />
               </div>
             </>

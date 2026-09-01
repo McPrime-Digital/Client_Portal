@@ -76,6 +76,8 @@ type Props = {
   /** hubs drive the room menu from their own header; pages keep the built-in one */
   panelCommand?: { which: 'pins' | 'saves' | 'settings' | 'people' | 'search'; n: number } | null
   showMenuButton?: boolean
+  /** forward targets beyond this room (the studio's other client rooms) */
+  forwardRooms?: { id: string; label: string }[]
 }
 
 function matchesFilter(filter: RoomFilter, projectId: string | null): boolean {
@@ -100,6 +102,7 @@ export default function RoomThread({
   onTypingChange,
   panelCommand = null,
   showMenuButton = true,
+  forwardRooms = [],
 }: Props) {
   const supabase = createClient()
   const [messages, setMessages] = useState<Message[]>([])
@@ -132,6 +135,10 @@ export default function RoomThread({
   const [soundOn, setSoundOn] = useState(() => messageSoundEnabled())
   const [focusOn, setFocusOn] = useState(() => focusModeEnabled())
   const [people, setPeople] = useState<{ name: string; role: string; side: 'client' | 'crew' }[]>([])
+  // Forward + bulk select (Batch 18)
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [forwardFor, setForwardFor] = useState<Message[] | null>(null)
   const [trigger, setTrigger] = useState<MentionTrigger>(() => mentionTrigger())
   // Sticky composer tag (Batch 17): in All, the chosen project tags every
   // send until changed — persisted per room, per device.
@@ -678,6 +685,15 @@ export default function RoomThread({
       .upsert({ room_id: roomId, user_id: me, level }, { onConflict: 'room_id,user_id' })
   }, [])
 
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
   // Jump-to-message: a window around the target (item 2's `around`).
   const jumpTo = useCallback(
     async (id: string) => {
@@ -777,6 +793,42 @@ export default function RoomThread({
       })
     }
   }, [role, clientId, orgId, supabase])
+
+  // Forward: re-send body + attachment into another destination. Within the
+  // room a destination is a project tag; the studio can also cross rooms.
+  const doForward = useCallback(
+    async (msgs: Message[], dest: { kind: 'project'; projectId: string } | { kind: 'general' } | { kind: 'room'; clientId: string }) => {
+      setForwardFor(null)
+      setSelectionMode(false)
+      setSelectedIds(new Set())
+      for (const m of msgs) {
+        try {
+          await fetch(role === 'admin' ? '/api/admin/project-actions' : '/api/portal/actions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'send_message',
+              ...(dest.kind === 'project'
+                ? { project_id: dest.projectId }
+                : dest.kind === 'room'
+                  ? { client_id: dest.clientId }
+                  : role === 'admin'
+                    ? { client_id: clientId }
+                    : {}),
+              body: m.body ?? '',
+              attachment_url: m.attachment_url ?? null,
+              attachment_name: m.attachment_name ?? null,
+              attachment_file_id: m.attachment_file_id ?? null,
+            }),
+          })
+        } catch { /* per-message best effort */ }
+      }
+      void refetch()
+      pingBadges()
+    },
+    [role, clientId, refetch, pingBadges]
+  )
+
 
   // ── Send ─────────────────────────────────────────────────────────────────
   async function sendMessage(
@@ -1039,6 +1091,10 @@ export default function RoomThread({
             composerTagLocked={filter.kind === 'project'}
             onComposerTagChange={setSticky}
             wallpaper={{ pattern: wpPattern, alpha: INTENSITY_ALPHA[wpIntensity] }}
+            onForward={(msgs) => setForwardFor(msgs)}
+            selectionMode={selectionMode}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
             onLoadOlder={loadOlder}
             hasMore={hasMore}
             loadingOlder={loadingOlder}
@@ -1055,6 +1111,84 @@ export default function RoomThread({
             mentionCandidates={mentionCandidates}
             projectMeta={projectMeta}
           />
+          {/* Bulk-selection action bar (Batch 18) */}
+          {selectionMode && (
+            <div
+              className="absolute bottom-20 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 px-4 py-2 rounded-full shadow-2xl"
+              style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--primary) / 0.4)' }}
+            >
+              <span className="text-xs font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
+                {selectedIds.size} selected
+              </span>
+              <button
+                disabled={selectedIds.size === 0}
+                onClick={() => setForwardFor(messages.filter((m) => selectedIds.has(m.id)))}
+                className="text-xs font-bold px-3 py-1 rounded-full disabled:opacity-40"
+                style={{ backgroundColor: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}
+              >
+                Forward
+              </button>
+              <button
+                onClick={() => { setSelectionMode(false); setSelectedIds(new Set()) }}
+                className="text-xs px-2 py-1"
+                style={{ color: 'hsl(var(--muted-foreground))' }}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
+          {/* Forward destination picker (Batch 18) */}
+          {forwardFor && (
+            <div
+              className="absolute inset-0 z-40 flex items-center justify-center p-6"
+              style={{ backgroundColor: 'hsl(var(--background) / 0.6)', backdropFilter: 'blur(4px)' }}
+              onClick={() => setForwardFor(null)}
+            >
+              <div
+                className="w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden"
+                style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="px-4 py-3 border-b" style={{ borderColor: 'hsl(var(--border))' }}>
+                  <p className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
+                    Forward {forwardFor.length > 1 ? `${forwardFor.length} messages` : 'message'} to
+                  </p>
+                </div>
+                <div className="max-h-72 overflow-y-auto scrollbar-thin p-2 space-y-1">
+                  <button
+                    onClick={() => void doForward(forwardFor, { kind: 'general' })}
+                    className="w-full text-left px-3 py-2.5 rounded-xl text-sm hover:bg-[hsl(var(--primary)/0.08)]"
+                    style={{ color: 'hsl(var(--foreground))' }}
+                  >
+                    This room · no project
+                  </button>
+                  {Object.entries(projectMeta).map(([id, m]) => (
+                    <button
+                      key={id}
+                      onClick={() => void doForward(forwardFor, { kind: 'project', projectId: id })}
+                      className="w-full flex items-center gap-2 text-left px-3 py-2.5 rounded-xl text-sm hover:bg-[hsl(var(--primary)/0.08)]"
+                      style={{ color: 'hsl(var(--foreground))' }}
+                    >
+                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: m.color }} />
+                      {m.title}
+                    </button>
+                  ))}
+                  {forwardRooms.filter((r) => r.id !== clientId).map((r) => (
+                    <button
+                      key={r.id}
+                      onClick={() => void doForward(forwardFor, { kind: 'room', clientId: r.id })}
+                      className="w-full text-left px-3 py-2.5 rounded-xl text-sm hover:bg-[hsl(var(--primary)/0.08)]"
+                      style={{ color: 'hsl(var(--foreground))' }}
+                    >
+                      ↪ {r.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* The room menu — ONE control, extreme right (Batch 16) */}
           {showMenuButton && (
             <div className="absolute top-2 right-2 z-20">
@@ -1076,6 +1210,14 @@ export default function RoomThread({
                   className="absolute right-0 mt-1 w-52 rounded-xl overflow-hidden shadow-2xl z-30"
                   style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
                 >
+                  <button
+                    onClick={() => { setSelectionMode((v) => !v); setSelectedIds(new Set()); setMenuOpen(false) }}
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-left transition-colors hover:bg-[hsl(var(--primary)/0.08)]"
+                    style={{ color: selectionMode ? 'hsl(var(--primary))' : 'hsl(var(--foreground))' }}
+                  >
+                    <Users size={14} style={{ color: 'hsl(var(--primary))', visibility: 'hidden' }} />
+                    {selectionMode ? 'Cancel selection' : 'Select messages'}
+                  </button>
                   {([
                     ['search', 'Search in conversation', SearchIcon],
                     ['pins', 'Pinned messages', Pin],
