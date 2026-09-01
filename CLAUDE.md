@@ -36,9 +36,12 @@ order:
 | 8 | `S1-tenancy-and-entitlement.md` | Tenancy model; resolves T-1 … T-5 |
 | 9 | `S2-authorization.md` | Layered authorization; the RLS migration order |
 | 10 | `S-C-communications.md` | **DRAFT** — sender identity across email/SMS/push |
-| 11 | `S3-b-calendar-meetings-documents-seats.md` | **DRAFT** — schema for the four shapes `S-F` §9 moved into v1; sequenced after `S3-core`, **which is not written yet** |
+| 11 | `S3-core-messaging-approvals-versioning-retention.md` | **DRAFT** — schema for message rooms, approvals, file versioning, retention; ledger emission moves server-side |
+| 12 | `S3-core-A-amendments.md` | **Supersedes named `S3-core` sections** (A-1 … A-6, from the Batch 13 item 0 audit; two prevented data loss) |
+| 13 | `S3-b-calendar-meetings-documents-seats.md` | **DRAFT** — schema for the four shapes `S-F` §9 moved into v1; sequenced after `S3-core` |
 
-**Where S0 and S0-A disagree, S0-A wins.** S0 entries were not edited in place — the original
+**Where S0 and S0-A disagree, S0-A wins** — and the same rule binds `S3-core`
+and `S3-core-A`. S0 entries were not edited in place — the original
 text stands as the record of what was believed at the time, and reading S0 alone will give you
 the superseded version of AD-004, AD-002 and AD-001's rationale.
 
