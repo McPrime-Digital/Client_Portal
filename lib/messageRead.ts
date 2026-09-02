@@ -51,6 +51,101 @@ export function scrubDeleted<T extends Record<string, any>>(rows: T[] | null | u
   )
 }
 
+/**
+ * Which side of the conversation each participant is on, plus each side's
+ * newest read watermark — the roster facts that replace the dropped
+ * `sender_role`/`read_at` columns on the wire (Batch 21 item 3; S3-core
+ * migration 12, S3-core-A A-6).
+ *
+ * Deliberately NO status filter on either roster read: a paused or revoked
+ * member's history keeps its side. What this cannot recover is a FULLY
+ * REMOVED member (their roster row is deleted, 6.2) or a null `sender_id`
+ * (system messages; senders erased under AD-003) — those default to the
+ * studio's side, the voice system messages already speak in. A user in
+ * BOTH trees (S1 §2 allows it) classifies as studio-side; the live probe
+ * (2026-09-02, 250 rows) found zero rows where this rule disagreed with
+ * the stored column.
+ */
+export type RoomSides = {
+  orgUserIds: Set<string>
+  clientUserIds: Set<string>
+  /** newest last_read_at on each side, from message_read_state */
+  maxAdminRead: string | null
+  maxClientRead: string | null
+}
+
+export async function roomSides(
+  db: SupabaseClient,
+  opts: { roomId: string; orgId: string; clientId: string | null }
+): Promise<RoomSides> {
+  const [{ data: oms, error: omErr }, { data: cms, error: cmErr }, { data: reads, error: rdErr }] =
+    await Promise.all([
+      db.from('organization_members').select('user_id')
+        .eq('organization_id', opts.orgId).not('user_id', 'is', null),
+      opts.clientId
+        ? db.from('client_members').select('user_id')
+            .eq('client_id', opts.clientId).not('user_id', 'is', null)
+        : Promise.resolve({ data: [] as { user_id: string }[], error: null }),
+      db.from('message_read_state').select('user_id, last_read_at')
+        .eq('room_id', opts.roomId),
+    ])
+  if (omErr) throw new Error(`organization_members read failed: ${omErr.message}`)
+  if (cmErr) throw new Error(`client_members read failed: ${cmErr.message}`)
+  if (rdErr) throw new Error(`message_read_state read failed: ${rdErr.message}`)
+  const orgUserIds = new Set((oms ?? []).map((r) => r.user_id as string))
+  const clientUserIds = new Set((cms ?? []).map((r) => r.user_id as string))
+  let maxAdminRead: string | null = null
+  let maxClientRead: string | null = null
+  for (const r of reads ?? []) {
+    const uid = r.user_id as string
+    const at = r.last_read_at as string
+    if (orgUserIds.has(uid)) {
+      if (!maxAdminRead || at > maxAdminRead) maxAdminRead = at
+    } else if (clientUserIds.has(uid)) {
+      if (!maxClientRead || at > maxClientRead) maxClientRead = at
+    }
+  }
+  return { orgUserIds, clientUserIds, maxAdminRead, maxClientRead }
+}
+
+/**
+ * Stamp the wire fields the dropped columns used to carry, so every
+ * consumer downstream of a server read keeps working unchanged:
+ *
+ * - `sender_role` — the sender's side, from the roster (never the column,
+ *   even while it still exists: the roster is the truth A-6 names).
+ * - `read_at` — the OTHER side's newest watermark when it covers this
+ *   message, else null. Per-person state feeding the same per-side tick
+ *   the UI has always shown; a colleague's read never blues your tick.
+ * - `attachment_url`/`attachment_file_id` — from the message_attachments
+ *   FK through the verified files row (`bucket::path`), never the column.
+ *
+ * Realtime replication payloads bypass this (they are raw rows); their
+ * consumers treat the fields as optional and the next fetch corrects them.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function deriveWire<T extends Record<string, any>>(rows: T[], sides: RoomSides): T[] {
+  return rows.map((m) => {
+    const senderId = m.sender_id as string | null
+    const side: 'admin' | 'client' =
+      senderId && sides.orgUserIds.has(senderId)
+        ? 'admin'
+        : senderId && sides.clientUserIds.has(senderId)
+          ? 'client'
+          : 'admin'
+    const otherMax = side === 'admin' ? sides.maxClientRead : sides.maxAdminRead
+    const att = Array.isArray(m.message_attachments) ? m.message_attachments[0] : null
+    const f = att ? (Array.isArray(att.files) ? att.files[0] : att.files) : null
+    return {
+      ...m,
+      sender_role: side,
+      read_at: otherMax && otherMax >= (m.created_at as string) ? otherMax : null,
+      attachment_url: f ? `${f.bucket}::${f.file_path}` : null,
+      attachment_file_id: att?.file_id ?? null,
+    }
+  })
+}
+
 export type ClientUnread = {
   total: number
   byProject: Record<string, number>

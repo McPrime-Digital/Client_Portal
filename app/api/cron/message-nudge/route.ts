@@ -26,26 +26,28 @@ const NO_REPLY_MS = 5 * 60 * 60 * 1000
 async function runNudge(orgId?: string) {
   const cutoff = new Date(Date.now() - NO_REPLY_MS).toISOString()
 
-  // Oldest-first so the snippet we show is the first unanswered message.
+  // NEWEST-first (Batch 21 item 3): the scan used to prefilter on the
+  // legacy `read_at` column, which is what kept already-read rows out of
+  // the window — with that column retired, an oldest-first window would
+  // fill permanently with old fully-read messages and new unread ones
+  // would never be scanned. Newest-first guarantees fresh unread always
+  // enters; nudged_at drains the rest. The per-user watermark refine below
+  // is, as it was, the real filter.
   let q = supabaseAdmin
     .from('messages')
-    .select('id, room_id, project_id, organization_id, sender_role, sender_name, body, attachment_name, created_at')
-    .is('read_at', null)
+    .select('id, room_id, project_id, organization_id, sender_id, sender_name, body, attachment_name, created_at')
     .is('nudged_at', null)
-    .eq('is_deleted', false)
     .is('deleted_at', null)
     .lt('created_at', cutoff)
   if (orgId) q = q.eq('organization_id', orgId)
   const { data: scanned } = await q
-    .order('created_at', { ascending: true })
+    .order('created_at', { ascending: false })
     .limit(500)
 
   if (!scanned?.length) return { nudged: 0 }
 
-  // Per-USER unread (Batch 14, A-7): the legacy read_at scan over-reports —
-  // one teammate's read used to silence the nudge for their whole side, and
-  // now that reads are per-person, read_at alone can also under-report. A
-  // message only nudges while SOMEONE on the recipient side still has it
+  // Per-USER unread (Batch 14, A-7; sole authority since Batch 21 item 3):
+  // a message only nudges while SOMEONE on the recipient side still has it
   // past their watermark (no watermark row = everything unread).
   const roomIds = [...new Set(scanned.map((m) => m.room_id).filter(Boolean))]
   const [{ data: rooms }, { data: readStates }] = await Promise.all([
@@ -83,10 +85,23 @@ async function runNudge(orgId?: string) {
     arr.push(om.user_id); orgUsersByOrg.set(om.organization_id, arr)
   }
 
+  // The sender's SIDE derives from the roster now (Batch 21 item 3 —
+  // sender_role is retired): an org member is studio-side, a client member
+  // client-side, and a null/rosterless sender speaks with the studio's
+  // voice (that is what every null-sender row is: system messages, plus
+  // AD-003-erased senders).
+  const sideOf = (m: { sender_id: string | null; room_id: string | null }): 'admin' | 'client' => {
+    const room = m.room_id ? roomById.get(m.room_id) : null
+    if (!m.sender_id || !room) return 'admin'
+    if ((orgUsersByOrg.get(room.organization_id) ?? []).includes(m.sender_id)) return 'admin'
+    if (room.client_id && (clientUsersByClient.get(room.client_id) ?? []).includes(m.sender_id)) return 'client'
+    return 'admin'
+  }
+
   const pending = scanned.filter((m) => {
     const room = m.room_id ? roomById.get(m.room_id) : null
     if (!room) return false
-    const recipients = m.sender_role === 'client'
+    const recipients = sideOf(m) === 'client'
       ? orgUsersByOrg.get(room.organization_id) ?? []
       : (room.client_id ? clientUsersByClient.get(room.client_id) ?? [] : [])
     return recipients.some((uid) => {
@@ -115,32 +130,36 @@ async function runNudge(orgId?: string) {
   // old project_id grouping skipped untagged messages entirely, and the room
   // is the conversation now). The first tagged message's project supplies the
   // deep link; an all-untagged group links via the company instead.
-  const groups = new Map<string, { room_id: string; client_id: string | null; project_id: string | null; organization_id: string | null; sender_role: string; ids: string[]; first: { sender_name: string | null; body: string | null; attachment_name: string | null }; count: number }>()
+  const groups = new Map<string, { room_id: string; client_id: string | null; project_id: string | null; organization_id: string | null; sender_side: 'admin' | 'client'; ids: string[]; first: { sender_name: string | null; body: string | null; attachment_name: string | null }; count: number }>()
   for (const m of pending) {
     if (!m.room_id) continue
-    const key = `${m.room_id}:${m.sender_role}`
+    const side = sideOf(m)
+    const key = `${m.room_id}:${side}`
     const g = groups.get(key)
     if (g) {
       g.ids.push(m.id); g.count++
       if (!g.project_id && m.project_id) g.project_id = m.project_id
+      // The scan is newest-first; the snippet should be the FIRST unanswered
+      // message, so the last row seen in a group is the one to keep.
+      g.first = m
     } else {
       groups.set(key, {
         room_id: m.room_id,
         client_id: roomById.get(m.room_id)?.client_id ?? null,
         project_id: m.project_id ?? null,
         organization_id: m.organization_id ?? null,
-        sender_role: m.sender_role, ids: [m.id], first: m, count: 1,
+        sender_side: side, ids: [m.id], first: m, count: 1,
       })
     }
   }
 
   let nudged = 0
   for (const g of groups.values()) {
-    const recipient = g.sender_role === 'client' ? 'admin' : 'client'
+    const recipient = g.sender_side === 'client' ? 'admin' : 'client'
     const snippet =
       (g.first.body && String(g.first.body).slice(0, 140)) ||
       (g.first.attachment_name ? `📎 ${g.first.attachment_name}` : 'New message')
-    const who = g.sender_role === 'client'
+    const who = g.sender_side === 'client'
       ? (g.first.sender_name || 'A client')
       : await studioNameFor(g.organization_id)
     const title =

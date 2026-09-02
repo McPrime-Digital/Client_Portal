@@ -2,7 +2,7 @@ import { portalClientId, portalAccess } from '@/lib/team'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { advanceWatermark } from '@/lib/messageRead'
+import { advanceWatermark, roomSides, deriveWire } from '@/lib/messageRead'
 import { decodeCursor, encodeCursor, beforePredicate } from '@/lib/keyset'
 import { resolveMentionTargets } from '@/lib/messageMentions'
 
@@ -103,6 +103,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Missing project_id' }, { status: 400 })
   }
 
+  // Sides + watermarks once per request (Batch 21 item 3): every branch
+  // below stamps sender_role/read_at/attachment_url from the roster, the
+  // per-user read state and the attachment FK — never from the columns
+  // migration 12 drops.
+  const sides = await roomSides(supabaseAdmin, {
+    roomId: room.id,
+    orgId: client.organization_id,
+    clientId: client.id,
+  })
+
   // Bounded: the latest page only (I-1 — the keyset cursor extends this).
   const limitParam = parseInt(req.nextUrl.searchParams.get('limit') ?? '50', 10)
   const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 100) : 50
@@ -121,10 +131,9 @@ export async function GET(req: NextRequest) {
   if (q && q.trim()) {
     let searchQ = supabaseAdmin
       .from('messages')
-      .select('*, message_attachments(file_id)')
+      .select('*, message_attachments(file_id, files(bucket, file_path, file_name))')
       .eq('room_id', room.id)
       .is('deleted_at', null)
-      .eq('is_deleted', false)
       .textSearch('body_tsv', q.trim(), { type: 'websearch' })
       .order('created_at', { ascending: false })
       .limit(30)
@@ -133,7 +142,7 @@ export async function GET(req: NextRequest) {
     if (access?.historyFrom) searchQ = searchQ.gte('created_at', access.historyFrom)
     const { data: hits, error: qErr } = await searchQ
     if (qErr) return NextResponse.json({ error: qErr.message }, { status: 500 })
-    const rows = (hits ?? []).map((row) => {
+    const rows = deriveWire(hits ?? [], sides).map((row) => {
       const { message_attachments, ...m } = row as Record<string, unknown> & { message_attachments?: { file_id: string }[] }
       return { ...m, attachment_file_id: message_attachments?.[0]?.file_id ?? null }
     })
@@ -147,7 +156,7 @@ export async function GET(req: NextRequest) {
   if (threadRoot) {
     let thQ = supabaseAdmin
       .from('messages')
-      .select('*, message_attachments(file_id), message_reactions(user_id, emoji), message_mentions(kind, target_id)')
+      .select('*, message_attachments(file_id, files(bucket, file_path, file_name)), message_reactions(user_id, emoji), message_mentions(kind, target_id)')
       .eq('room_id', room.id)
       .eq('thread_root_id', threadRoot)
       .order('created_at', { ascending: false })
@@ -162,7 +171,7 @@ export async function GET(req: NextRequest) {
     const thOldest = thTrimmed[thTrimmed.length - 1] as { created_at: string; id: string } | undefined
     const thNextCursor =
       thHasMore && thOldest ? encodeCursor({ t: thOldest.created_at, id: thOldest.id }) : null
-    const thRows = thTrimmed.slice().reverse().map((row) => {
+    const thRows = deriveWire(thTrimmed.slice().reverse(), sides).map((row) => {
       const { message_attachments, message_reactions, ...m } = row as Record<string, unknown> & {
         message_attachments?: { file_id: string }[]
         message_reactions?: { user_id: string; emoji: string }[]
@@ -181,7 +190,7 @@ export async function GET(req: NextRequest) {
   }
   let msgQ = supabaseAdmin
     .from('messages')
-    .select('*, message_attachments(file_id), message_reactions(user_id, emoji), message_mentions(kind, target_id)')
+    .select('*, message_attachments(file_id, files(bucket, file_path, file_name)), message_reactions(user_id, emoji), message_mentions(kind, target_id)')
     .eq('room_id', room.id)
     .is('thread_root_id', null) // replies live in their panel (item 3)
     .order('created_at', { ascending: false })
@@ -211,7 +220,7 @@ export async function GET(req: NextRequest) {
     const half = Math.floor(limit / 2)
     let olderQ = supabaseAdmin
       .from('messages')
-      .select('*, message_attachments(file_id), message_reactions(user_id, emoji), message_mentions(kind, target_id)')
+      .select('*, message_attachments(file_id, files(bucket, file_path, file_name)), message_reactions(user_id, emoji), message_mentions(kind, target_id)')
       .eq('room_id', room.id)
       .or(`created_at.lt.${target.created_at},and(created_at.eq.${target.created_at},id.lte.${target.id})`)
       .order('created_at', { ascending: false })
@@ -219,7 +228,7 @@ export async function GET(req: NextRequest) {
       .limit(half + 1)
     let newerQ = supabaseAdmin
       .from('messages')
-      .select('*, message_attachments(file_id), message_reactions(user_id, emoji), message_mentions(kind, target_id)')
+      .select('*, message_attachments(file_id, files(bucket, file_path, file_name)), message_reactions(user_id, emoji), message_mentions(kind, target_id)')
       .eq('room_id', room.id)
       .or(`created_at.gt.${target.created_at},and(created_at.eq.${target.created_at},id.gt.${target.id})`)
       .order('created_at', { ascending: true })
@@ -265,7 +274,7 @@ export async function GET(req: NextRequest) {
   // renders) but its content must not travel — RLS hides it from
   // authenticated reads only at migration 10, and this read runs on the
   // service role regardless.
-  const withFk = messages.map((row) => {
+  const withFk = deriveWire(messages, sides).map((row) => {
     const { message_attachments, message_reactions, message_mentions, ...m } = row as typeof row & {
       message_reactions?: { user_id: string; emoji: string }[]
       message_mentions?: { kind: string; target_id: string }[]
@@ -287,7 +296,7 @@ export async function GET(req: NextRequest) {
   if (req.nextUrl.searchParams.get('pins') === 'full') {
     const { data: pinRows } = await supabaseAdmin
       .from('message_pins')
-      .select('pinned_at, pinned_by, messages(*, message_attachments(file_id))')
+      .select('pinned_at, pinned_by, messages(*, message_attachments(file_id, files(bucket, file_path, file_name)))')
       .eq('room_id', room.id)
       .order('pinned_at', { ascending: false })
       .limit(100)
@@ -297,7 +306,7 @@ export async function GET(req: NextRequest) {
           | (Record<string, unknown> & { message_attachments?: { file_id: string }[] })
           | null
         if (!raw) return null
-        const { message_attachments, ...m } = raw
+        const { message_attachments, ...m } = deriveWire([raw], sides)[0]
         const withId: Record<string, unknown> = {
           ...m,
           attachment_file_id: message_attachments?.[0]?.file_id ?? null,
@@ -387,30 +396,24 @@ export async function PATCH(req: NextRequest) {
     .maybeSingle()
 
   const now = new Date().toISOString()
-  // Legacy predicate: tagged threads by project, the general thread by
-  // room + untagged. read_at/delivered_at keep being written until
-  // S3-core migration 12 so Batch 13 and 14 stay independently revertable.
+  // The legacy read_at write is GONE (Batch 21 item 3): read state lives in
+  // message_read_state only, and the read tick derives from the other
+  // side's watermark on every server read. delivered_at survives (it is not
+  // in migration 12's drop list) and marks messages someone ELSE sent —
+  // sender_id, not the retired sender_role, decides "not mine".
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const legacyScope = (q: any) => {
-    let s = q.eq('sender_role', 'admin')
+  const deliveredScope = (q: any) => {
+    let s = q.neq('sender_id', user.id)
     if (project_id) s = s.eq('room_id', room?.id ?? '00000000-0000-0000-0000-000000000000').or(`project_id.eq.${project_id},project_id.is.null`)
     else if (roomScope) s = s.eq('room_id', room?.id ?? '00000000-0000-0000-0000-000000000000')
     else s = s.eq('room_id', room?.id ?? '00000000-0000-0000-0000-000000000000').is('project_id', null)
     return s
   }
 
-  if (mode === 'delivered') {
-    await legacyScope(
-      supabaseAdmin.from('messages').update({ delivered_at: now }).is('delivered_at', null)
-    )
-  } else {
-    // Read implies delivered: backfill delivered_at, then set read_at.
-    await legacyScope(
-      supabaseAdmin.from('messages').update({ delivered_at: now }).is('delivered_at', null)
-    )
-    await legacyScope(
-      supabaseAdmin.from('messages').update({ read_at: now }).is('read_at', null)
-    )
+  await deliveredScope(
+    supabaseAdmin.from('messages').update({ delivered_at: now }).is('delivered_at', null)
+  )
+  if (mode !== 'delivered') {
     // The per-user model (A-7): advance MY watermark to the newest message
     // in the opened thread. Monotonic; a colleague's read no longer counts
     // as mine.

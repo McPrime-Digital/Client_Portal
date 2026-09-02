@@ -346,24 +346,28 @@ async function main() {
     { id: PROJECT_1_ID, n: 1, room: roomC1 }, { id: PROJECT_2_ID, n: 2, room: roomC1 },
     { id: PROJECT_3_ID, n: 3, room: roomC2 },
   ]
+  // sender_id, not sender_role (Batch 21 item 3; migration 12 drops the
+  // column): the sender's side derives from the roster, so the seeds must
+  // carry the real harness user ids — which also repairs the 14 null-sender
+  // rows earlier seeds left (re-running upserts these same fixed ids).
   const messageRows: Row[] = [
     ...projects.flatMap((p, i) => [
       { id: `0f0f0f0f-0005-4000-8000-00000000${i}001`, organization_id: HARNESS_ORG_ID, project_id: p.id, room_id: p.room,
-        sender_role: 'admin', sender_name: 'Harness Owner', body: `P${p.n} · before cutoff · 7d`, created_at: at(7 * DAY) },
+        sender_id: userIds.owner, sender_name: 'Harness Owner', body: `P${p.n} · before cutoff · 7d`, created_at: at(7 * DAY) },
       { id: `0f0f0f0f-0005-4000-8000-00000000${i}002`, organization_id: HARNESS_ORG_ID, project_id: p.id, room_id: p.room,
-        sender_role: 'client', sender_name: 'Harness C1 Owner', body: `P${p.n} · before cutoff · 5d`, created_at: at(5 * DAY) },
+        sender_id: userIds.c1own, sender_name: 'Harness C1 Owner', body: `P${p.n} · before cutoff · 5d`, created_at: at(5 * DAY) },
       { id: `0f0f0f0f-0005-4000-8000-00000000${i}003`, organization_id: HARNESS_ORG_ID, project_id: p.id, room_id: p.room,
-        sender_role: 'admin', sender_name: 'Harness Owner', body: `P${p.n} · after cutoff · 1d`, created_at: at(1 * DAY) },
+        sender_id: userIds.owner, sender_name: 'Harness Owner', body: `P${p.n} · after cutoff · 1d`, created_at: at(1 * DAY) },
       { id: `0f0f0f0f-0005-4000-8000-00000000${i}004`, organization_id: HARNESS_ORG_ID, project_id: p.id, room_id: p.room,
-        sender_role: 'client', sender_name: 'Harness C1 Owner', body: `P${p.n} · after cutoff · 2h`, created_at: at(2 * 3_600_000) },
+        sender_id: userIds.c1own, sender_name: 'Harness C1 Owner', body: `P${p.n} · after cutoff · 2h`, created_at: at(2 * 3_600_000) },
     ]),
     // Untagged (room-level) messages — the shape the company-room model
     // introduced. One either side of the cutoff so assertions 12 and 14 can
     // tell enforcement from a persona that reads nothing.
     { id: '0f0f0f0f-0005-4000-8000-000000000101', organization_id: HARNESS_ORG_ID, project_id: null, room_id: roomC1,
-      sender_role: 'admin', sender_name: 'Harness Owner', body: 'ROOM · untagged · before cutoff · 5d', created_at: at(5 * DAY) },
+      sender_id: userIds.owner, sender_name: 'Harness Owner', body: 'ROOM · untagged · before cutoff · 5d', created_at: at(5 * DAY) },
     { id: '0f0f0f0f-0005-4000-8000-000000000102', organization_id: HARNESS_ORG_ID, project_id: null, room_id: roomC1,
-      sender_role: 'admin', sender_name: 'Harness Owner', body: 'ROOM · untagged · after cutoff · 2h', created_at: at(2 * 3_600_000) },
+      sender_id: userIds.owner, sender_name: 'Harness Owner', body: 'ROOM · untagged · after cutoff · 2h', created_at: at(2 * 3_600_000) },
   ]
   await seedRows(admin, 'messages', messageRows)
 

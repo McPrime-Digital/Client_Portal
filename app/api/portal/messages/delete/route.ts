@@ -41,11 +41,11 @@ export async function DELETE(req: NextRequest) {
   // and the §4.2 purge key on. The body and attachment are KEPT — blanking
   // them here destroyed the message at delete time, which made the grace
   // period a fiction. Invisibility is RLS's job (§4.1, migration 10); the
-  // purge is what actually destroys content. is_deleted is still written so
-  // deployed code keeps working until migration 12 retires it.
+  // purge is what actually destroys content. deleted_at is the ONLY delete
+  // marker now (Batch 21 item 3; migration 12 drops is_deleted).
   const { error: updateErr } = await supabaseAdmin
     .from('messages')
-    .update({ is_deleted: true, deleted_at: new Date().toISOString() })
+    .update({ deleted_at: new Date().toISOString() })
     .eq('id', message_id)
 
   if (updateErr) {

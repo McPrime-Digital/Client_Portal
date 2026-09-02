@@ -53,10 +53,23 @@ export default async function AdminMessagesPage() {
         .maybeSingle()
     )
   )
+  // The 'You: ' prefix needs the sender's SIDE, which derives from the
+  // roster since Batch 21 item 3 (sender_role is retired): in the org's
+  // roster → studio-side; null/rosterless senders are system messages and
+  // speak with the studio's voice.
+  const { data: orgMembers } = await supabaseAdmin
+    .from('organization_members')
+    .select('user_id')
+    .eq('organization_id', orgId)
+    .not('user_id', 'is', null)
+  const orgUserIds = new Set((orgMembers ?? []).map((m) => m.user_id as string))
   const latestByRoom: Record<string, Message> = {}
   ;(rooms ?? []).forEach((r, i) => {
-    const m = previewRes[i]?.data
-    if (m) latestByRoom[r.id] = scrubDeleted([m])[0] as unknown as Message
+    const m = previewRes[i]?.data as (Record<string, unknown> & { sender_id?: string | null }) | null
+    if (!m) return
+    const side: 'admin' | 'client' =
+      !m.sender_id || orgUserIds.has(m.sender_id) ? 'admin' : 'client'
+    latestByRoom[r.id] = scrubDeleted([{ ...m, sender_role: side }])[0] as unknown as Message
   })
 
   const projectsByClient: Record<string, { id: string; title: string }[]> = {}

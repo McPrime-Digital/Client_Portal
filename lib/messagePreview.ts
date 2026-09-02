@@ -6,12 +6,14 @@ import { stripMentionTokens } from '@/lib/mentionClient'
 // Voice notes are saved as `voice-*.webm`, so they're matched before video.
 export function messagePreview(
   msg:
-    | { body?: string | null; attachment_name?: string | null; is_deleted?: boolean | null }
+    | { body?: string | null; attachment_name?: string | null; is_deleted?: boolean | null; deleted_at?: string | null }
     | null
     | undefined
 ): string {
   if (!msg) return ''
-  if (msg.is_deleted) return 'Message deleted'
+  // deleted_at is the delete marker (Batch 21 item 3); is_deleted is only
+  // still checked for optimistic local rows that predate a refetch.
+  if (msg.deleted_at || msg.is_deleted) return 'Message deleted'
   const bodyText = stripMentionTokens(msg.body ?? '')
 
   const name = (msg.attachment_name || '').toLowerCase()

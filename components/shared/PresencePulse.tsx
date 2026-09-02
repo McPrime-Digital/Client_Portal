@@ -130,13 +130,18 @@ export default function PresencePulse({
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
         (payload) => {
-          const msg = payload.new as { project_id?: string; sender_role?: string; sender_id?: string }
+          const msg = payload.new as { project_id?: string; sender_id?: string }
           // The chime is APP-WIDE (Batch 16): you hear a message land from any
           // page, not just the hub. soundClient throttles, so a hub that also
           // chimes never doubles it; your own sends never chime.
           if (msg?.sender_id && msg.sender_id !== userId) playMessageChime()
-          // Only the recipient marks delivered (a message from the *other* role).
-          if (msg?.project_id && msg.sender_role && msg.sender_role !== role) {
+          // A recipient marks someone else's message delivered. sender_id is
+          // the predicate — sender_role left replication payloads with
+          // Batch 21 item 3 (migration 12 drops the column). A colleague's
+          // send now also marks delivered, which is honest: delivered means
+          // "reached a device in the room", and the server's own scope
+          // already excludes the marker's messages.
+          if (msg?.project_id && msg.sender_id && msg.sender_id !== userId) {
             markDelivered(msg.project_id)
           }
         }

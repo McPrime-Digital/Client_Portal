@@ -73,7 +73,8 @@ export async function POST() {
         project_id: t.project_id,
         organization_id: orgId,   // stamped, not defaulted (T-5)
         sender_id: user.id,
-        sender_role: 'admin',
+        // sender_role no longer written (Batch 21 item 3) — side derives
+        // from the roster.
         sender_name: studioName,
         body: `⏳ No response received within ${APPROVAL_THRESHOLD_DAYS} days on "${t.title}". Per our process this step has auto-proceeded. Reply here if you still need changes.`,
       })

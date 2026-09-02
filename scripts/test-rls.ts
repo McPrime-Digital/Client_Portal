@@ -307,9 +307,12 @@ async function main() {
       },
       {
         table: 'messages',
+        // No sender_role: the column drops with migration 12 (Batch 21), and
+        // a probe naming it would then fail on 42703 instead of on RLS —
+        // a vacuous pass wearing a real one's clothes.
         row: {
           id: '0f0f0f0f-00ff-4000-8000-000000000002', organization_id: HARNESS_ORG_ID,
-          project_id: PROJECT_3_ID, sender_role: 'client', sender_name: 'Harness C1 Owner',
+          project_id: PROJECT_3_ID, sender_name: 'Harness C1 Owner',
           body: 'ZZ-HARNESS cross-company probe',
         },
       },

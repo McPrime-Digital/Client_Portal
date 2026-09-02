@@ -80,18 +80,23 @@ export type Message = {
   room_id: string | null
   project_id: string
   sender_id: string
-  sender_role: 'admin' | 'client'
+  // DERIVED on the wire since Batch 21 item 3 (migration 12 drops the
+  // columns): sender_role from the roster, read_at from the other side's
+  // watermark, attachment_url from the message_attachments FK. Server reads
+  // stamp them; raw realtime payloads may omit them, so treat as optional.
+  sender_role?: 'admin' | 'client'
   sender_name: string
   body: string
-  read_at: string | null
+  read_at?: string | null
   delivered_at: string | null
   reply_to_id: string | null
   thread_root_id: string | null
-  attachment_url: string | null
+  attachment_url?: string | null
   attachment_name: string | null
   attachment_file_id?: string | null
   reactions?: { user_id: string; emoji: string }[]
-  is_deleted: boolean
+  /** Retired (migration 12); only optimistic local rows still carry it. */
+  is_deleted?: boolean
   edited_at: string | null
   deleted_at: string | null
   created_at: string

@@ -101,15 +101,16 @@ export async function POST(req: NextRequest) {
         const approvalAtt = await verifyAttachment(supabaseAdmin, {
           fileId: attachment_file_id, url: attachment_url, clientId: client.id,
         }).catch(() => null)
+        // sender_role/attachment_url are no longer written (Batch 21 item 3;
+        // S3-core migration 12 drops them): the sender's side derives from
+        // the roster, the URL from the message_attachments FK.
         const { data: approvalMsg } = await supabaseAdmin.from('messages').insert({
           room_id: approvalRoom.id,
           organization_id: client.organization_id,
           project_id: task.project_id,
           sender_id: user.id,
-          sender_role: 'client',
           sender_name: auth.memberName,
           body: approvalBody,
-          attachment_url: approvalAtt?.url ?? null,
           attachment_name: approvalAtt?.name ?? null,
         }).select('id').single()
         if (approvalAtt && approvalMsg) await writeAttachmentRow(supabaseAdmin, approvalMsg.id, approvalAtt.fileId)
@@ -182,10 +183,8 @@ export async function POST(req: NextRequest) {
           organization_id: client.organization_id, // stamped, never defaulted (T-5)
           project_id: task.project_id,
           sender_id: user.id,
-          sender_role: 'client',
           sender_name: auth.memberName,
           body: changesBody,
-          attachment_url: changesAtt?.url ?? null,
           attachment_name: changesAtt?.name ?? null,
         }).select('id').single()
         if (changesAtt && changesMsg) await writeAttachmentRow(supabaseAdmin, changesMsg.id, changesAtt.fileId)
@@ -266,10 +265,8 @@ export async function POST(req: NextRequest) {
             organization_id: client.organization_id, // stamped, never defaulted (T-5)
             project_id,
             sender_id: user.id,
-            sender_role: 'client',
             sender_name: auth.memberName,
             body: msgBody,
-            attachment_url: att?.url ?? null,
             attachment_name: att?.name ?? null,
             reply_to_id: reply_to_id || null,
             // One level deep, root-validated, tag inherited — by the 0030
@@ -316,7 +313,18 @@ export async function POST(req: NextRequest) {
           senderName: auth.memberName,
           preview: messagePreview({ body: msgBody, attachment_name }),
         })
-        return NextResponse.json({ message: data })
+        // The wire keeps the derived fields the column no longer carries
+        // (Batch 21 item 3): the caller broadcasts this row and swaps it in
+        // for its optimistic temp, so it must be render-complete.
+        return NextResponse.json({
+          message: {
+            ...data,
+            sender_role: 'client',
+            attachment_url: att?.url ?? null,
+            attachment_file_id: att?.fileId ?? null,
+            read_at: null,
+          },
+        })
       }
 
       // ── Save notification preferences (per-category channels) ──

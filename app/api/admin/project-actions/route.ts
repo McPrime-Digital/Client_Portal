@@ -212,10 +212,11 @@ export async function POST(req: NextRequest) {
             organization_id: sendOrgId, // stamped, never defaulted (T-5)
             project_id: project_id ?? null,
             sender_id: user.id,
-            sender_role: 'admin',
+            // sender_role/attachment_url no longer written (Batch 21 item 3;
+            // S3-core migration 12 drops them): side derives from the
+            // roster, the URL from the message_attachments FK.
             sender_name: studioName,
             body: msgBody,
-            attachment_url: att?.url ?? null,
             attachment_name: att?.name ?? null,
             reply_to_id: reply_to_id || null,
             // Root-validated + tag-inherited by the 0030 trigger (item 3).
@@ -258,7 +259,18 @@ export async function POST(req: NextRequest) {
           senderName: studioName,
           preview: messagePreview({ body: msgBody, attachment_name: att?.name ?? null }),
         })
-        return NextResponse.json({ message: data })
+        // The wire keeps the derived fields the column no longer carries
+        // (Batch 21 item 3): the caller broadcasts this row and swaps it in
+        // for its optimistic temp, so it must be render-complete.
+        return NextResponse.json({
+          message: {
+            ...data,
+            sender_role: 'admin',
+            attachment_url: att?.url ?? null,
+            attachment_file_id: att?.fileId ?? null,
+            read_at: null,
+          },
+        })
       }
 
       // ── Register uploaded file ──────────────────────────
@@ -683,10 +695,8 @@ export async function POST(req: NextRequest) {
           organization_id: mediaOrgId, // stamped, never defaulted (T-5)
           project_id: task.project_id,
           sender_id: user.id,
-          sender_role: 'admin',
           sender_name: studioName,
           body: msgBody,
-          attachment_url: mediaAtt?.url ?? null,
           attachment_name: mediaAtt?.name ?? null,
         }).select('id').single()
         if (mediaAtt && mediaMsg) await writeAttachmentRow(supabaseAdmin, mediaMsg.id, mediaAtt.fileId)
