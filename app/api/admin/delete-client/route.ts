@@ -45,6 +45,43 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // APPROVALS REFUSE THE DELETE, AND MUST REFUSE IT BEFORE ANYTHING BURNS.
+    // approvals.client_id is ON DELETE RESTRICT (0038), deliberately: SET NULL
+    // would silently convert a client approval into an INTERNAL one, which is
+    // S3-core-A A-4's failure one level up. But this route is not a single
+    // statement — it deletes the company's R2 objects first (below), then its
+    // invoice and file rows, and only THEN the clients row. So without this
+    // check the constraint fires LAST, after the blobs are already destroyed,
+    // and the catch returns a 500 carrying a raw 23503 over a half-deleted
+    // company. Refuse up front instead: the approval record is permanent
+    // (S3-c §3.2), so a company holding one is not deletable at all.
+    const { count: approvalCount, error: approvalErr } = await supabaseAdmin
+      .from('approvals')
+      .select('*', { count: 'exact', head: true })
+      .eq('client_id', clientId)
+      .eq('organization_id', userOrgId(user))
+
+    if (approvalErr) {
+      // Fail CLOSED (I-10): unverified is not the same as none, and the next
+      // thing this route does is irreversible.
+      captureError(approvalErr, { where: 'delete-client approval pre-check', clientId })
+      return NextResponse.json(
+        { error: 'Could not verify this company’s approval records. Nothing was deleted.' },
+        { status: 500 }
+      )
+    }
+    if ((approvalCount ?? 0) > 0) {
+      return NextResponse.json(
+        {
+          error:
+            `“${client.name}” holds ${approvalCount} approval record` +
+            `${approvalCount === 1 ? '' : 's'}, which are kept permanently and ` +
+            `cannot be deleted. Nothing was deleted.`,
+        },
+        { status: 409 }
+      )
+    }
+
     // Everyone whose access this company grants, read BEFORE the delete —
     // client_members rows cascade away with the company row, so after the
     // delete there is nothing left to resolve them from.
