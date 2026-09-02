@@ -18,17 +18,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // The General thread travels as project_id="room:<clientId>" (the hubs
-  // treat it as just another thread id) or as ?scope=general — both mean
-  // the untagged room-level conversation.
-  const rawProjectId = req.nextUrl.searchParams.get('project_id')
-  const scope = req.nextUrl.searchParams.get('scope')
-  const general = scope === 'general' || (rawProjectId?.startsWith('room:') ?? false)
-  const projectId = general ? null : rawProjectId
-  if (!projectId && !general) {
-    return NextResponse.json({ error: 'Missing project_id' }, { status: 400 })
-  }
-
   const { data: client } = await supabaseAdmin
     .from('clients')
     .select('id, organization_id')
@@ -41,6 +30,26 @@ export async function GET(req: NextRequest) {
 
   // Member scoping — project allowlist + owner-set message-history cutoff.
   const access = await portalAccess(user)
+
+  // The General thread travels as project_id="room:<clientId>" or as
+  // ?scope=general; ?scope=room is the All view. THE 18/19 PORTAL BUG LIVED
+  // HERE: this guard predated scope=room and mention_candidates and ran
+  // FIRST, so it 400'd the portal's All view AND its autocomplete/tag-pill
+  // roster fetch — "All doesn't show project chats" and "no tag selector on
+  // the portal" were this one ordering mistake. Guards run after the
+  // requests they must not strangle.
+  const rawProjectId = req.nextUrl.searchParams.get('project_id')
+  const scope = req.nextUrl.searchParams.get('scope')
+  const general = scope === 'general' || (rawProjectId?.startsWith('room:') ?? false)
+  const projectId = general ? null : rawProjectId
+  if (
+    !projectId &&
+    !general &&
+    scope !== 'room' &&
+    req.nextUrl.searchParams.get('mention_candidates') !== '1'
+  ) {
+    return NextResponse.json({ error: 'Missing project_id' }, { status: 400 })
+  }
 
   // Mention autocomplete sources (item 5): the roster that belongs in this
   // room — the company's people plus the studio's crew — and the company's
