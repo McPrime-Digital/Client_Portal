@@ -2,6 +2,7 @@ import 'server-only'
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { recordActivity } from '@/lib/logActivity.server'
+import { decodeCursor, encodeCursor, beforePredicate, type KeysetCursor } from '@/lib/keyset'
 
 /**
  * The approvals engine — Batch 22 item 2 (S3-c).
@@ -636,4 +637,145 @@ export async function withdrawApproval(
     body: reason,
     meta: { approval_id: approvalId, previous_status: approval.status },
   })
+}
+
+// ── reads ───────────────────────────────────────────────────────────────────
+
+/**
+ * I-1: nothing unbounded. The cap is STATED, not implied by a caller's limit,
+ * and the walk is keyset — `lib/keyset.ts`, the same helper messages use, so
+ * approvals do not become a third cursor implementation.
+ *
+ * Note for whoever profiles this: there is no (organization_id, created_at,
+ * id) index yet. 0038 indexes (organization_id, status), which serves the
+ * filter but not the ordered walk. With zero rows today it is a note, not a
+ * problem — add the index when the first studio has thousands.
+ */
+export const APPROVAL_PAGE_SIZE = 50
+
+export type AssigneeRow = {
+  id: string
+  stage_id: string
+  user_id: string | null
+  client_id: string | null
+  role: string | null
+  required: boolean
+}
+
+export type DecisionRow = {
+  id: string
+  stage_id: string
+  actor_id: string | null
+  actor_name: string
+  decision: DecisionOutcome
+  comment: string | null
+  decided_at: string
+}
+
+export type ApprovalDetail = {
+  approval: ApprovalRow
+  stages: (StageRow & { assignees: AssigneeRow[]; decisions: DecisionRow[] })[]
+}
+
+export type ListApprovalsParams = {
+  /** Crew reads pass the org; portal reads pass the company. Both are
+   *  resolved from the SESSION by the route, never from the query string
+   *  (I-6), and both are stated explicitly rather than left to RLS (I-9) —
+   *  RLS is the boundary, the filter is the intent. */
+  orgId?: string
+  clientId?: string
+  projectId?: string | null
+  status?: ApprovalStatus | null
+  cursor?: string | null
+  limit?: number
+}
+
+export async function listApprovals(
+  db: SupabaseClient,
+  params: ListApprovalsParams
+): Promise<{ approvals: ApprovalRow[]; nextCursor: string | null; hasMore: boolean }> {
+  const { orgId, clientId, projectId, status, cursor = null } = params
+  const limit = Math.min(Math.max(params.limit ?? APPROVAL_PAGE_SIZE, 1), APPROVAL_PAGE_SIZE)
+
+  let decoded: KeysetCursor | null = null
+  try {
+    decoded = decodeCursor(cursor)
+  } catch {
+    throw new Error('Malformed cursor')
+  }
+
+  let q = db.from('approvals').select(APPROVAL_COLUMNS).is('deleted_at', null)
+  if (orgId) q = q.eq('organization_id', orgId)
+  if (clientId) q = q.eq('client_id', clientId)
+  if (projectId) q = q.eq('project_id', projectId)
+  if (status) q = q.eq('status', status)
+  if (decoded) q = q.or(beforePredicate(decoded))
+
+  // limit + 1 is how "hasMore" is answered without a second count query.
+  const { data, error } = await q
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(limit + 1)
+  if (error) throw new Error(`listApprovals: ${error.message}`)
+
+  const rows = (data ?? []) as unknown as ApprovalRow[]
+  const hasMore = rows.length > limit
+  const page = hasMore ? rows.slice(0, limit) : rows
+  const last = page[page.length - 1]
+  return {
+    approvals: page,
+    hasMore,
+    nextCursor: hasMore && last ? encodeCursor({ t: last.created_at, id: last.id }) : null,
+  }
+}
+
+/**
+ * One approval with its whole chain — the Review & Approval page's read
+ * (S3-c §3.2) and the certificate's (item 10).
+ *
+ * EVERY decision and EVERY comment is returned to EVERY reader who can see the
+ * approval. That is AP-4 and it is deliberate: who may COMMENT is controlled,
+ * what is RECORDED is not, and a read-side filter here would be the thing that
+ * makes a review look cleaner than it was. Returns null when RLS hides the
+ * approval, which is also how "not in your tenant" arrives — one answer for
+ * absent and forbidden, so a probe learns nothing.
+ */
+export async function readApproval(
+  db: SupabaseClient,
+  approvalId: string
+): Promise<ApprovalDetail | null> {
+  const { data: approvalData, error } = await db
+    .from('approvals').select(APPROVAL_COLUMNS).eq('id', approvalId).is('deleted_at', null).maybeSingle()
+  if (error) throw new Error(`readApproval: ${error.message}`)
+  if (!approvalData) return null
+  const approval = approvalData as unknown as ApprovalRow
+
+  const { data: stageData } = await db
+    .from('approval_stages').select(STAGE_COLUMNS).eq('approval_id', approvalId).order('seq')
+  const stages = (stageData ?? []) as unknown as StageRow[]
+  const stageIds = stages.map((s) => s.id)
+  if (stageIds.length === 0) return { approval, stages: [] }
+
+  const [{ data: assigneeData }, { data: decisionData }] = await Promise.all([
+    db.from('approval_assignees')
+      .select('id, stage_id, user_id, client_id, role, required').in('stage_id', stageIds),
+    db.from('approval_decisions')
+      .select('id, stage_id, actor_id, actor_name, decision, comment, decided_at')
+      .in('stage_id', stageIds).order('decided_at', { ascending: true }),
+  ])
+  const assignees = (assigneeData ?? []) as unknown as AssigneeRow[]
+  const decisions = (decisionData ?? []) as unknown as DecisionRow[]
+
+  return {
+    approval,
+    stages: stages.map((s) => ({
+      ...s,
+      assignees: assignees.filter((a) => a.stage_id === s.id),
+      // A LATE OBJECTION is a decision recorded against a stage that has
+      // already advanced (S3-c §2.5). It is returned here like any other,
+      // with its timestamp, because hiding it is the same error as writing a
+      // timeout as an approval.
+      decisions: decisions.filter((d) => d.stage_id === s.id),
+    })),
+  }
 }
