@@ -281,7 +281,16 @@ export default function RoomThread({
       setHasMore(!!json.hasMore)
       if (json.replyMeta) setReplyMeta(json.replyMeta)
       if (json.pinnedIds) setPinnedIds(new Set(json.pinnedIds as string[]))
-      if (json.mentionTargets) setMentionTargets(json.mentionTargets)
+      if (json.mentionTargets) {
+        // MERGE, never replace: cached messages from another view keep
+        // rendering their already-resolved tags after a filter switch.
+        const incoming = json.mentionTargets as Record<string, Record<string, { label: string; sub?: string; href?: string } | null>>
+        setMentionTargets((prev) => {
+          const next = { ...(prev ?? {}) }
+          for (const [kind, m] of Object.entries(incoming)) next[kind] = { ...(next[kind] ?? {}), ...m }
+          return next
+        })
+      }
       if (json.roomId) roomIdRef.current = json.roomId
       for (const r of rows) seenIdsRef.current.add(r.id)
     } catch {

@@ -803,7 +803,7 @@ export default function MessageThread({
                         }}
                       >
                         <p className="font-semibold mb-0.5 truncate">{repliedMsg.sender_name}</p>
-                        <p className="truncate opacity-80">{repliedMsg.body || 'Attachment'}</p>
+                        <p className="truncate opacity-80">{repliedMsg.body ? stripMentionTokens(repliedMsg.body) : 'Attachment'}</p>
                       </div>
                     )}
 
@@ -981,16 +981,21 @@ export default function MessageThread({
                               </span>
                             )
                           }
-                          // Visibility is per VIEWER: an unresolved target
-                          // renders a restricted chip, never the name.
-                          if (resolved === null || (resolved === undefined && !mentionTargets)) {
-                            return resolved === null ? (
-                              <span key={pi} className="italic opacity-70">a restricted item</span>
-                            ) : (
-                              <span key={pi} className="font-semibold">@{part.label}</span>
-                            )
+                          // Visibility is per VIEWER: a target resolved to
+                          // null renders a restricted chip, never the name.
+                          if (resolved === null) {
+                            return <span key={pi} className="italic opacity-70">a restricted item</span>
                           }
-                          const card = resolved as { label: string; sub?: string; href?: string }
+                          // undefined ≠ restricted: it's a tag the fetch has
+                          // not resolved yet — an optimistic send or a
+                          // realtime arrival whose id isn't in the map. Fall
+                          // back to the label the token itself carries. The
+                          // old guard only caught undefined when the WHOLE
+                          // map was missing, so the first live project tag
+                          // fell through to `card.label` on undefined — a
+                          // TypeError that unmounted the entire app to the
+                          // error screen on both portals, every time.
+                          const card = resolved ?? { label: part.label }
                           const inner = (
                             <span
                               className="inline-flex items-center gap-1 px-1.5 rounded font-semibold"
@@ -1099,7 +1104,7 @@ export default function MessageThread({
                   Replying to {replyTo.sender_name}
                 </span>
                 <span className="truncate block" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                  {replyTo.body || 'Attachment'}
+                  {replyTo.body ? stripMentionTokens(replyTo.body) : 'Attachment'}
                 </span>
               </div>
             </div>
