@@ -5,8 +5,8 @@ did not: the open list was kept outside the repo, drifted from the code with
 nothing able to contradict it, and four live defects fell off it entirely
 (recovered by Batch 6 item 0). Everything below was verified against the code
 and the live database on 2026-08-28 — nothing is quoted from memory of what a
-batch was supposed to do. Last compiled after **Batch 13** (the message room
-model, 2026-09-01, with fresh live reads); Batch 8 was the final foundation
+batch was supposed to do. Last corrected after **Batch 21** (the closeout
+batch, 2026-09-02, with fresh live reads); Batch 8 was the final foundation
 batch.
 
 After this, read `docs/specs/` in order: S0 → S0-A → **S0-B** → S0-conformance
@@ -152,7 +152,7 @@ paying"** (S-V §13).
 
 | ID | Invariant | Status 2026-08-28 |
 |---|---|---|
-| I-1 | Keyset pagination everywhere | **PARTIAL — first surface landed (15.2).** Messages paginate on `messages_room_keyset_idx` through `lib/keyset.ts` (50/page, opaque validated cursor, never OFFSET, jump-via-`around`). Files, tasks and activity do NOT — they copy the helper later, and that is the whole remaining distance. Still unbounded: `app/(admin)/admin/projects/page.tsx:28` (embeds every message row per project; reported twice now), thread-panel replies (bounded 200, uncursored), and `lib/messageRead.ts`'s org-bounded unread fetch |
+| I-1 | Keyset pagination everywhere | **PARTIAL — messages are now FULLY bounded (21.1).** Messages paginate on `messages_room_keyset_idx` through `lib/keyset.ts` (50/page, opaque validated cursor, never OFFSET, jump-via-`around`); thread-panel replies ride the same cursor; the admin hub preview is one limit-1 query per room; unread scans carry the per-room watermark predicate in-query under an explicit saturating cap; the projects page counts via an embedded aggregate. Files, tasks and activity still do NOT — they copy the helper later, and that is the whole remaining distance. Known residue: the reply-meta count fetch (`.in('thread_root_id', …)`, both message routes) saturates at PostgREST's row limit for pathological reply volumes |
 | I-2 | Realtime scoped, ≤2 subs/session | **VIOLATES, but halved by 15.1.** Census (item 0): before 14.9, ~12 channels on a loaded portal hub session and ~20 on a studio hub session (one broadcast topic per thread); 14.9 added one filtered fallback each. The room-first hub subscribes ONE active topic + ONE filtered replication fallback + the fixed four (presence:org, inbox, badges topic, notifications) ≈ **6 per hub session**. Project pages ≈ 10. The remaining budget work (globally-named sidebar/roster channels, PresencePulse inbox) stays S2.5 |
 | I-3 | No polling where push exists | **VIOLATES** — 16 `setInterval` sites remain; de-poll is gated on per-surface RLS verification (S0-A §4.2), now unblocked by the harness |
 | I-4 | >5s work runs on a queue | **NOT BUILT** — no queue exists; blocks AI generation jobs (S5) |
@@ -175,8 +175,10 @@ awareness); $2 AI per-call ceiling **(still unbuilt — nothing enforces one)**;
 hard-stop at zero balance **on by default — implemented 7.1 (0024 applied); the
 house org's exemption is a stated `org_budgets` row, not a code branch (8.5)**;
 p95 2.5s; no uptime SLA and no copy implying one. Retention: 90-day soft-delete grace, 7-year activity
-log, 30-day erasure — **no expression surface yet** (no `deleted_at`
-anywhere; S3 owns the schema).
+log, 30-day erasure — expressed so far only on `messages.deleted_at` (0028;
+this entry said "no `deleted_at` anywhere", stale since Batch 13) and
+`message_rooms.deleted_at`; the purge itself (S3-core migrations 10–11) is
+unbuilt.
 
 ## 6. What has been built, chronologically
 
@@ -243,8 +245,11 @@ The audited era, each batch with what it *found*:
 | 14 | **Unread becomes a question about a person, and the message layer grows up.** `message_read_state` (0031, backfilled 7 rows exactly as pre-counted), six supporting tables (0032), the attachment FK + 11-row backfill (0033 — 11 in, 11 out, 0 unresolved, 0 tenant mismatches) — **all applied and verified live**. All twelve unread sites read `lib/messageRead.ts`; the watermark routes advance per-user state while still writing `read_at` (drops in migration 12); the nudge cron regroups by room and only nudges what someone actually hasn't read; every read path scrubs deleted bodies server-side (item 5); `verifyAttachment` makes a forged attachment ref fail at send (closes §8.3.1). Harness 15/15. **Owner items shipped in the same batch:** the General thread (`room:<clientId>` understood by every route; rooms minted at onboarding; project-less sends both sides), the thread-bus realtime unification (pages broadcast sends + typing on `thread:<id>`; hubs gain filtered replication fallbacks with id-dedupe), the subtle WebAudio chime with device mute, and the premium MessageThread pass (grouping, tails, glass composer, gold rail) | The click-test's "3-minute delay" was NOT replication — a live probe delivered in 1.8s under the new policies to both personas. It was wiring: project pages never broadcast their sends, the hubs had no replication subscription (built when "RLS-starved for admins" was true — it no longer is), and typing rode a different channel name on pages than hubs. Also: MessageThread filtered deleted messages entirely (the "tombstone" never rendered), and General-thread attachments are deliberately disabled — the presign scope requires a project, and widening `lib/uploadScope` deserves review, not a side door ||
 | 15 | **The room-first hub, complete.** RoomThread is THE conversation engine — hub All-view, General thread and both project pages are one code path over one room; the studio hub lists client COMPANIES with presence, previews and gold pills; keyset pagination on `messages_room_keyset_idx` (lib/keyset.ts is the helper files/tasks/activity copy); threads one-level-deep with the 0030 trigger as sole authority; reactions/pins/saves UI on the 0032 tables (user-client RLS writes — AD-001); mentions server-parsed/tenant-validated/per-viewer-resolved (I-6); per-room notification prefs enforced in pushMessageAlert; the roster surfaced in-room; General-thread attachments via the EXISTING `_general` client scope. Founder items folded in: instant rail badges over `badges:*` topics, list movement only on new latest-message id, WebAudio priming (the chime was silent for want of a user gesture), focus mode | Item 0's census: hub sessions ran ~13 (portal) / ~21 (studio) channels; the room model collapsed them to ~6 each (fixed four + active topic + one filtered fallback) — I-2 still violated but halved. The `room:<clientId>` synthetic id coexists with `message_rooms.id`, normalized at five route boundaries — managed drift, recorded. `(admin)/admin/projects/page.tsx:28` remains the one unbounded message read (reported, >1 line). The project pages lost ~800 lines of duplicated message machinery; lint fell 355 → 319 |
 | 16 (owner-directed, no formal brief) | **The messaging polish round.** App-wide chime (PresencePulse — the "can't hear anything off the messages page" fix), typing/recording presence in the studio ROOM LIST and headers, the four utility icons collapsed into ONE ⋯ menu at the top bar's extreme right, **search-in-conversation** (body_tsv's first consumer, scoped like the list), mention trigger configurable (@ · / · both), **project colour-bonding** (lib/projectColor.ts — dot on chip, inset stripe on bubble, ringed tag pill), horizontal message action bar with a ⋯ menu (Pin/Save/Copy/Edit/Delete), composer emoji picker + jumbo emoji, hover-play video previews, and the recorder's scrolling RMS waveform | Two found defects: the studio hub REMOUNTED the whole engine on every chip click (the key is gone — chips respond instantly now), and 15.4 had duplicated the react/pin/save controls in the received-side hover stack (both stacks replaced wholesale). Rule zero note: the owner explicitly overrode parts of the 14.10 renderer this round (action layout, emoji, media) — their call to make |
-| 17 (owner-directed) | **The bug round with a smoking gun.** THE upload failure (files, recordings, vault — every portal) is NOT code: the R2 bucket's CORS allows localhost but not `https://genreline.com` — proven by preflight probe (403/no-allow-origin vs 204 for localhost); broken since the Aug-31 domain switch; fix is one dashboard rule the object-scoped API token cannot write. Shipped: instant voice send (optimistic blob bubble, upload rides behind), app-wide WebAudio priming in PresencePulse (the real reason "global sound" wasn't), General chip removed (All + projects only), sticky composer project-tag (additive until changed, per room per device), 360°-hue collision-free project colours, theme-aware wallpaper in three patterns + intensity in chat settings (16.8's gray tile vanished on light portals — the "only in the org" bug was a theme bug), mentions show @Name in the input with token substitution at submit, ~170 emoji + a Stickers tab with pop-and-sway jumbo sends | Upload errors now surface their reason instead of a mute "failed". The A-8-style discipline paid again: probe first, then code |
-| 18 (owner-directed) | **Two more single-cause "selective" bugs, named and killed.** The wallpaper was painted on the SCROLLING element — it scrolled away with content, so long threads (which 17.7 opens at the bottom) never showed it: "renders in some places" was one bug. It now lives on a fixed wrapper. Read receipts died because the RoomThread consolidation dropped the project pages' UPDATE listeners — receipts/edits/deletes now ride the same replication fallbacks as inserts (op-marked), patching rows in place including your own ticks. Also: every spinner purged from messaging (instant render, silent prepends, static placeholders), hover actions scoped to the bubble itself, AudioPlayer error state with an Open fallback, one-project rooms auto-tag sends, "Chat settings & wallpaper" labeling, and Forward + bulk select (projects, no-project, and cross-room for the studio; attachments cross by verified file id) | Org→client audio and ALL uploads remain gated on the R2 CORS dashboard rule (probe-proven in 17); GIF upload and per-type document preview already exist through the same pipeline and unblock with it |
+| 17 (owner-directed) | **The bug round with a smoking gun.** THE upload failure (files, recordings, vault — every portal) was NOT code: the R2 bucket's CORS allowed localhost but not `https://genreline.com` — proven by preflight probe (403/no-allow-origin vs 204 for localhost); broken since the Aug-31 domain switch. **FIXED — the owner added the dashboard rule and uploads work (verified before Batch 21); this row carried the defect as open after it closed, which is exactly the re-investigation cost §12 warns about.** Shipped: instant voice send (optimistic blob bubble, upload rides behind), app-wide WebAudio priming in PresencePulse (the real reason "global sound" wasn't), General chip removed (All + projects only), sticky composer project-tag (additive until changed, per room per device), 360°-hue collision-free project colours, theme-aware wallpaper in three patterns + intensity in chat settings (16.8's gray tile vanished on light portals — the "only in the org" bug was a theme bug), mentions show @Name in the input with token substitution at submit, ~170 emoji + a Stickers tab with pop-and-sway jumbo sends | Upload errors now surface their reason instead of a mute "failed". The A-8-style discipline paid again: probe first, then code |
+| 18 (owner-directed) | **Two more single-cause "selective" bugs, named and killed.** The wallpaper was painted on the SCROLLING element — it scrolled away with content, so long threads (which 17.7 opens at the bottom) never showed it: "renders in some places" was one bug. It now lives on a fixed wrapper. Read receipts died because the RoomThread consolidation dropped the project pages' UPDATE listeners — receipts/edits/deletes now ride the same replication fallbacks as inserts (op-marked), patching rows in place including your own ticks. Also: every spinner purged from messaging (instant render, silent prepends, static placeholders), hover actions scoped to the bubble itself, AudioPlayer error state with an Open fallback, one-project rooms auto-tag sends, "Chat settings & wallpaper" labeling, and Forward + bulk select (projects, no-project, and cross-room for the studio; attachments cross by verified file id) | The R2 CORS gate this row recorded is CLOSED (see the Batch 17 row) — audio, uploads, GIF and per-type preview all unblocked with it |
+| 19 (owner) | **Voice speaks WAV everywhere.** The sender's browser transcodes every voice note to 16 kHz mono WAV before upload (`lib/audioWav.ts`) — Chrome records webm/opus, Safari cannot play it, so an org note arrived Apple-side as a dead 0:00 by physics. Also: per-view render cache (chip/room switches at 0ms, network merge behind), uncropped studio logo chip in the portal hub, Aurora + Waves wallpapers | Server-verified while debugging "All doesn't show project chats": the room query composition was correct at HEAD — the running deploy was behind |
+| 20 (owner rounds 20.1–20.3) | 20.1: the portal messages GET's 400 guard predated `?scope=room` and `?mention_candidates` and ran FIRST — it starved the All view and the composer roster; guards now run after the requests they must not strangle. 20.2: a live project tag was a render-time TypeError that unmounted BOTH portals (map present, id absent fell through to `card.label` with `card` undefined); the guard is airtight by construction now. 20.3: chat settings move to `user_prefs` (0034, one jsonb row per auth user, Class C RLS, `/api/prefs` on the USER client per AD-001) with localStorage as the zero-latency cache | The admin route's equivalent guard sat AFTER its candidates branch, which is why only the portal broke — the asymmetry was the bug report |
+| 21 (the "Batch 19" brief, renumbered — the repo was at 20.3) | **Closeout: messages fully bounded, the Suite unblocked, the dual-write ended.** 21.1: thread-panel replies keyset-cursored (both routes + panel load-older); admin hub preview one limit-1 query per room; unread scans carry the watermark predicate in-query under an explicit saturating cap; the projects page counts via `messages(count)` + `orgUnread` (the last unbounded message read, reported three times, closed). 21.2: 0036 settles `documents.kind` (screenplay/treatment/bible/breakdown/document; 'script' renamed, default → 'document'). 21.3: sender_role/attachment_url/is_deleted/read_at writes stopped everywhere; sides derive from the ROSTER, read ticks from the other side's watermark, attachment URLs from the FK (`roomSides`/`deriveWire` in lib/messageRead.ts); 0035 applied (NOT NULL relaxed + 13 of 16 null senders recovered). 21.4: 0037 printed + gated on deploy; seven catalogs searched clean. Harness 15/15 | Three premise failures: `documents.kind` had existed since 0004 with four live 'script' sites (the "additive" item was a reconciliation); `sender_role` was NOT NULL/no-default (the brief's stop-write-then-drop order would have 23502'd every send in the window — 0035 is the migration the brief didn't know it needed); the nudge cron's oldest-first window only worked BECAUSE of the legacy read_at prefilter (flipped newest-first or it would silt up). Lint baseline was 318 at start, not the brief's 319 |
 
 ## 7. Current state (verified 2026-08-28 after Batch 8; Batch 9 deltas from the
 code 2026-08-30, with one live read; Batch 10 deltas from the code 2026-08-31)
@@ -252,13 +257,17 @@ code 2026-08-30, with one live read; Batch 10 deltas from the code 2026-08-31)
 - **Branch:** `throughline` (main ⊆ throughline, fast-forward). Not renamed —
   S0-B §6 excludes the branch, and renaming it is a remote/CI change, not a
   code one.
-- **Migrations applied: 0000–0033. Nothing is printed-and-pending.** Verified
-  by live probe 2026-09-01: `client_members.last_seen_at` exists (0025),
-  `clients.user_id` is gone (0026), `message_rooms` exists with room-scoped
-  policies (0027, 0030), `messages` carries `room_id NOT NULL`,
-  `thread_root_id`, `body_tsv`, `deleted_at` (0028–0030). The owner applied
-  0025/0026 on 2026-08-31 and 0027–0029 on 2026-09-01; **0030–0033 were
-  applied by the agent** under the Management-API grant (below). The 0029 backfill's
+- **Migrations applied: 0000–0035. Printed and GATED (not merely pending):
+  0036 and 0037.** Verified by live probe 2026-09-01 (0025–0033) and
+  2026-09-02 (0034 `user_prefs`, 0035 `sender_role` nullable + null-sender
+  recovery): `client_members.last_seen_at` exists (0025), `clients.user_id`
+  is gone (0026), `message_rooms` exists with room-scoped policies (0027,
+  0030), `messages` carries `room_id NOT NULL`, `thread_root_id`,
+  `body_tsv`, `deleted_at` (0028–0030). The owner applied 0025/0026 and
+  0027–0029; **0030–0035 were applied by the agent** under the
+  Management-API grant (below). 0036 (documents.kind vocabulary) and 0037
+  (the migration-12 drops) are DROP-shaped: they apply only AFTER the
+  Batch 21 code deploys — sequence in §9. The 0029 backfill's
   verification matched its printed prediction exactly: 7 client rooms, 0 crew,
   190 messages repointed, 0 unresolvable, 0 org changes, 7 reply chains.
 - **The agent can now apply migrations.** The owner added
@@ -279,17 +288,21 @@ code 2026-08-30, with one live read; Batch 10 deltas from the code 2026-08-31)
 - **The A-8 click-test is DONE** (owner, 2026-09-01) — it surfaced the
   wiring gaps recorded in the Batch 14 row above, and a scripted probe
   cleared replication itself (1.8s delivery, both policy doors). Owed now
-  instead: a fresh click-test after the Batch 14 deploy — send both ways in
+  instead: a fresh click-test after the Batch 21 deploy — send both ways in
   a project thread AND in a General thread, hub and project page, expecting
-  ~1–2s delivery, live typing, the chime, and the rail badge moving without
-  a refresh. The 0030 policy
-- **`tsc --noEmit`:** clean. **Lint: 352** — 353 through Batch 9, then **down
-  one** in 10.3 when the old `resend-invite` and its `catch (err: any)` were
-  rewritten. Verified by diffing the full finding list against committed HEAD,
-  not by reading the total. Failures do not fail the build.
+  ~1–2s delivery, live typing, the chime, the rail badge moving without
+  a refresh, and read ticks turning blue when the other side opens the
+  thread (receipts now derive from watermarks — Batch 21.3). (A sentence
+  here was truncated mid-word — "The 0030 policy" — since Batch 14; its
+  intent is unrecoverable and it is removed rather than guessed at.)
+- **`tsc --noEmit`:** clean. **Lint: 318** — 355 at Batch 15's start, 319
+  after its project-page excisions, and 318 since the owner rounds (this
+  entry said 352, stale since Batch 15; §10's 319 was right until it
+  wasn't — count it, don't quote it). Failures do not fail the build.
   **`npm run build`:** green — 7.6s at Batch 8, 8.8s at Batch 9, 9.0s at
-  Batch 10. **42 route handlers** (was 41; +logo, +password-reset, and the
-  earlier count was already off by one).
+  Batch 10. **45 route handlers** (`find app/api -name route.ts | wc -l`;
+  +prefs in Batch 20.3 — this count has now been corrected four times,
+  which is why it ships with its command).
 - **Nothing in the application uses Supabase's mailer** (10.3). Zero callers of
   `inviteUserByEmail` or `resetPasswordForEmail`. Supabase SMTP stays pointed
   at Resend so a misconfiguration produces a plain email rather than silence.
@@ -322,8 +335,9 @@ code 2026-08-30, with one live read; Batch 10 deltas from the code 2026-08-31)
   `clients.user_id` value appears on one of those rows. That is what makes the
   0026 drop lossless, and it is now maintained by the create paths rather than
   by a one-time backfill.
-- **`client_members.last_seen_at` does not exist yet** — confirmed by live
-  probe. It is what 0025 adds.
+- **`client_members.last_seen_at` EXISTS** (0025, applied 2026-08-31; this
+  entry said it did not, contradicting the migrations line four bullets up
+  — the probe that wrote it predated the apply).
 - **Sentry:** wired. `NEXT_PUBLIC_SENTRY_DSN` is set in Vercel per the Batch 8
   brief; it is still **absent from `.env.local`**, so `captureError` no-ops to
   console on local runs. Not visible from the repo either way.
@@ -616,30 +630,41 @@ is why SMS dedupes by number) · provenance tables have zero reads/writes
 
 ## 9. What to do next
 
-**S3-core migrations 1–7 are live** (0027–0033): rooms, per-user read state,
-the supporting tables, the attachment FK. The message layer is per-person,
-project-less-capable, realtime-unified, and harness-proven at 15/15.
+**S3-core migrations 1–7 are live** (0027–0033), 0034–0035 on top. The
+message layer is per-person, project-less-capable, realtime-unified,
+FULLY BOUNDED (21.1), off the legacy columns (21.3), and harness-proven
+at 15/15.
 
-Immediate:
+**Immediate — the Batch 21 deploy sequence, in this exact order:**
 
-1. **Deploy the Batch 14 push, then the fresh click-test** (§7 above) — both
-   thread kinds, both directions, expecting ~1–2s delivery, live typing, the
-   chime, and a rail badge that moves without a refresh.
-2. Nothing is pending against the database. 0000–0033 applied, verified.
+1. **Deploy HEAD** (21.1–21.4). Until this deploys, 0036 and 0037 MUST NOT
+   be applied — the running deploy still writes `kind='script'` and
+   `sender_role`/`attachment_url`.
+2. **Verify the deploy live**: send both directions (project + General
+   thread), confirm ticks (gray on deliver, blue when the other side opens
+   the thread), an attachment renders, Script Design lists and creates.
+3. **Apply 0036**, run its verification queries, reload the schema cache.
+4. **Re-run 0037's pre-apply catalog checks** (in the file header), **apply
+   0037**, run its verification queries (the file reloads the cache
+   itself), then `npm run seed:harness -- --apply && npm run test:rls` —
+   expect 15/15.
 
 **Then, in order:**
 
-- **The hub batch is DONE (Batch 15)** — room-first UI, keyset pagination,
-  reactions/pins/saves/mentions, per-room prefs, General attachments. Still
-  owed from its report: `(admin)/admin/projects/page.tsx:28` (the last
-  unbounded message read), copying `lib/keyset.ts` to files/tasks/activity,
-  and the client-portal settings SPEC (the in-room panel shipped; the
-  full settings surface deserves its S-F addendum).
-- **Migrations 8–9** — approvals engine tables; file version stacking.
-- **Migrations 10–12** — `deleted_at` policy sweep (closes §8.3.2's RLS
-  half), purge + tombstone functions (closes its R2 half), then the
-  destructive drops (`read_at`, `is_deleted`, `sender_role`,
-  `attachment_url` — deploy first, drop second, reload).
+- Still owed from Batch 15's report: copying `lib/keyset.ts` to
+  files/tasks/activity, and the client-portal settings SPEC (the in-room
+  panel shipped; the full settings surface deserves its S-F addendum).
+- **`S3-c` — the approvals engine (migration 8)**: approval as a record,
+  never a gate; auto-advance on silence, never written as approval; one
+  row, three surfaces; minted live artifacts against frozen versions
+  (`documents.kind` from 0036 is its subject axis). Supersedes `S3-core`
+  §2 and §9.2 — read S3-c before printing migration 8.
+- **File version stacking (migration 9)**, with the live artifact viewer
+  (S3-c §4.3, script first per its §8.3) on top.
+- **Migrations 10–11** — `deleted_at` policy sweep (closes §8.3.2's RLS
+  half), purge + tombstone functions (closes its R2 half; the purge must
+  refuse approval rows — S3-c §3.2 makes that a harness assertion).
+  Migration 12's drops are DONE (0037, gated above).
 
 Independent of S3-core and available any time: the `$2` per-call ceiling
 (§8.3 item 3 — the other half of I-5, and the one that matters once generation
@@ -671,8 +696,9 @@ studio creates work too, which they would not have.
   ships the code first and applies second; an **additive** column applies first
   and deploys second. Reload the PostgREST schema cache either way.
 - **`tsc --noEmit` after every commit; report the lint delta** (baseline
-  **319** after Batch 15 — the Batch 15 brief still said 353/355; the project-
-  page excisions in 15.1 deleted a block of old findings). Run the harness after anything touching policies, auth, or tenancy.
+  **318** since the owner rounds; 319 after Batch 15, 353/355 before it —
+  the number drifts during owner rounds, so count it at batch start rather
+  than quoting this line). Run the harness after anything touching policies, auth, or tenancy.
 - **Verify before writing.** Claims about the code cite `path:line`; claims
   about the database come from a live read. This file drifts the moment that
   stops.
