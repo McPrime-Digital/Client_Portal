@@ -2,19 +2,16 @@ import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { tenantBrand } from '@/lib/tenantBrand'
-import { createAdminNotification, createNotification } from '@/lib/notify'
-import { ensureClientRoom, ensureCrewRoom } from '@/lib/messageRooms'
-
-// Auto-proceed window: if a client doesn't respond to an approval gate within
-// this many days of it entering review, we record "response not received" and
-// proceed so the project isn't blocked indefinitely.
-const APPROVAL_THRESHOLD_DAYS = 7
+import { createAdminNotification } from '@/lib/notify'
 
 // Scans for projects whose deadline is approaching (within 3 days) and that
 // haven't already been flagged, then raises an admin notification and stamps
-// `deadline_notified_at` to dedupe. Also auto-proceeds stale approval gates.
-// Called client-side on admin load.
+// `deadline_notified_at` to dedupe. Called client-side on admin load.
+//
+// It no longer touches approvals at all — see the note below. What remains is
+// notification-only: it raises alerts and stamps a dedupe column. It does not
+// complete tasks, does not post into client chats, and does not decide
+// anything on a client's behalf.
 export async function POST() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -25,83 +22,45 @@ export async function POST() {
   const now = new Date()
   const horizon = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000)
 
-  // This handler WRITES: it completes stale approval gates, posts into project
-  // chats and stamps deadline_notified_at. It is fired on every admin page load,
-  // so unscoped one studio's admin auto-approved every other studio's pending
-  // client approvals. Scope resolved once from the verified session.
+  // This handler still WRITES (`deadline_notified_at`) and is fired on every
+  // admin page load, so the scope stays resolved once from the verified
+  // session. The original reason was sharper — unscoped, one studio's admin
+  // auto-approved every OTHER studio's pending client approvals — and that
+  // half is gone; the tenant predicate stays because a notification fan-out
+  // must not cross tenants either.
   const orgId = userOrgId(user)
 
-  // The studio sending this auto-proceed notice — not a hardcoded company
-  // name on every tenant's client chat (S-V §X-6).
-  const studioName = (await tenantBrand(orgId)).name
 
-  // ── Auto-proceed stale client approvals ───────────────────────────────
-  let autoProceeded = 0
-  try {
-    const cutoff = new Date(now.getTime() - APPROVAL_THRESHOLD_DAYS * 24 * 60 * 60 * 1000)
-    const { data: stale } = await supabaseAdmin
-      .from('tasks')
-      .select('id, title, project_id, client_id:projects(client_id)')
-      .eq('organization_id', orgId)
-      .eq('status', 'review')
-      .eq('visible_to_client', true)
-      .or('requires_approval.eq.true,category.eq.approval')
-      .not('review_requested_at', 'is', null)
-      .lt('review_requested_at', cutoff.toISOString())
-      .neq('auto_proceeded', true)
-
-    for (const t of stale ?? []) {
-      const rel = (t as any).client_id
-      const clientId = Array.isArray(rel) ? rel[0]?.client_id : rel?.client_id
-      const ts = now.toISOString()
-      await supabaseAdmin
-        .from('tasks')
-        .update({
-          status: 'completed', completed_at: ts, approved_at: ts,
-          approval_status: 'auto_approved', auto_proceeded: true,
-          approval_note: `No response received within ${APPROVAL_THRESHOLD_DAYS} days — auto-proceeded.`,
-        })
-        .eq('id', t.id)
-
-      // Record it in the project chat as proof, and notify both sides.
-      // Room = the company's conversation; project_id is the tag (S3-core §1.1).
-      const room = clientId
-        ? await ensureClientRoom(supabaseAdmin, orgId, clientId, user.id)
-        : await ensureCrewRoom(supabaseAdmin, orgId, user.id)
-      await supabaseAdmin.from('messages').insert({
-        room_id: room.id,
-        project_id: t.project_id,
-        organization_id: orgId,   // stamped, not defaulted (T-5)
-        sender_id: user.id,
-        // sender_role no longer written (Batch 21 item 3) — side derives
-        // from the roster.
-        sender_name: studioName,
-        body: `⏳ No response received within ${APPROVAL_THRESHOLD_DAYS} days on "${t.title}". Per our process this step has auto-proceeded. Reply here if you still need changes.`,
-      })
-      await createNotification({
-        clientId, projectId: t.project_id, type: 'task_updated',
-        title: 'A pending approval auto-proceeded',
-        body: `No response within ${APPROVAL_THRESHOLD_DAYS} days: ${t.title}`,
-      })
-      await createAdminNotification({
-        clientId, projectId: t.project_id, type: 'task_updated',
-        title: 'Approval auto-proceeded (no client response)',
-        body: t.title ?? null,
-      })
-      try {
-        await supabaseAdmin.rpc('log_activity', {
-          p_project_id: t.project_id, p_client_id: clientId, p_actor_id: user.id,
-          p_actor_name: 'System', p_actor_role: 'admin',
-          p_event_type: 'task_auto_approved',
-          p_title: `Auto-proceeded "${t.title}" — no client response in ${APPROVAL_THRESHOLD_DAYS} days`,
-          p_body: null, p_meta: { task_id: t.id },
-        })
-      } catch { /* non-critical */ }
-      autoProceeded++
-    }
-  } catch {
-    // review_requested_at / auto_proceeded columns may be missing — skip.
-  }
+  // ── Auto-proceed REMOVED — Batch 22 item 5 ────────────────────────────
+  //
+  // This route used to auto-complete stale approval gates here, writing
+  // `approval_status: 'auto_approved'` and `approved_at`. Two things were
+  // wrong with it, and the approvals engine fixes both:
+  //
+  // 1. IT WROTE SILENCE AS APPROVAL. S3-c AP-2 is explicit that a timeout and
+  //    a human decision must never share a value: the moment the database
+  //    records them the same way, every certificate, query and dispute
+  //    conflates them. `app/studio/client/review/page.tsx` counted
+  //    'auto_approved' among the APPROVED, so the studio's own review page
+  //    was already reporting timeouts as client sign-offs. The engine records
+  //    `auto_advanced` with NO actor and NO decision row instead.
+  //
+  // 2. IT RAN ON A USER-SESSION PAGE LOAD. This handler is POSTed by the
+  //    admin shell on every load, so a service-role scan that COMPLETES tasks,
+  //    posts into client chats and sends notifications fired whenever anyone
+  //    opened the studio. That is HANDOFF §8.3 item 4's defect — recorded
+  //    there only against the message-nudge cron; the Batch 22 item-0 audit
+  //    found this second, unlisted instance.
+  //
+  // The replacement is `app/api/cron/approval-sweep/route.ts`: GET only,
+  // CRON_SECRET-authenticated, per-organization, explicitly capped, and it
+  // sends the reminder ladder that makes proceeding-without-a-response
+  // defensible (S3-c §2.4).
+  //
+  // Nothing has ever run the old path in production — `auto_proceeded` is
+  // false on all 122 live task rows — so there is no historical
+  // 'auto_approved' data to reconcile. The remaining deadline-notification
+  // half below is untouched and still useful.
 
   const { data: projects } = await supabaseAdmin
     .from('projects')
@@ -134,5 +93,5 @@ export async function POST() {
     raised++
   }
 
-  return NextResponse.json({ raised, autoProceeded })
+  return NextResponse.json({ raised })
 }

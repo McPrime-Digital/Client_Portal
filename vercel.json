@@ -1,5 +1,6 @@
 {
   "crons": [
-    { "path": "/api/cron/message-nudge", "schedule": "0 9 * * *" }
+    { "path": "/api/cron/message-nudge", "schedule": "0 9 * * *" },
+    { "path": "/api/cron/approval-sweep", "schedule": "0 8 * * *" }
   ]
 }
