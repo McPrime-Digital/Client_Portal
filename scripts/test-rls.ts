@@ -1,12 +1,14 @@
 /**
  * scripts/test-rls.ts — S2 §6, Part B. The RLS test harness.
  *
- * Fifteen assertions (10 from S2 §6; 11–14 from S3-core §7, Batch 13 item 7; 15 —
+ * Twenty assertions (10 from S2 §6; 11–14 from S3-core §7, Batch 13 item 7; 15 —
  * the watermark privacy assertion, Batch 14 item 6 — rooms tenant-scoped,
  * untagged visibility, sibling-tag isolation, history in the room, private
- * read state). Most are a row count that must be zero; 12 is deliberately a
- * POSITIVE assertion, because the room model's failure mode is hiding messages
- * it must show. Every one runs through a
+ * read state; 16–20 from S3-c §7, Batch 22 item 6 — internal approvals,
+ * decision forgery, comment permission, comment visibility, and the one that
+ * keeps a lapse from ever reading as approval). Most are a row count that must
+ * be zero; 12 and 19 are deliberately POSITIVE assertions, because both models'
+ * failure mode is hiding what they must show. Every one runs through a
  * REAL user session obtained with signInWithPassword against the anon key.
  * This script never constructs a service-role client and never reads
  * SUPABASE_SERVICE_ROLE_KEY — a service-role read bypasses RLS entirely and
@@ -25,15 +27,24 @@
  * Expect most of this to be RED today. That failing output is the baseline
  * S2 §6 calls for; later batches turn groups green one policy class at a time.
  *
+ * Assertions 17 and 18 WRITE. 17's positive control inserts a real decision and
+ * approval_decisions is append-only for everyone (0038 gives it no DELETE
+ * policy), so that fixture is SINGLE-USE: re-seed between runs. A spent fixture
+ * reports VACUOUS with the reason rather than FAIL, because a missing re-seed
+ * is not a broken policy.
+ *
  * Usage:  npm run test:rls        (seed first: npx tsx scripts/seed-harness-tenant.ts --apply)
  */
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { randomUUID } from 'node:crypto'
 
 import {
   HARNESS_ORG_ID, COMPANY_1_ID, COMPANY_2_ID,
   PROJECT_1_ID, PROJECT_2_ID, PROJECT_3_ID,
   DECOY_ORG_ID, PERSONAS, type PersonaKey,
+  APPROVAL_CLIENT_ID, APPROVAL_CLIENT_STAGE_ID, APPROVAL_INTERNAL_ID,
+  APPROVAL_LAPSED_STAGE_ID, APPROVAL_DECIDED_STAGE_ID,
   ALL_TABLES, readManifest, loadEnv, requireEnv,
 } from './harness-constants'
 
@@ -163,7 +174,16 @@ async function main() {
   const revoked = await signIn(url, anonKey, 'revoked', env)
   const c1own   = await signIn(url, anonKey, 'c1own', env)
   const c1mate  = await signIn(url, anonKey, 'c1mate', env)
+  const c2own   = await signIn(url, anonKey, 'c2own', env)
   const anon    = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } })
+
+  // Company 1's room, read as the client rather than carried as a constant —
+  // message_rooms ids are minted by the seed, and reading it here also proves
+  // the client can (0027's client_read policy) before assertions 18/19 lean
+  // on it.
+  const roomIdC1 = ((await c1own.from('message_rooms')
+    .select('id').eq('client_id', COMPANY_1_ID).is('deleted_at', null).maybeSingle()
+  ).data as { id?: string } | null)?.id ?? null
 
   // ── 1 · studio B reads none of studio A's work ────────────────────────────
   {
@@ -428,6 +448,119 @@ async function main() {
     const control = await countRows(c1mate, 'message_read_state',
       [{ op: 'eq', col: 'user_id', val: manifest.userIds.c1mate }])
     judge(15, 'a member cannot read another member\'s message_read_state', leaks, control)
+  }
+
+  // ══ Batch 22 · the approvals engine (S3-c, migrations 0038–0040) ══════════
+
+  // ── 16 · an INTERNAL approval is invisible to every client member ─────────
+  // The decoupling S3-c §2 puts in ONE column: client_id null means the studio
+  // is reviewing its own work. 0038's client policy opens with
+  // `client_id is not null`, so this is structural, not a filter a route
+  // remembers to write.
+  {
+    const leaks: string[] = []
+    const internal = await countRows(c1own, 'approvals', [{ op: 'eq', col: 'id', val: APPROVAL_INTERNAL_ID }])
+    if (internal > 0) leaks.push(`approvals(c1own→internal)=${internal}`)
+    const mateInternal = await countRows(c1mate, 'approvals', [{ op: 'eq', col: 'id', val: APPROVAL_INTERNAL_ID }])
+    if (mateInternal > 0) leaks.push(`approvals(c1mate→internal)=${mateInternal}`)
+    // The control is the point: this persona DOES read approvals, so the zero
+    // above is about the internal one and not about reading nothing at all.
+    const control = await countRows(c1own, 'approvals', [{ op: 'eq', col: 'id', val: APPROVAL_CLIENT_ID }])
+    judge(16, 'a client member cannot read an INTERNAL approval', leaks, control)
+  }
+
+  // ── 17 · only an assignee of an ACTIVE stage may record a decision ────────
+  // Enforced in the POLICY (0038), not only in the engine, so a direct
+  // PostgREST write cannot forge a decision (S3-core §2.6).
+  {
+    const stageRows = await c1own.from('approval_stages')
+      .select('status').eq('id', APPROVAL_CLIENT_STAGE_ID).maybeSingle()
+    const stageStatus = (stageRows.data as { status?: string } | null)?.status
+    if (stageStatus !== 'active') {
+      // This assertion's positive control WRITES, and approval_decisions is
+      // append-only for everyone (0038 gives it no DELETE policy), so the
+      // fixture is single-use. Say so instead of failing: a spent fixture is a
+      // missing re-seed, not a broken policy.
+      record(17, 'a non-assignee cannot insert an approval_decisions row', 'VACUOUS',
+        `fixture stage is '${stageStatus ?? 'unreadable'}', not 'active' — re-run npm run seed:harness -- --apply`)
+    } else {
+      const leaks: string[] = []
+      // c1mate is a member of the same company but is NOT an assignee.
+      const { data: forged } = await c1mate.from('approval_decisions')
+        .insert({ stage_id: APPROVAL_CLIENT_STAGE_ID, actor_name: 'Harness C1 Mate', decision: 'approved' })
+        .select('id')
+      if (forged && forged.length > 0) leaks.push(`approval_decisions(non-assignee c1mate)=${forged.length}`)
+
+      // Positive control: the assignee CAN. Without it a zero above would
+      // pass just as well against a table nobody can write at all.
+      const { data: allowed } = await c1own.from('approval_decisions')
+        .insert({ stage_id: APPROVAL_CLIENT_STAGE_ID, actor_name: 'Harness C1 Owner', decision: 'approved' })
+        .select('id')
+      judge(17, 'a non-assignee cannot insert an approval_decisions row', leaks, allowed?.length ?? 0)
+    }
+  }
+
+  // ── 18 · comment permission gates the WRITE (AP-4) ────────────────────────
+  // c1mate carries an explicit can_comment = false row; c1own carries none and
+  // falls to the participant default. Enforced by a RESTRICTIVE policy on
+  // messages, so it narrows the existing insert policies without replacing
+  // them — an ordinary message (no approval_id) is untouched.
+  {
+    const leaks: string[] = []
+    // Fresh ids per run: a fixed id collides on the PRIMARY KEY the second
+    // time, which reads as "the policy blocked it" and would have made this
+    // assertion quietly vacuous instead of failing loudly. The seed prunes
+    // approval-carrying messages, so these do not accumulate across seeds.
+    const deniedId = randomUUID()
+    const permittedId = randomUUID()
+    const { data: denied } = await c1mate.from('messages').insert({
+      id: deniedId, room_id: roomIdC1,
+      organization_id: HARNESS_ORG_ID, project_id: null,
+      sender_name: 'Harness C1 Mate', body: 'ZZ-HARNESS denied review comment',
+      approval_id: APPROVAL_CLIENT_ID,
+    }).select('id')
+    if (denied && denied.length > 0) {
+      leaks.push(`messages(can_comment=false)=${denied.length}`)
+      await c1mate.from('messages').delete().eq('id', deniedId)
+    }
+    const { data: permitted } = await c1own.from('messages').insert({
+      id: permittedId, room_id: roomIdC1,
+      organization_id: HARNESS_ORG_ID, project_id: null,
+      sender_name: 'Harness C1 Owner', body: 'ZZ-HARNESS permitted review comment',
+      approval_id: APPROVAL_CLIENT_ID,
+    }).select('id')
+    judge(18, 'can_comment = false blocks a message carrying that approval_id', leaks, permitted?.length ?? 0)
+  }
+
+  // ── 19 · every participant reads every comment (AP-4) ─────────────────────
+  // Visibility is a READ of the whole record, never a per-comment filter. Who
+  // may comment is controlled (assertion 18); what is recorded is not.
+  {
+    const leaks: string[] = []
+    const outsider = await countRows(c2own, 'messages', [{ op: 'eq', col: 'approval_id', val: APPROVAL_CLIENT_ID }])
+    if (outsider > 0) leaks.push(`messages(c2own→approval comments)=${outsider}`)
+    // c1mate may NOT comment, and still reads every comment — that is the
+    // asymmetry AP-4 asserts, and the sharpest version of this control.
+    const mateReads = await countRows(c1mate, 'messages', [{ op: 'eq', col: 'approval_id', val: APPROVAL_CLIENT_ID }])
+    const ownReads = await countRows(c1own, 'messages', [{ op: 'eq', col: 'approval_id', val: APPROVAL_CLIENT_ID }])
+    if (mateReads !== ownReads) {
+      leaks.push(`participants disagree on comment count (c1own=${ownReads}, c1mate=${mateReads})`)
+    }
+    judge(19, 'every participant reads every comment on an approval', leaks, ownReads)
+  }
+
+  // ── 20 · a lapse is not a decision (AP-2) ─────────────────────────────────
+  // The assertion that keeps "auto_advanced" from ever becoming "approved" in
+  // a query, a certificate or a dispute.
+  {
+    const leaks: string[] = []
+    const lapsedDecisions = await countRows(c1own, 'approval_decisions',
+      [{ op: 'eq', col: 'stage_id', val: APPROVAL_LAPSED_STAGE_ID }])
+    if (lapsedDecisions > 0) leaks.push(`approval_decisions(auto_advanced stage)=${lapsedDecisions}`)
+    const decided = await countRows(c1own, 'approval_decisions',
+      [{ op: 'eq', col: 'stage_id', val: APPROVAL_DECIDED_STAGE_ID }])
+    if (decided !== 1) leaks.push(`decided stage carries ${decided} decision rows, expected exactly 1`)
+    judge(20, 'an auto_advanced stage has zero approval_decisions rows', leaks, decided)
   }
 
   // ── report ────────────────────────────────────────────────────────────────

@@ -130,7 +130,31 @@ export const WORK_TABLES = [
   'projects', 'files', 'messages', 'tasks', 'invoices',
   'activity_log', 'clients', 'notifications', 'project_phases',
   'message_rooms',
+  // Batch 22 (0038). Added to the every-table sweeps the way message_rooms was
+  // in Batch 13.7 — assertions 6 and 9 pass no filters, so these need no
+  // organization_id column (four of the five do not have one; their tenancy is
+  // inherited through the approvals FK).
+  'approvals', 'approval_stages', 'approval_assignees',
+  'approval_decisions', 'approval_comment_permissions',
 ] as const
+
+// ── approval fixtures (Batch 22 item 6, assertions 16–20) ──────────────────
+// Fixed ids so the harness can assert against them without a service-role
+// lookup — the same reason the manifest exists.
+/** Addressed to company 1, project 1. One ACTIVE stage assigned to c1own. */
+export const APPROVAL_CLIENT_ID = '0f0f0f0f-000a-4000-8000-000000000001'
+export const APPROVAL_CLIENT_STAGE_ID = '0f0f0f0f-000b-4000-8000-000000000001'
+/** INTERNAL — client_id null. Must be invisible to every client member. */
+export const APPROVAL_INTERNAL_ID = '0f0f0f0f-000a-4000-8000-000000000002'
+export const APPROVAL_INTERNAL_STAGE_ID = '0f0f0f0f-000b-4000-8000-000000000002'
+/** Lapsed on silence: stage 'auto_advanced', and ZERO decision rows (AP-2). */
+export const APPROVAL_LAPSED_ID = '0f0f0f0f-000a-4000-8000-000000000003'
+export const APPROVAL_LAPSED_STAGE_ID = '0f0f0f0f-000b-4000-8000-000000000003'
+/** Decided: stage 'complete' with EXACTLY one decision — assertion 20's control. */
+export const APPROVAL_DECIDED_ID = '0f0f0f0f-000a-4000-8000-000000000004'
+export const APPROVAL_DECIDED_STAGE_ID = '0f0f0f0f-000b-4000-8000-000000000004'
+/** A message carrying approval_id — the review comment assertions 18/19 read. */
+export const APPROVAL_COMMENT_MESSAGE_ID = '0f0f0f0f-000c-4000-8000-000000000001'
 
 export const MEMBERSHIP_TABLES = ['organization_members', 'client_members'] as const
 

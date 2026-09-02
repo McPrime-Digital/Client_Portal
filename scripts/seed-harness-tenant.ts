@@ -35,6 +35,11 @@ import {
   COMPANY_1_ID, COMPANY_2_ID, PROJECT_1_ID, PROJECT_2_ID, PROJECT_3_ID,
   PERSONA_LIST, PERSONAS, type PersonaKey,
   MANIFEST_PATH, type Manifest,
+  APPROVAL_CLIENT_ID, APPROVAL_CLIENT_STAGE_ID,
+  APPROVAL_INTERNAL_ID, APPROVAL_INTERNAL_STAGE_ID,
+  APPROVAL_LAPSED_ID, APPROVAL_LAPSED_STAGE_ID,
+  APPROVAL_DECIDED_ID, APPROVAL_DECIDED_STAGE_ID,
+  APPROVAL_COMMENT_MESSAGE_ID,
   loadEnv, requireEnv, assertEnvLocalIgnored,
 } from './harness-constants'
 
@@ -394,6 +399,89 @@ async function main() {
     { id: `0f0f0f0f-0006-4000-8000-00000000${i}002`, organization_id: HARNESS_ORG_ID, project_id: p.id,
       title: `P${p.n} · harness task B`, status: 'in_progress', priority: 'high', category: 'deliverable', visible_to_client: true },
   ]))
+
+  // ── approvals (Batch 22 item 6, assertions 16–20) ────────────────────────
+  // TORN DOWN AND REBUILT each run rather than upserted. Assertion 17's
+  // positive control INSERTS a real decision, and approval_decisions is
+  // APPEND-ONLY by design (0038 gives it no UPDATE and no DELETE policy, for
+  // anyone) — so the harness cannot clean up after itself the way assertion 8
+  // does. The seed is the reset. Deleting the approvals row cascades to
+  // stages, assignees, decisions and comment permissions.
+  record(`\n-- ═══ approvals (assertions 16–20) ═══`)
+  if (APPLY) {
+    const APPROVAL_IDS = [APPROVAL_CLIENT_ID, APPROVAL_INTERNAL_ID, APPROVAL_LAPSED_ID, APPROVAL_DECIDED_ID]
+    // Messages carrying an approval_id accumulate (assertion 18's control
+    // inserts one and clients have no DELETE policy on messages), so clear
+    // them before the approvals they point at go.
+    await admin.from('messages').delete().eq('organization_id', HARNESS_ORG_ID).not('approval_id', 'is', null)
+    await admin.from('approvals').delete().in('id', APPROVAL_IDS)
+
+    const { error: apErr } = await admin.from('approvals').insert([
+      { id: APPROVAL_CLIENT_ID, organization_id: HARNESS_ORG_ID, subject_kind: 'task',
+        subject_id: '0f0f0f0f-0006-4000-8000-000000000001', project_id: PROJECT_1_ID,
+        client_id: COMPANY_1_ID, title: 'Harness · client approval', status: 'open',
+        review_window_hours: 120 },
+      { id: APPROVAL_INTERNAL_ID, organization_id: HARNESS_ORG_ID, subject_kind: 'task',
+        subject_id: '0f0f0f0f-0006-4000-8000-000000000001', project_id: PROJECT_1_ID,
+        client_id: null, title: 'Harness · INTERNAL approval', status: 'open' },
+      { id: APPROVAL_LAPSED_ID, organization_id: HARNESS_ORG_ID, subject_kind: 'task',
+        subject_id: '0f0f0f0f-0006-4000-8000-000000000001', project_id: PROJECT_1_ID,
+        client_id: COMPANY_1_ID, title: 'Harness · lapsed on silence', status: 'auto_advanced' },
+      { id: APPROVAL_DECIDED_ID, organization_id: HARNESS_ORG_ID, subject_kind: 'task',
+        subject_id: '0f0f0f0f-0006-4000-8000-000000000001', project_id: PROJECT_1_ID,
+        client_id: COMPANY_1_ID, title: 'Harness · decided', status: 'approved' },
+    ])
+    if (apErr) throw new Error(`approvals: ${apErr.message}`)
+
+    const { error: stErr } = await admin.from('approval_stages').insert([
+      { id: APPROVAL_CLIENT_STAGE_ID, approval_id: APPROVAL_CLIENT_ID, seq: 1,
+        name: 'Client sign-off', status: 'active', deadline_at: at(-5 * DAY) },
+      { id: APPROVAL_INTERNAL_STAGE_ID, approval_id: APPROVAL_INTERNAL_ID, seq: 1,
+        name: 'Internal review', status: 'active', deadline_at: at(-5 * DAY) },
+      // 'auto_advanced' with advanced_at and NO decision row — AP-2 made a fact.
+      { id: APPROVAL_LAPSED_STAGE_ID, approval_id: APPROVAL_LAPSED_ID, seq: 1,
+        name: 'Lapsed stage', status: 'auto_advanced', advanced_at: at(1 * DAY) },
+      { id: APPROVAL_DECIDED_STAGE_ID, approval_id: APPROVAL_DECIDED_ID, seq: 1,
+        name: 'Decided stage', status: 'complete', advanced_at: at(1 * DAY) },
+    ])
+    if (stErr) throw new Error(`approval_stages: ${stErr.message}`)
+
+    const { error: asErr } = await admin.from('approval_assignees').insert([
+      // c1own is the assignee; c1mate deliberately is NOT — assertion 17.
+      { stage_id: APPROVAL_CLIENT_STAGE_ID, user_id: userIds.c1own, required: true },
+      { stage_id: APPROVAL_DECIDED_STAGE_ID, user_id: userIds.c1own, required: true },
+    ])
+    if (asErr) throw new Error(`approval_assignees: ${asErr.message}`)
+
+    // EXACTLY ONE decision on the decided stage — assertion 20's control. The
+    // 0039 trigger sees status 'complete', not 'active', and returns without
+    // re-advancing anything.
+    const { error: dErr } = await admin.from('approval_decisions').insert([
+      { stage_id: APPROVAL_DECIDED_STAGE_ID, actor_id: userIds.c1own,
+        actor_name: 'Harness C1 Owner', decision: 'approved', comment: 'harness fixture' },
+    ])
+    if (dErr) throw new Error(`approval_decisions: ${dErr.message}`)
+
+    // c1mate is explicitly DENIED comment permission — assertion 18. c1own has
+    // no row at all, so they fall to the participant default, which is the
+    // other half of that assertion.
+    const { error: pErr } = await admin.from('approval_comment_permissions').insert([
+      { approval_id: APPROVAL_CLIENT_ID, user_id: userIds.c1mate, can_comment: false },
+    ])
+    if (pErr) throw new Error(`approval_comment_permissions: ${pErr.message}`)
+
+    // A review comment: a message with approval_id set (S3-c §5.1 — review
+    // comments ARE messages). Assertion 19 reads it from both sides.
+    const { error: mErr } = await admin.from('messages').insert([
+      { id: APPROVAL_COMMENT_MESSAGE_ID, room_id: roomC1, organization_id: HARNESS_ORG_ID,
+        project_id: PROJECT_1_ID, sender_id: userIds.owner, sender_name: 'Harness Owner',
+        body: 'Harness · review comment on the client approval',
+        approval_id: APPROVAL_CLIENT_ID, created_at: at(1 * DAY) },
+    ])
+    if (mErr) throw new Error(`approval comment message: ${mErr.message}`)
+
+    console.log(`  ✓ ${'approvals + chain'.padEnd(28)} 4 approvals, 4 stages, 2 assignees, 1 decision, 1 permission, 1 comment`)
+  }
 
   record(`\n-- ═══ files ═══`)
   await seedRows(admin, 'files', projects.map((p, i) => ({
