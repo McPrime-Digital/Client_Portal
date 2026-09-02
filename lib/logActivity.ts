@@ -32,6 +32,16 @@ export const EVENT_TYPES = [
   'task_approved',
   'changes_requested',
   'task_auto_approved',
+  // The approvals ENGINE's events (Batch 22, S3-c). Distinct from the four
+  // task-shaped ones above, which the legacy tasks path writes and which stay
+  // until those columns drop. `approval_auto_advanced` is deliberately not
+  // named "approved" anything (AP-2): a lapse and a decision must never share
+  // a value, in this vocabulary or in the schema.
+  'approval_created',
+  'approval_decided',
+  'approval_auto_advanced',
+  'approval_withdrawn',
+  'approval_reminded',
 ] as const
 
 export type EventType = (typeof EVENT_TYPES)[number]
@@ -43,9 +53,12 @@ export type ActivityParams = {
    *  never from a request body. Only the server writers consume it; the
    *  browser POST path resolves it in /api/activity. */
   organizationId?: string | null
-  actorId: string
+  /** NULL only where there genuinely is no actor — an auto-advance on silence
+   *  (S3-c AP-2). `activity_log.actor_id` and `actor_role` are both nullable;
+   *  `actor_name` is NOT NULL, so a lapse still names itself ('System'). */
+  actorId: string | null
   actorName: string
-  actorRole: 'admin' | 'client'
+  actorRole: 'admin' | 'client' | null
   eventType: EventType
   title: string
   body?: string | null
