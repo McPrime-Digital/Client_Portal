@@ -18,6 +18,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import MessageThread from '@/components/shared/MessageThread'
+import ApprovalCard from '@/components/shared/ApprovalCard'
 import type { Message } from '@/lib/types/database'
 import { uploadFileToR2 } from '@/lib/uploadClient'
 import {
@@ -206,6 +207,9 @@ export default function RoomThread({
   const ownIdRef = useRef<string | null>(null)
   const seenIdsRef = useRef<Set<string>>(new Set())
   const roomIdRef = useRef<string | null>(null)
+  // Bumped when the room's EXISTING topic reports a change; the approval card
+  // re-reads on it instead of subscribing to anything of its own.
+  const [approvalSync, setApprovalSync] = useState(0)
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
   const typingSendRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const typingClearRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -513,7 +517,12 @@ export default function RoomThread({
         if (pl.userId === ownIdRef.current) return
         applyReaction(pl.messageId, pl.userId, pl.emoji, pl.op)
       })
-      .on('broadcast', { event: 'sync' }, () => void refetch())
+      .on('broadcast', { event: 'sync' }, () => {
+        // The approval card re-reads on this too — it opens NO channel of its
+        // own (I-2: the budget was halved by the room model, not fixed).
+        setApprovalSync((n) => n + 1)
+        void refetch()
+      })
       .subscribe()
     channelRef.current = ch
     return () => {
@@ -1161,6 +1170,19 @@ export default function RoomThread({
       {(
         <>
           <MessageThread
+            renderApproval={(approvalId) => (
+              <ApprovalCard
+                approvalId={approvalId}
+                side={role === 'admin' ? 'studio' : 'portal'}
+                syncKey={approvalSync}
+                onChanged={() => {
+                  // Tell the room on the topic it ALREADY has. A decision is
+                  // an event in the conversation like any other.
+                  channelRef.current?.send({ type: 'broadcast', event: 'sync', payload: {} })
+                  setApprovalSync((n) => n + 1)
+                }}
+              />
+            )}
             messages={messages}
             currentRole={role}
             currentName={currentName}

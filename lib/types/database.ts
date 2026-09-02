@@ -97,6 +97,18 @@ export type Message = {
   reactions?: { user_id: string; emoji: string }[]
   /** Retired (migration 12); only optimistic local rows still carry it. */
   is_deleted?: boolean
+  /**
+   * Set when this message IS an approval card, or is a review comment on one
+   * (Batch 22, 0038). An approval is ONE ROW READ THREE WAYS (S3-c §3) — the
+   * card in the room is a message pointing at the approval, never a copy of
+   * it, which is why there is an id here and no denormalised status.
+   */
+  approval_id?: string | null
+  /** Where a review comment is anchored (S3-c §5.1). One model, four kinds:
+   *  timecode => {"ms": n} · block · panel · region. `timecode_ms` was never
+   *  created on this table — verified live, Batch 22 item 0. */
+  anchor_kind?: 'timecode' | 'block' | 'panel' | 'region' | null
+  anchor_value?: Record<string, unknown> | null
   edited_at: string | null
   deleted_at: string | null
   created_at: string

@@ -32,6 +32,14 @@ import AudioPlayer from './AudioPlayer'
 import VoiceRecorder from './VoiceRecorder'
 
 type Props = {
+  /**
+   * Renders the approval card for a message carrying `approval_id`
+   * (Batch 22, S3-c §3.1). A render-prop rather than a component import: the
+   * card needs to know which side's API it is talking to, and that is the
+   * ROOM's knowledge, not this renderer's. Omitted, an approval message falls
+   * through to an ordinary bubble.
+   */
+  renderApproval?: (approvalId: string, msg: Message) => React.ReactNode
   // view-only members get no composer at all — hidden, not disabled
   readOnly?: boolean
   messages: Message[]
@@ -160,6 +168,7 @@ function canEdit(createdAt: string): boolean {
 }
 
 export default function MessageThread({
+  renderApproval,
   messages,
   currentRole,
   currentName,
@@ -576,6 +585,19 @@ export default function MessageThread({
           const isAud = attKind === 'audio'
           const isPdf = /\.pdf$/i.test(attachName)
           const deletable = isMe && canDelete(msg.created_at) && onDeleteMessage
+
+          // AN APPROVAL CARD IS A MESSAGE (S3-c §3.1), so it rides this list
+          // rather than a parallel one — it inherits ordering, date dividers,
+          // load-older, search and realtime for free. The card itself is
+          // rendered by the OWNER of the room (RoomThread), which knows which
+          // side's API to talk to; this renderer stays presentation.
+          if (msg.approval_id && renderApproval) {
+            return (
+              <div key={msg.id} id={`msg-${msg.id}`} className="tl-msg-in mt-3 flex justify-center">
+                {renderApproval(msg.approval_id, msg)}
+              </div>
+            )
+          }
 
           return (
             <div
