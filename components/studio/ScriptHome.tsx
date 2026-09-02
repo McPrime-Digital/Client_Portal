@@ -255,7 +255,7 @@ export default function ScriptHome() {
       const res = await supabase
         .from('documents')
         .select('id, title, preview, ydoc, updated_at, last_opened_at')
-        .eq('kind', 'script')
+        .eq('kind', 'screenplay')
         .order('last_opened_at', { ascending: false, nullsFirst: false })
         .order('updated_at', { ascending: false })
         .limit(60)
@@ -267,7 +267,7 @@ export default function ScriptHome() {
       const fb = await supabase
         .from('documents')
         .select('id, title, preview, ydoc, updated_at')
-        .eq('kind', 'script')
+        .eq('kind', 'screenplay')
         .order('updated_at', { ascending: false })
         .limit(60)
       if (fb.error) {
@@ -284,7 +284,7 @@ export default function ScriptHome() {
     void load()
     const ch = supabase
       .channel('docs-home')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'documents', filter: 'kind=eq.script' }, () => void load())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'documents', filter: 'kind=eq.screenplay' }, () => void load())
       .subscribe()
     return () => {
       void supabase.removeChannel(ch)
@@ -295,7 +295,7 @@ export default function ScriptHome() {
     setCreating(true)
     const { data, error: e } = await supabase
       .from('documents')
-      .insert({ kind: 'script', title })
+      .insert({ kind: 'screenplay', title })
       .select('id')
       .single()
     if (e || !data) {
