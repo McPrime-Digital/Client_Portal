@@ -338,19 +338,28 @@ export type RecordDecisionParams = {
 /**
  * Records a decision, advances the stage, and recomputes the approval.
  *
- * The active-stage and assignee checks are ALSO in 0038's INSERT policy, and
- * that is the one that counts — a direct PostgREST write never reaches this
- * function. These are the same checks stated where the error message can be
- * useful, not the enforcement.
+ * THE TRANSITION IS NOT COMPUTED HERE. 0039's AFTER INSERT trigger on
+ * approval_decisions derives it from the recorded decisions and applies it.
+ * This function inserts the decision and then RE-READS — the database is the
+ * authority on what advanced.
  *
- * STAGE COMPLETION, and the one place this batch is deliberately conservative:
- * a stage completes when EVERY `required` assignee row is satisfied. `mode`
- * ('sequential' | 'parallel') is stored and returned but does NOT yet change
- * that rule, because the difference between the two is an ordering among
- * assignees and `approval_assignees` has no ordering column. Requiring all is
- * the safe direction — the alternative under-requires approvals in a system
- * whose whole purpose is being un-arguable. Recorded as a known gap rather
- * than left as a silent no-op.
+ * That is not a style choice. `approval_stages` is crew-writable only (0038),
+ * correctly, so a CLIENT advancing their own stage from here was a PostgREST
+ * UPDATE matching zero rows — no error, no advance, proven live. The approval
+ * would then sit open until the item-5 sweep lapsed it, and the permanent
+ * record would say "no response was received" about a client who had
+ * responded. Because 0038 also permits an assignee to insert a decision
+ * DIRECTLY, any fix living above the table could be walked around; the trigger
+ * cannot be.
+ *
+ * The rule it applies (kept here so the reader knows what to expect): a stage
+ * completes when EVERY `required` assignee is satisfied by an approving
+ * decision, with company and role assignees resolved against the roster and
+ * scoped to this approval's tenant. `mode` ('sequential' | 'parallel') is
+ * stored but does NOT yet differentiate, because the difference is an ordering
+ * among assignees and `approval_assignees` has no ordering column. Requiring
+ * all is the safe direction — the alternative UNDER-requires approvals in a
+ * system whose purpose is being un-arguable. A known gap, not a silent no-op.
  */
 export async function recordDecision(
   db: SupabaseClient,
@@ -392,37 +401,18 @@ export async function recordDecision(
     throw new Error(`recordDecision: decision insert refused: ${decisionErr.message}`)
   }
 
-  const now = new Date().toISOString()
-  let stagePatch: Partial<StageRow> | null = null
-  let approvalStatus: ApprovalStatus = approval.status
-  let nextStage: StageRow | null = null
+  // 0039's trigger has now applied the transition. Re-read rather than
+  // recompute: a second implementation here would be the copies-drift failure
+  // S3-c §3 names, and this side cannot write approval_stages as a client
+  // anyway.
+  const { data: freshStage } = await db
+    .from('approval_stages').select(STAGE_COLUMNS).eq('id', stageId).maybeSingle()
+  const { data: freshApproval } = await db
+    .from('approvals').select('status').eq('id', approval.id).maybeSingle()
 
-  if (decision === 'changes_requested') {
-    // AP-3: this stage is NOT silent and must never lapse.
-    stagePatch = { status: 'blocked_on_changes', advanced_at: now }
-    approvalStatus = 'changes_requested'
-  } else if (decision === 'rejected') {
-    stagePatch = { status: 'complete', advanced_at: now }
-    approvalStatus = 'rejected'
-  } else {
-    const satisfied = await stageIsSatisfied(db, stageId, approval)
-    if (satisfied) {
-      stagePatch = { status: 'complete', advanced_at: now }
-      nextStage = await activateNextStage(db, approval, stage.seq)
-      approvalStatus = nextStage ? 'open' : 'approved'
-    }
-    // Not yet satisfied: the decision is recorded, the stage stays active,
-    // and the approval is untouched. Nothing is lost and nothing advances.
-  }
-
-  if (stagePatch) {
-    const { error } = await db.from('approval_stages').update(stagePatch).eq('id', stageId)
-    if (error) throw new Error(`recordDecision: stage advance failed: ${error.message}`)
-  }
-  if (approvalStatus !== approval.status) {
-    const { error } = await db.from('approvals').update({ status: approvalStatus }).eq('id', approval.id)
-    if (error) throw new Error(`recordDecision: approval status update failed: ${error.message}`)
-  }
+  const stageAfter = (freshStage as StageRow | null) ?? stage
+  const approvalStatus =
+    ((freshApproval as { status?: ApprovalStatus } | null)?.status) ?? approval.status
 
   await recordActivity({
     projectId: approval.project_id, clientId: approval.client_id,
@@ -433,71 +423,16 @@ export async function recordDecision(
     body: comment ?? null,
     meta: {
       approval_id: approval.id, stage_id: stageId, stage_seq: stage.seq,
-      decision, approval_status: approvalStatus,
-      advanced: !!stagePatch, next_stage_id: nextStage?.id ?? null,
+      decision,
+      approval_status: approvalStatus,
+      stage_status: stageAfter.status,
+      // Whether THIS decision moved the stage, read back from the database
+      // rather than predicted.
+      advanced: stageAfter.status !== 'active',
     },
   })
 
-  return {
-    stage: { ...stage, ...(stagePatch ?? {}) } as StageRow,
-    approvalStatus,
-  }
-}
-
-/**
- * Is every REQUIRED assignee row on this stage satisfied by some decision?
- *
- * A user row is satisfied by that user's decision. A client row is satisfied
- * by any active member of that company. A role row is satisfied by anyone
- * holding the role IN THIS APPROVAL'S TENANT — never any holder of the role
- * anywhere, which would be a cross-tenant hole wearing a convenience's
- * clothes (the same scoping 0038's is_stage_assignee() applies).
- */
-async function stageIsSatisfied(
-  db: SupabaseClient,
-  stageId: string,
-  approval: ApprovalRow
-): Promise<boolean> {
-  const { data: assignees } = await db
-    .from('approval_assignees')
-    .select('user_id, client_id, role, required')
-    .eq('stage_id', stageId)
-  const required = (assignees ?? []).filter((a) => a.required)
-  if (required.length === 0) return true
-
-  const { data: decisions } = await db
-    .from('approval_decisions')
-    .select('actor_id, decision')
-    .eq('stage_id', stageId)
-    .eq('decision', 'approved')
-  const approverIds = [...new Set((decisions ?? []).map((d) => d.actor_id).filter((v): v is string => !!v))]
-  if (approverIds.length === 0) return false
-
-  const needsRoster = required.some((a) => a.client_id || a.role)
-  let orgRows: { user_id: string; role: string; roles: string[] | null }[] = []
-  let clientRows: { user_id: string; client_id: string; role: string }[] = []
-  if (needsRoster) {
-    const { data: om } = await db
-      .from('organization_members').select('user_id, role, roles')
-      .eq('organization_id', approval.organization_id).eq('status', 'active').in('user_id', approverIds)
-    orgRows = (om ?? []) as typeof orgRows
-    const { data: cm } = await db
-      .from('client_members').select('user_id, client_id, role')
-      .eq('organization_id', approval.organization_id).eq('status', 'active').in('user_id', approverIds)
-    clientRows = (cm ?? []) as typeof clientRows
-  }
-
-  return required.every((a) => {
-    if (a.user_id) return approverIds.includes(a.user_id)
-    if (a.client_id) return clientRows.some((r) => r.client_id === a.client_id)
-    if (a.role) {
-      return (
-        orgRows.some((r) => r.role === a.role || (r.roles ?? []).includes(a.role as string)) ||
-        clientRows.some((r) => r.role === a.role && (!approval.client_id || r.client_id === approval.client_id))
-      )
-    }
-    return false
-  })
+  return { stage: stageAfter, approvalStatus }
 }
 
 /** Activate the next stage in sequence and put it on the clock. */
