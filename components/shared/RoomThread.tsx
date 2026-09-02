@@ -31,6 +31,7 @@ import {
 } from '@/lib/soundClient'
 import { Pin, Bookmark, Settings2, Users, MoreVertical, Search as SearchIcon } from 'lucide-react'
 import { mentionTrigger, setMentionTrigger, type MentionTrigger } from '@/lib/mentionClient'
+import { pushPref, PREFS_EVENT } from '@/lib/prefsSync'
 import { projectColor } from '@/lib/projectColor'
 import {
   wallpaperPattern,
@@ -162,6 +163,22 @@ export default function RoomThread({
       if (id) localStorage.setItem(`genreline-room-tag:${clientId}`, id)
       else localStorage.removeItem(`genreline-room-tag:${clientId}`)
     } catch { /* non-persistent */ }
+    pushPref({ roomTag: { [clientId]: id ?? '' } })
+  }, [clientId])
+  // Hydration from the durable copy (Batch 20.3): when prefsSync pulls the
+  // user_prefs row into localStorage it fires PREFS_EVENT — re-read every
+  // device-cached setting so a fresh browser matches the account, live.
+  useEffect(() => {
+    const reread = () => {
+      setWpPattern(wallpaperPattern())
+      setWpIntensity(wallpaperIntensity())
+      setSoundOn(messageSoundEnabled())
+      setFocusOn(focusModeEnabled())
+      setTrigger(mentionTrigger())
+      try { setStickyTag(localStorage.getItem(`genreline-room-tag:${clientId}`)) } catch { /* non-persistent */ }
+    }
+    window.addEventListener(PREFS_EVENT, reread)
+    return () => window.removeEventListener(PREFS_EVENT, reread)
   }, [clientId])
   // Project colour-bonding (Batch 16): title + deterministic colour per tag,
   // built from the candidates roster the room already fetches.

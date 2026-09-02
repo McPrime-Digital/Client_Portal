@@ -7,6 +7,8 @@
  * message_room_prefs — this is the device-level master switch).
  */
 
+import { pushPref } from '@/lib/prefsSync'
+
 const KEY = 'genreline-message-sound'
 const THROTTLE_MS = 1500
 
@@ -57,6 +59,7 @@ export function setFocusModeEnabled(on: boolean): void {
   try {
     localStorage.setItem(FOCUS_KEY, on ? 'on' : 'off')
   } catch { /* non-persistent */ }
+  pushPref({ focus: on ? 'on' : 'off' })
 }
 
 export function messageSoundEnabled(): boolean {
@@ -68,6 +71,7 @@ export function messageSoundEnabled(): boolean {
 }
 
 export function setMessageSoundEnabled(on: boolean): void {
+  pushPref({ sound: on ? 'on' : 'off' })
   try {
     localStorage.setItem(KEY, on ? 'on' : 'off')
   } catch {

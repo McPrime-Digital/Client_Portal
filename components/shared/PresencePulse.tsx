@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { usePresenceStore, type PresenceEntry } from '@/lib/stores/presence-store'
 import { isHubMounted } from '@/lib/realtimeBus'
 import { playMessageChime, primeAudio } from '@/lib/soundClient'
+import { hydratePrefs } from '@/lib/prefsSync'
 
 // Mounted once per portal layout. Does three things, app-wide (every page):
 //   1. Tracks the current user in a shared presence channel so the *other*
@@ -42,6 +43,7 @@ export default function PresencePulse({
     // Unlock WebAudio on the first gesture ANYWHERE in the app — without
     // this, the chime only worked after visiting a messaging surface.
     primeAudio()
+    void hydratePrefs()
     const supabase = createClient()
 
     // ── 1. Shared app presence (visibility-gated), scoped to the tenant ─────

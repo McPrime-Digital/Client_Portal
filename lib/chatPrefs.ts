@@ -4,6 +4,8 @@
  * room prefs stay about notifications.
  */
 
+import { pushPref } from '@/lib/prefsSync'
+
 const PATTERN_KEY = 'genreline-wallpaper'
 const INTENSITY_KEY = 'genreline-wallpaper-intensity'
 
@@ -27,6 +29,7 @@ export function wallpaperPattern(): WallpaperPattern {
 
 export function setWallpaperPattern(p: WallpaperPattern): void {
   try { localStorage.setItem(PATTERN_KEY, p) } catch { /* non-persistent */ }
+  pushPref({ wallpaperPattern: p })
 }
 
 export function wallpaperIntensity(): WallpaperIntensity {
@@ -40,4 +43,5 @@ export function wallpaperIntensity(): WallpaperIntensity {
 
 export function setWallpaperIntensity(i: WallpaperIntensity): void {
   try { localStorage.setItem(INTENSITY_KEY, i) } catch { /* non-persistent */ }
+  pushPref({ wallpaperIntensity: i })
 }

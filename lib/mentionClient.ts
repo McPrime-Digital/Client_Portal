@@ -55,6 +55,8 @@ export function stripMentionTokens(body: string): string {
 
 // ── Trigger preference (Batch 16): '@', '/', or both — device-level ────────
 
+import { pushPref } from '@/lib/prefsSync'
+
 const TRIGGER_KEY = 'genreline-mention-trigger'
 export type MentionTrigger = 'at' | 'slash' | 'both'
 
@@ -71,6 +73,7 @@ export function setMentionTrigger(t: MentionTrigger): void {
   try {
     localStorage.setItem(TRIGGER_KEY, t)
   } catch { /* non-persistent */ }
+  pushPref({ mentionTrigger: t })
 }
 
 /** The trailing-token matcher for the composer, per the trigger preference. */
