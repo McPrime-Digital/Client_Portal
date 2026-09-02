@@ -139,19 +139,30 @@ export async function GET(req: NextRequest) {
     })
     return NextResponse.json({ messages: rows, roomId: room.id, nextCursor: null, hasMore: false })
   }
-  // Thread panel fetch (item 3): the replies of one root, ascending, bounded.
+  // Thread panel fetch: keyset-cursored like the main list (Batch 21 item 1
+  // — the old `.limit(200)` ascending kept the OLDEST 200 and silently
+  // dropped the newest, the worst half of a conversation to lose). Newest
+  // page first, `before` walks older; the wire stays ascending.
   const threadRoot = req.nextUrl.searchParams.get('thread_root')
   if (threadRoot) {
-    const { data: replies, error: thErr } = await supabaseAdmin
+    let thQ = supabaseAdmin
       .from('messages')
       .select('*, message_attachments(file_id), message_reactions(user_id, emoji), message_mentions(kind, target_id)')
       .eq('room_id', room.id)
       .eq('thread_root_id', threadRoot)
-      .order('created_at', { ascending: true })
-      .order('id', { ascending: true })
-      .limit(200)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(limit + 1)
+    if (cursor) thQ = thQ.or(beforePredicate(cursor))
+    const { data: replies, error: thErr } = await thQ
     if (thErr) return NextResponse.json({ error: thErr.message }, { status: 500 })
-    const thRows = (replies ?? []).map((row) => {
+    const thPage = replies ?? []
+    const thHasMore = thPage.length > limit
+    const thTrimmed = thHasMore ? thPage.slice(0, limit) : thPage
+    const thOldest = thTrimmed[thTrimmed.length - 1] as { created_at: string; id: string } | undefined
+    const thNextCursor =
+      thHasMore && thOldest ? encodeCursor({ t: thOldest.created_at, id: thOldest.id }) : null
+    const thRows = thTrimmed.slice().reverse().map((row) => {
       const { message_attachments, message_reactions, ...m } = row as Record<string, unknown> & {
         message_attachments?: { file_id: string }[]
         message_reactions?: { user_id: string; emoji: string }[]
@@ -166,7 +177,7 @@ export async function GET(req: NextRequest) {
         ? { ...m, body: '', attachment_url: null, attachment_name: null, attachment_file_id: null }
         : m
     )
-    return NextResponse.json({ messages: thRows, roomId: room.id, nextCursor: null, hasMore: false })
+    return NextResponse.json({ messages: thRows, roomId: room.id, nextCursor: thNextCursor, hasMore: thHasMore })
   }
   let msgQ = supabaseAdmin
     .from('messages')

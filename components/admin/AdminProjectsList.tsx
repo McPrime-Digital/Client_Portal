@@ -44,11 +44,10 @@ type Project = {
   } | null
   tasks: { id: string; status: string; approved_at?: string | null }[]
   files: { id: string; direction?: string }[]
-  messages: {
-    id: string
-    sender_role: string
-    read_at: string | null
-  }[]
+  /** PostgREST embedded aggregate — the count without the rows (item 1). */
+  messages: { count: number }[]
+  /** Per-user unread count from the watermark model (orgUnread.byProject). */
+  unreadMessages: number
 }
 
 export default function AdminProjectsList({
@@ -96,9 +95,7 @@ export default function AdminProjectsList({
   }, [projects])
 
   function getUnreadCount(project: Project) {
-    return project.messages.filter(
-      (m) => m.sender_role === 'client' && !m.read_at
-    ).length
+    return project.unreadMessages
   }
 
   function getTaskProgress(project: Project) {
@@ -373,7 +370,7 @@ export default function AdminProjectsList({
                     <div className="flex items-center gap-1.5">
                       <MessageSquare size={12} style={{ color: 'hsl(var(--text-faint))' }} />
                       <span className="text-xs" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                        {project.messages.length} msg{project.messages.length === 1 ? '' : 's'}
+                        {project.messages[0]?.count ?? 0} msg{(project.messages[0]?.count ?? 0) === 1 ? '' : 's'}
                       </span>
                     </div>
 

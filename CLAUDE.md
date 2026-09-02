@@ -39,6 +39,7 @@ order:
 | 11 | `S3-core-messaging-approvals-versioning-retention.md` | **DRAFT** — schema for message rooms, approvals, file versioning, retention; ledger emission moves server-side |
 | 12 | `S3-core-A-amendments.md` | **Supersedes named `S3-core` sections** (A-1 … A-6, from the Batch 13 item 0 audit; two prevented data loss) |
 | 13 | `S3-b-calendar-meetings-documents-seats.md` | **DRAFT** — schema for the four shapes `S-F` §9 moved into v1; sequenced after `S3-core` |
+| 14 | `S3-c-approvals-review-live-artifacts.md` | **DRAFT** — **Supersedes `S3-core` §2 (approvals tables), `S3-core` §9.2, and `S-F` §3.3 where they disagree**; approval is a record not a gate — auto-advance on silence, live minted artifacts, anchored review comments; sequenced after `S3-core` migrations 1–7 |
 
 **Where S0 and S0-A disagree, S0-A wins** — and the same rule binds `S3-core`
 and `S3-core-A`. S0 entries were not edited in place — the original

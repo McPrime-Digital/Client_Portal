@@ -11,7 +11,7 @@ batch.
 
 After this, read `docs/specs/` in order: S0 → S0-A → **S0-B** → S0-conformance
 → S1-P → S-V → **S-F** → S1 → S2 → **S-C** → **S3-core** → **S3-core-A** →
-**S3-b**. **Where S0 and S0-A disagree, S0-A wins**, and the same rule binds
+**S3-b** → **S3-c**. **Where S0 and S0-A disagree, S0-A wins**, and the same rule binds
 `S3-core` and `S3-core-A`; **S0-B supersedes the product name in all of them.**
 **`S-F` (feature scope and market position) supersedes `S-V` §13 — the v1 cap
 — in full**; `S-V` §1–§12 stand as the destination, and the redrawn cap is
@@ -19,10 +19,15 @@ After this, read `docs/specs/` in order: S0 → S0-A → **S0-B** → S0-conform
 versioning and retention; `S3-core-A` (settled) supersedes its named sections
 — it was written from the Batch 13 item 0 audit, and two of its amendments
 prevented data loss. `S3-b` is the schema for the four shapes `S-F` §9 moved
-into v1, and is sequenced after `S3-core`. `S-F`, `S-C` (communications and
-sender identity), `S3-core` and `S3-b` are **draft for approval** — the four
-specs in the stack that are not settled. `CLAUDE.md` holds the working
-mechanics (commands, clients, route groups, env vars).
+into v1, and is sequenced after `S3-core`. `S3-c` (approvals, review and live
+artifacts) **supersedes `S3-core` §2 (the approvals tables), `S3-core` §9.2
+and `S-F` §3.3 where they disagree** — approval is a record, not a gate:
+silence auto-advances and is never written as approval — and is sequenced
+after `S3-core` migrations 1–7 as migration 8 onward. `S-F`, `S-C`
+(communications and sender identity), `S3-core`, `S3-b` and `S3-c` are
+**draft for approval** — the five specs in the stack that are not settled.
+`CLAUDE.md` holds the working mechanics (commands, clients, route groups,
+env vars).
 
 **The product is Genreline** (S0-B PI-1). "Throughline" was the working name
 through the spec phase; every batch entry below that says Throughline is left

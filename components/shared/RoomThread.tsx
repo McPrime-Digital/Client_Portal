@@ -126,6 +126,8 @@ export default function RoomThread({
   const [replyMeta, setReplyMeta] = useState<Record<string, { count: number; lastAt: string }>>({})
   const [threadRoot, setThreadRoot] = useState<Message | null>(null)
   const [threadReplies, setThreadReplies] = useState<Message[]>([])
+  const [replyCursor, setReplyCursor] = useState<string | null>(null)
+  const [replyHasMore, setReplyHasMore] = useState(false)
   // Reactions/pins/saves (item 4). Reactions ride on message rows; pins are
   // room-wide; saves are private (user_id = auth.uid() by RLS construction).
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set())
@@ -562,17 +564,41 @@ export default function RoomThread({
     async (root: Message) => {
       setThreadRoot(root)
       setThreadReplies([])
+      setReplyCursor(null)
+      setReplyHasMore(false)
       try {
         const res = await fetch(`${listUrl()}&thread_root=${root.id}`)
         const json = await res.json()
         if (res.ok && json.messages) {
           for (const r of json.messages as Message[]) seenIdsRef.current.add(r.id)
           setThreadReplies(json.messages as Message[])
+          setReplyCursor(json.nextCursor ?? null)
+          setReplyHasMore(!!json.hasMore)
         }
       } catch {}
     },
     [listUrl]
   )
+
+  // Load-older for the reply panel — same cursor walk as the main thread
+  // (Batch 21 item 1; the panel used to hard-stop at the oldest 200).
+  const loadOlderReplies = useCallback(async () => {
+    const rootId = threadRootRef.current
+    if (!rootId || !replyCursor) return
+    try {
+      const res = await fetch(
+        `${listUrl()}&thread_root=${rootId}&before=${encodeURIComponent(replyCursor)}`
+      )
+      const json = await res.json()
+      if (res.ok && json.messages) {
+        const rows = json.messages as Message[]
+        for (const r of rows) seenIdsRef.current.add(r.id)
+        setThreadReplies((prev) => mergeRows(prev, rows))
+        setReplyCursor(json.nextCursor ?? null)
+        setReplyHasMore(!!json.hasMore)
+      }
+    } catch {}
+  }, [replyCursor, listUrl, mergeRows])
 
   const toggleReaction = useCallback(
     async (msg: Message, emoji: string) => {
@@ -1587,7 +1613,7 @@ export default function RoomThread({
                   Thread
                 </p>
                 <button
-                  onClick={() => { setThreadRoot(null); setThreadReplies([]) }}
+                  onClick={() => { setThreadRoot(null); setThreadReplies([]); setReplyCursor(null); setReplyHasMore(false) }}
                   className="p-1.5 rounded-lg hover:bg-[hsl(var(--border))] text-sm"
                   style={{ color: 'hsl(var(--muted-foreground))' }}
                   title="Close thread"
@@ -1603,6 +1629,8 @@ export default function RoomThread({
                   otherName={otherName}
                   projectId={`${threadKey}:thread`}
                   onSendMessage={(b, r, u, n, f) => sendMessage(b, r, u, n, f, threadRoot.id)}
+                  onLoadOlder={loadOlderReplies}
+                  hasMore={replyHasMore}
                   readOnly={!canSend}
                   onUploadAttachment={allowAttachments ? handleAttachmentUpload : undefined}
                   onDeleteMessage={handleDeleteMessage}

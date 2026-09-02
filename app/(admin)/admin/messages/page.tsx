@@ -20,7 +20,7 @@ export default async function AdminMessagesPage() {
 
   // Independent reads run in parallel (nav speed). Rooms are the unit now:
   // one row per client company, not per project (Batch 15 item 1).
-  const [brand, unread, { data: rooms }, { data: projects }, { data: latestRaw }] =
+  const [brand, unread, { data: rooms }, { data: projects }] =
     await Promise.all([
       tenantBrand(orgId),
       orgUnread(supabaseAdmin, { userId: user.id, orgId }),
@@ -35,21 +35,29 @@ export default async function AdminMessagesPage() {
         .select('id, title, client_id')
         .eq('organization_id', orgId)
         .order('created_at', { ascending: false }),
-      // Latest preview per room: newest 200 org messages, first-per-room in
-      // JS. Bounded — and the keyset work (item 2) owns tightening further.
+    ])
+
+  // Latest preview per room: ONE limit-1 query per room on the keyset index
+  // (Batch 21 item 1). The old shape — newest 200 org messages, first-per-
+  // room in JS — was a real truncation: a room quiet for 200+ org messages
+  // lost its preview entirely and sank to the bottom of the sort.
+  const previewRes = await Promise.all(
+    (rooms ?? []).map((r) =>
       supabaseAdmin
         .from('messages')
         .select('*')
-        .eq('organization_id', orgId)
+        .eq('room_id', r.id)
         .order('created_at', { ascending: false })
-        .limit(200),
-    ])
-
-  const latest = scrubDeleted(latestRaw)
+        .order('id', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    )
+  )
   const latestByRoom: Record<string, Message> = {}
-  for (const m of latest) {
-    if (m.room_id && !latestByRoom[m.room_id]) latestByRoom[m.room_id] = m as unknown as Message
-  }
+  ;(rooms ?? []).forEach((r, i) => {
+    const m = previewRes[i]?.data
+    if (m) latestByRoom[r.id] = scrubDeleted([m])[0] as unknown as Message
+  })
 
   const projectsByClient: Record<string, { id: string; title: string }[]> = {}
   for (const p of projects ?? []) {

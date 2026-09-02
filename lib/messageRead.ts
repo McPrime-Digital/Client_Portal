@@ -28,6 +28,15 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 type Wm = { room_id: string; last_read_at: string }
 
 /**
+ * Bound on any single unread scan (Batch 21 item 1). Unread queries fetch
+ * only rows past the watermark now, so this cap is reached only by a true
+ * backlog (a room never opened); past it the count saturates — a stated
+ * "at least this many" — instead of undercounting through PostgREST's
+ * silent default row limit, which is what the unbounded fetch did.
+ */
+const UNREAD_SCAN_CAP = 1000
+
+/**
  * Batch 14 item 5 (A-2's interim exposure): a deleted message's row keeps
  * its place so the tombstone renders, but its content must not leave the
  * server until the purge destroys it. Applied by every server read that
@@ -107,7 +116,13 @@ export async function clientUnread(
     .is('deleted_at', null)
   if (wm) q = q.gt('created_at', wm)
   if (opts.historyFrom) q = q.gte('created_at', opts.historyFrom)
+  // Newest-first with a stated cap (Batch 21 item 1): a member who has never
+  // opened the room has no watermark, so this scan is their whole visible
+  // history — the cap turns that into saturation ("1000+") instead of
+  // tripping PostgREST's silent row limit.
   const { data: msgs, error } = await q
+    .order('created_at', { ascending: false })
+    .limit(UNREAD_SCAN_CAP)
   if (error) throw new Error(`messages unread read failed: ${error.message}`)
 
   const byProject: Record<string, number> = {}
@@ -142,14 +157,26 @@ export async function orgUnread(
   const wms = await watermarksFor(db, opts.userId, roomIds)
   const clientByRoom = new Map(rooms.map((r) => [r.id, r.client_id as string | null]))
 
-  // One org-bounded fetch, filtered per-room in JS (a per-room watermark
-  // cannot be one SQL predicate through PostgREST). Bounded by the org's
-  // message count — the same bound every hub page already carries (I-1).
+  // The per-room watermark predicate runs IN the query now (Batch 21 item
+  // 1): one `.or()` of per-room conjuncts — `created_at > watermark` where
+  // one exists, the whole room where none does — so rows fetched ≈ rows
+  // actually unread. The old shape fetched EVERY org message and filtered
+  // in JS; its real ceiling was PostgREST's silent default row limit, so
+  // past ~1000 org messages the badges quietly undercounted. The explicit
+  // newest-first cap makes the remaining pathological case (huge unread
+  // backlogs) a stated saturation instead.
+  const roomPreds = roomIds.map((id) => {
+    const wm = wms.get(id)
+    return wm ? `and(room_id.eq.${id},created_at.gt.${wm})` : `room_id.eq.${id}`
+  })
   const { data: msgs, error } = await db
     .from('messages')
     .select('id, room_id, project_id, sender_id, created_at')
     .eq('organization_id', opts.orgId)
     .is('deleted_at', null)
+    .or(roomPreds.join(','))
+    .order('created_at', { ascending: false })
+    .limit(UNREAD_SCAN_CAP)
   if (error) throw new Error(`messages unread read failed: ${error.message}`)
 
   const byProject: Record<string, number> = {}
