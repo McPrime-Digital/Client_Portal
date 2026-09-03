@@ -36,6 +36,9 @@ import { senderColor } from '@/lib/projectColor'
 type RoomEntry = {
   id: string
   kind: 'client' | 'crew' | 'channel' | 'group' | 'dm' | 'broadcast'
+  /** Null means INTERNAL — this hub's whole population (the owner's
+   *  correction): anything carrying a company belongs to Client › Messages. */
+  clientId: string | null
   label: string
   name: string | null
   topic: string | null
@@ -50,6 +53,10 @@ type RoomEntry = {
 }
 
 type Person = { id: string; name: string; avatarUrl: string | null; side: 'crew' | 'client'; sub: string }
+
+/** Copy that says who this space is for, so the emptiness reads as a
+ *  boundary rather than as a missing feature. */
+const INTERNAL_ONLY_NOTE = 'Crew and collaborators. Client conversations live in Client · Messages.'
 
 function timeAgo(date: string) {
   const s = Math.floor((Date.now() - new Date(date).getTime()) / 1000)
@@ -164,7 +171,11 @@ export default function CrewChatHub({ orgId, adminName }: { orgId: string; admin
       const res = await fetch('/api/rooms')
       const json = await res.json()
       if (!res.ok) return
-      const mine = ((json.rooms ?? []) as RoomEntry[]).filter((r) => r.kind !== 'client')
+      // INTERNAL ONLY. `kind !== 'client'` was the wrong predicate: a DM or
+      // a channel opened with a client company's person is client-facing
+      // work and was showing up on the studio's internal floor. The company
+      // column is what separates the two spaces.
+      const mine = ((json.rooms ?? []) as RoomEntry[]).filter((r) => r.clientId == null)
       setRooms(mine)
       setMe(json.me ?? null)
       setActiveId((cur) => cur ?? mine.find((r) => r.kind === 'crew')?.id ?? mine[0]?.id ?? null)
@@ -186,7 +197,9 @@ export default function CrewChatHub({ orgId, adminName }: { orgId: string; admin
   }, [loadRooms])
 
   useEffect(() => {
-    fetch('/api/rooms?people=1')
+    // Internal directory: crew and seated collaborators, never a client's
+    // contacts — this space is the studio's own floor.
+    fetch('/api/rooms?people=1&scope=internal')
       .then((r) => r.json())
       .then((json) => { if (json.people) setPeople(json.people) })
       .catch(() => {})
@@ -388,6 +401,9 @@ export default function CrewChatHub({ orgId, adminName }: { orgId: string; admin
                 <p className="text-xs mt-1" style={{ color: 'hsl(var(--text-faint))' }}>
                   Create a channel, or send the first General message
                 </p>
+                <p className="text-[11px] mt-3 max-w-[220px] leading-snug" style={{ color: 'hsl(var(--text-faint))' }}>
+                  {INTERNAL_ONLY_NOTE}
+                </p>
               </div>
             )}
             {sections.map((sec) => sec.rooms.length > 0 && (
@@ -579,7 +595,7 @@ export default function CrewChatHub({ orgId, adminName }: { orgId: string; admin
                   currentName={adminName}
                   otherName={active.label}
                   canSend={active.membership.canPost && !active.archived}
-                  allowAttachments={false}
+                  allowAttachments={active.membership.canPost && !active.archived}
                   externalRow={externalRow}
                   panelCommand={panelCommand}
                   showMenuButton={false}
@@ -707,9 +723,12 @@ export default function CrewChatHub({ orgId, adminName }: { orgId: string; admin
             </div>
             <div className="p-4 overflow-y-auto scrollbar-thin">
               <input value={personQuery} onChange={(e) => setPersonQuery(e.target.value)} autoFocus
-                placeholder="Search people"
-                className="w-full px-3 py-2 rounded-xl text-xs outline-none mb-2"
+                placeholder="Search crew and collaborators"
+                className="w-full px-3 py-2 rounded-xl text-xs outline-none mb-1.5"
                 style={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
+              <p className="text-[10px] mb-2 leading-snug" style={{ color: 'hsl(var(--text-faint))' }}>
+                {INTERNAL_ONLY_NOTE}
+              </p>
               <div className="space-y-0.5">
                 {filteredPeople.map((p) => (
                   <button key={p.id} type="button" disabled={busy}

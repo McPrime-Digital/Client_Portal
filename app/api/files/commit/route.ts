@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
     const {
       projectId,
       clientId: bodyClientId,
+      roomId,
       key,
       fileName,
       fileSize,
@@ -47,7 +48,7 @@ export async function POST(req: NextRequest) {
     }
 
     const role = userRole(user)
-    const scope = await resolveUploadScope(role, user.id, projectId, bodyClientId)
+    const scope = await resolveUploadScope(role, user.id, projectId, bodyClientId, roomId)
     if ('error' in scope) {
       return NextResponse.json({ error: scope.error }, { status: scope.status })
     }
@@ -75,6 +76,10 @@ export async function POST(req: NextRequest) {
       .insert({
         project_id: projectId ?? null,
         client_id: scope.clientId,
+        // STAMPED, not defaulted (T-5). The column DEFAULT is McPrime's org,
+        // so a second studio's internal room file landed in tenant zero —
+        // which the room scope is the first path to make reachable at all.
+        ...(scope.orgId ? { organization_id: scope.orgId } : {}),
         file_name: fileName,
         file_path: key,
         file_size: typeof fileSize === 'number' ? fileSize : 0,

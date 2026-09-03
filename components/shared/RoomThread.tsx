@@ -26,7 +26,7 @@ import { createClient } from '@/lib/supabase/client'
 import MessageThread from '@/components/shared/MessageThread'
 import ApprovalCard from '@/components/shared/ApprovalCard'
 import type { Message } from '@/lib/types/database'
-import { uploadFileToR2 } from '@/lib/uploadClient'
+import { uploadFileToR2, UploadCancelled, MULTIPART_MIN_FILE, type UploadHandle } from '@/lib/uploadClient'
 import {
   playInThreadChime,
   playMessageChime,
@@ -294,8 +294,13 @@ export default function RoomThread({
   const roomTopic = `room:${clientId}`
 
   /** Per-optimistic-message upload progress, for the ring drawn over the
-   *  media itself rather than in the composer (item 5). */
-  const [uploads, setUploads] = useState<Record<string, { pct: number; bytes: number; failed?: boolean }>>({})
+   *  media itself rather than in the composer (item 5). Batch 24 adds the
+   *  live CONTROLS: paused state here, the handle in the ref below. */
+  const [uploads, setUploads] = useState<Record<string, { pct: number; bytes: number; failed?: boolean; paused?: boolean; canPause?: boolean }>>({})
+  const uploadHandles = useRef<Record<string, UploadHandle>>({})
+  /** Captions edited while the upload is still in flight (the row has no
+   *  server id yet, so the send reads the latest value from here). */
+  const pendingBodies = useRef<Record<string, string>>({})
   const [ownUserId, setOwnUserId] = useState<string | null>(null)
   /** Bubble-head resolution (room mode): sender id → name + avatar, served
    *  by the room messages endpoint alongside each page. */
@@ -1382,33 +1387,50 @@ export default function RoomThread({
       created_at: new Date().toISOString(),
     }
     setMessages((prev) => [...prev, optimistic])
-    setUploads((u) => ({ ...u, [tempId]: { pct: 0, bytes: file.size } }))
+    pendingBodies.current[tempId] = body
+    setUploads((u) => ({
+      ...u,
+      [tempId]: { pct: 0, bytes: file.size, canPause: file.size >= MULTIPART_MIN_FILE },
+    }))
 
     try {
       const uploaded = await uploadFileToR2({
         file,
-        ...(effectiveTag ? { projectId: effectiveTag } : { clientId }),
+        ...(roomIdProp ? { roomId: roomIdProp } : effectiveTag ? { projectId: effectiveTag } : { clientId }),
         direction: role === 'admin' ? 'delivery' : 'client-upload',
         category: 'message',
+        onHandle: (h) => { uploadHandles.current[tempId] = h },
         onProgress: (pct) => setUploads((u) => (u[tempId] ? { ...u, [tempId]: { ...u[tempId], pct } } : u)),
       })
+      // The caption may have been rewritten while the bytes were moving —
+      // send what the composer says NOW, not what it said at pick time.
+      const finalBody = pendingBodies.current[tempId] ?? body
       const res = await fetch(
-        role === 'admin' ? '/api/admin/project-actions' : '/api/portal/actions',
+        roomBase ?? (role === 'admin' ? '/api/admin/project-actions' : '/api/portal/actions'),
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'send_message',
-            ...(effectiveTag
-              ? { project_id: effectiveTag }
-              : role === 'admin'
-                ? { client_id: clientId }
-                : {}),
-            body,
-            attachment_url: `${uploaded.bucket}::${uploaded.file_path}`,
-            attachment_name: uploaded.file_name,
-            attachment_file_id: uploaded.id,
-          }),
+          body: JSON.stringify(
+            roomBase
+              ? {
+                  body: finalBody,
+                  attachment_url: `${uploaded.bucket}::${uploaded.file_path}`,
+                  attachment_name: uploaded.file_name,
+                  attachment_file_id: uploaded.id,
+                }
+              : {
+                  action: 'send_message',
+                  ...(effectiveTag
+                    ? { project_id: effectiveTag }
+                    : role === 'admin'
+                      ? { client_id: clientId }
+                      : {}),
+                  body: finalBody,
+                  attachment_url: `${uploaded.bucket}::${uploaded.file_path}`,
+                  attachment_name: uploaded.file_name,
+                  attachment_file_id: uploaded.id,
+                }
+          ),
         }
       )
       const json = await res.json()
@@ -1438,7 +1460,20 @@ export default function RoomThread({
         })
       }
       setUploads((u) => Object.fromEntries(Object.entries(u).filter(([k]) => k !== tempId)))
+      delete uploadHandles.current[tempId]
+      delete pendingBodies.current[tempId]
     } catch (e) {
+      delete uploadHandles.current[tempId]
+      delete pendingBodies.current[tempId]
+      if (e instanceof UploadCancelled) {
+        // A cancel is a DECISION, not a failure: the bubble and its progress
+        // go, quietly, and the server has already aborted the multipart so
+        // nothing is billed. Leaving a "failed" chip here would be the app
+        // arguing with the person who pressed cancel.
+        setMessages((prev) => prev.filter((m) => m.id !== tempId))
+        setUploads((u) => Object.fromEntries(Object.entries(u).filter(([k]) => k !== tempId)))
+        return
+      }
       // Kept, marked, and explained — never silently removed.
       setUploads((u) => ({
         ...u,
@@ -1455,7 +1490,7 @@ export default function RoomThread({
   async function handleAttachmentUpload(file: File) {
     const uploaded = await uploadFileToR2({
       file,
-      ...(effectiveTag ? { projectId: effectiveTag } : { clientId }),
+      ...(roomIdProp ? { roomId: roomIdProp } : effectiveTag ? { projectId: effectiveTag } : { clientId }),
       direction: role === 'admin' ? 'delivery' : 'client-upload',
       category: 'message',
     })
@@ -1465,6 +1500,59 @@ export default function RoomThread({
       fileId: uploaded.id,
     }
   }
+
+  /** Pause / resume / cancel the upload riding a pending bubble. */
+  const handleUploadAction = useCallback(
+    (messageId: string, action: 'pause' | 'resume' | 'cancel') => {
+      const h = uploadHandles.current[messageId]
+      if (action === 'cancel') {
+        // Cancel even without a live handle: a failed row still has a bubble
+        // and a chip to clear, and "Remove" must always remove.
+        h?.cancel()
+        setMessages((prev) => prev.filter((m) => m.id !== messageId))
+        setUploads((u) => Object.fromEntries(Object.entries(u).filter(([k]) => k !== messageId)))
+        delete uploadHandles.current[messageId]
+        delete pendingBodies.current[messageId]
+        return
+      }
+      if (!h) return
+      if (action === 'pause') h.pause()
+      else h.resume()
+      setUploads((u) => (u[messageId] ? { ...u, [messageId]: { ...u[messageId], paused: action === 'pause' } } : u))
+    },
+    []
+  )
+
+  /** Rewrite a still-uploading message's caption. Local only — the send
+   *  reads `pendingBodies` when the bytes land. */
+  const handleEditPending = useCallback((messageId: string, newBody: string) => {
+    pendingBodies.current[messageId] = newBody
+    setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, body: newBody } : m)))
+  }, [])
+
+  /** Save an attachment to the device. The signing route mints an
+   *  `attachment` disposition carrying the real filename, so the browser
+   *  writes "Cut v3.mp4" rather than the collision-safe key R2 stores. */
+  const handleDownload = useCallback(async (msg: Message) => {
+    const fileId = (msg as { attachment_file_id?: string | null }).attachment_file_id
+    if (!msg.attachment_url && !fileId) return
+    try {
+      const res = await fetch('/api/portal/messages/attachment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...(fileId ? { file_id: fileId } : {}), ref: msg.attachment_url, download: true }),
+      })
+      const json = await res.json()
+      if (!res.ok || !json.url) throw new Error(json.error ?? 'Could not prepare the download')
+      // A plain navigation, not an <a download>: the file is cross-origin on
+      // R2, where the `download` attribute is ignored — the disposition
+      // header the URL carries is what actually saves it.
+      window.location.href = json.url
+    } catch (e) {
+      setSendError(e instanceof Error ? e.message : 'Download failed')
+      setTimeout(() => setSendError(null), 6000)
+    }
+  }, [])
 
   async function handleDeleteMessage(messageId: string) {
     const res = await fetch('/api/portal/messages/delete', {
@@ -1534,6 +1622,9 @@ export default function RoomThread({
             onUploadAttachment={allowAttachments ? handleAttachmentUpload : undefined}
             onSendWithAttachment={allowAttachments ? sendWithAttachment : undefined}
             uploads={uploads}
+            onUploadAction={handleUploadAction}
+            onDownloadAttachment={handleDownload}
+            onEditPending={handleEditPending}
             onDeleteMessage={handleDeleteMessage}
             onEditMessage={handleEditMessage}
             onTyping={handleTyping}
@@ -1880,6 +1971,9 @@ export default function RoomThread({
                   onUploadAttachment={allowAttachments ? handleAttachmentUpload : undefined}
             onSendWithAttachment={allowAttachments ? sendWithAttachment : undefined}
             uploads={uploads}
+                  onUploadAction={handleUploadAction}
+                  onDownloadAttachment={handleDownload}
+                  onEditPending={handleEditPending}
                   onDeleteMessage={handleDeleteMessage}
                   onEditMessage={handleEditMessage}
                   onTyping={handleTyping}

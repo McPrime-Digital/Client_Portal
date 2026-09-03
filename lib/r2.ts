@@ -7,6 +7,7 @@ import {
   UploadPartCommand,
   CompleteMultipartUploadCommand,
   AbortMultipartUploadCommand,
+  ListPartsCommand,
   DeleteObjectCommand,
   GetObjectCommand,
 } from '@aws-sdk/client-s3'
@@ -195,6 +196,133 @@ export async function deleteFromR2(
     new DeleteObjectCommand({
       Bucket: process.env.R2_BUCKET_NAME!,
       Key: path,
+    })
+  )
+}
+
+// ── Browser-driven multipart: pause, resume, cancel ─────────────────────────
+//
+// `uploadToR2` above buffers the whole file in the function's memory, which is
+// why nothing calls it. THESE helpers are the direct-to-R2 equivalent: the
+// server only ever mints an upload id and presigned PART urls, and the bytes
+// go browser → R2 exactly as the single-PUT path does.
+//
+// WHY THIS EXISTS AT ALL: a single PUT cannot be paused or resumed — the only
+// stop is an abort that discards everything already sent. Parts can be, and a
+// 4 GB master on hotel wifi is precisely the case where that matters.
+//
+// THE ETag TRAP, and why completion reads the parts back from R2 rather than
+// from the browser. S3 completion needs every part's ETag. The obvious design
+// has the browser read `ETag` off each PUT response — but a cross-origin XHR
+// can only read a header the bucket's CORS policy names in
+// `ExposeHeaders`. Ours does not, and requiring that would be a fourth
+// silent, deploy-time CORS dependency of exactly the kind Batch 17 spent a
+// round chasing. `ListParts` asks R2 what it actually stored, from the
+// server, with no CORS surface at all.
+
+/** R2/S3 minimum part size (except the final part). */
+export const MULTIPART_PART_SIZE = 8 * 1024 * 1024 // 8 MB
+/** Below this a single PUT is over before a pause button could be pressed. */
+export const MULTIPART_MIN_FILE = 8 * 1024 * 1024
+
+export async function createMultipartUpload(
+  path: string,
+  contentType: string
+): Promise<string> {
+  const { UploadId } = await r2.send(
+    new CreateMultipartUploadCommand({
+      Bucket: process.env.R2_BUCKET_NAME!,
+      Key: path,
+      ContentType: contentType,
+    })
+  )
+  if (!UploadId) throw new Error('R2 did not return an upload id')
+  return UploadId
+}
+
+/** Presigned PUT urls for a batch of part numbers. Signed in batches by the
+ *  caller so a 500-part upload does not sign 500 urls up front — a presigned
+ *  url has a lifetime, and one minted an hour before it is used is a failure
+ *  waiting on a slow connection. */
+export async function signUploadParts(
+  path: string,
+  uploadId: string,
+  partNumbers: number[],
+  expiresInSeconds = 3600
+): Promise<Record<number, string>> {
+  const out: Record<number, string> = {}
+  await Promise.all(
+    partNumbers.map(async (n) => {
+      out[n] = await getSignedUrl(
+        r2,
+        new UploadPartCommand({
+          Bucket: process.env.R2_BUCKET_NAME!,
+          Key: path,
+          UploadId: uploadId,
+          PartNumber: n,
+        }),
+        { expiresIn: expiresInSeconds }
+      )
+    })
+  )
+  return out
+}
+
+/** Which parts R2 already holds — the resume cursor, and the ETag source. */
+export async function listUploadedParts(
+  path: string,
+  uploadId: string
+): Promise<{ PartNumber: number; ETag: string }[]> {
+  const parts: { PartNumber: number; ETag: string }[] = []
+  let marker: number | undefined
+  // Paginated deliberately: 10,000 parts is the S3 ceiling and one page is
+  // 1,000, so a large master would silently complete with a truncated part
+  // list — which R2 accepts and which produces a corrupt object.
+  for (;;) {
+    const res = await r2.send(
+      new ListPartsCommand({
+        Bucket: process.env.R2_BUCKET_NAME!,
+        Key: path,
+        UploadId: uploadId,
+        PartNumberMarker: marker != null ? String(marker) : undefined,
+      })
+    )
+    for (const p of res.Parts ?? []) {
+      if (p.PartNumber != null && p.ETag) parts.push({ PartNumber: p.PartNumber, ETag: p.ETag })
+    }
+    if (!res.IsTruncated) break
+    marker = res.NextPartNumberMarker ? Number(res.NextPartNumberMarker) : undefined
+    if (marker == null) break
+  }
+  return parts.sort((a, b) => a.PartNumber - b.PartNumber)
+}
+
+export async function completeMultipartUpload(
+  path: string,
+  uploadId: string,
+  parts: { PartNumber: number; ETag: string }[]
+): Promise<void> {
+  await r2.send(
+    new CompleteMultipartUploadCommand({
+      Bucket: process.env.R2_BUCKET_NAME!,
+      Key: path,
+      UploadId: uploadId,
+      MultipartUpload: { Parts: parts },
+    })
+  )
+}
+
+/** Abort and destroy every uploaded part. Called on cancel and on failure —
+ *  an abandoned multipart upload is billed storage until it is aborted. */
+export async function abortMultipartUpload(
+  path: string,
+  uploadId: string
+): Promise<void> {
+  await r2.send(
+    new AbortMultipartUploadCommand({
+      Bucket: process.env.R2_BUCKET_NAME!,
+      Key: path,
+      UploadId: uploadId,
     })
   )
 }

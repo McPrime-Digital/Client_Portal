@@ -117,7 +117,7 @@ export async function GET(
       .order('created_at', { ascending: false })
       .limit(30)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    const rows = scrub(deriveWire(stripJoins(hits ?? []), sides))
+    const rows = await signAttachments(supabaseAdmin, scrub(deriveWire(stripJoins(hits ?? []), sides)))
     return NextResponse.json({ messages: rows, roomId, nextCursor: null, hasMore: false })
   }
 
@@ -132,7 +132,7 @@ export async function GET(
     const pinned = (pinRows ?? [])
       .map((p) => (Array.isArray(p.messages) ? p.messages[0] : p.messages))
       .filter((m) => m != null)
-    const rows = scrub(deriveWire(stripJoins(pinned), sides))
+    const rows = await signAttachments(supabaseAdmin, scrub(deriveWire(stripJoins(pinned), sides)))
     return NextResponse.json({ messages: rows, roomId, nextCursor: null, hasMore: false })
   }
 
@@ -155,7 +155,7 @@ export async function GET(
     const trimmed = hasMore ? page.slice(0, limit) : page
     const oldest = trimmed[trimmed.length - 1] as { created_at: string; id: string } | undefined
     const nextCursor = hasMore && oldest ? encodeCursor({ t: oldest.created_at, id: oldest.id }) : null
-    const rows = scrub(deriveWire(stripJoins(trimmed.slice().reverse()), sides))
+    const rows = await signAttachments(supabaseAdmin, scrub(deriveWire(stripJoins(trimmed.slice().reverse()), sides)))
     return NextResponse.json({ messages: rows, roomId, nextCursor, hasMore })
   }
 

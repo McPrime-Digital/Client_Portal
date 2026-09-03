@@ -336,7 +336,20 @@ export async function createRoom(db: SupabaseClient, input: CreateRoomInput) {
  */
 export async function ensureDm(
   db: SupabaseClient,
-  opts: { orgId: string; createdBy: string; otherUserId: string }
+  opts: {
+    orgId: string
+    createdBy: string
+    otherUserId: string
+    /**
+     * WHICH SPACE THIS DM BELONGS TO (the owner's correction, 2026-09-03).
+     * A DM with a client company's person is client-facing work and belongs
+     * in Client › Messages; a crew-to-crew DM is internal and belongs in
+     * Crew › Chat. `client_id` is what routes it, exactly as it routes the
+     * company room — so the hubs filter on one column instead of guessing
+     * from who is in the room.
+     */
+    clientId?: string | null
+  }
 ) {
   if (opts.createdBy === opts.otherUserId) throw new Error('ensureDm: a DM needs two different people')
   const dmKey = [opts.createdBy, opts.otherUserId].sort().join(':')
@@ -356,6 +369,7 @@ export async function ensureDm(
       .from('message_rooms')
       .insert({
         organization_id: opts.orgId, kind: 'dm', dm_key: dmKey,
+        client_id: opts.clientId ?? null,
         is_private: true, created_by: opts.createdBy,
       })
       .select('*').single()

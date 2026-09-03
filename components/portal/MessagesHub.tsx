@@ -38,10 +38,14 @@ type Props = {
   projects: ProjectChip[]
   unread: { general: number; byProject: Record<string, number> }
   canSend?: boolean
+  /** Owner-only: the right to OPEN a direct line to the studio. Reading and
+   *  replying in an existing DM or group needs only a seat. */
+  canStartDm?: boolean
 }
 
 type DmRoom = {
   id: string
+  kind?: string
   label: string
   unread: number
   membership: { canPost: boolean }
@@ -58,6 +62,7 @@ export default function MessagesHub({
   projects,
   unread: initialUnread,
   canSend = true,
+  canStartDm = false,
 }: Props) {
   const supabase = createClient()
   const [filter, setFilter] = useState<RoomFilter>({ kind: 'all' })
@@ -75,7 +80,13 @@ export default function MessagesHub({
       const res = await fetch('/api/rooms')
       const json = await res.json()
       if (res.ok && json.rooms) {
-        setDmRooms((json.rooms as (DmRoom & { kind: string })[]).filter((r) => r.kind === 'dm'))
+        // The portal carries DIRECT MESSAGES and GROUPS — nothing else. A
+        // channel or a broadcast is a studio-side shape; a client sees the
+        // rooms they are seated in, and their own company conversation.
+        setDmRooms(
+          (json.rooms as (DmRoom & { kind: string })[])
+            .filter((r) => r.kind === 'dm' || r.kind === 'group')
+        )
       }
     } catch { /* retried on next mount */ }
   }, [])
@@ -102,7 +113,7 @@ export default function MessagesHub({
       await loadDms()
       const person = dmPeople.find((p) => p.id === withUserId)
       setActiveDm({
-        id: json.room.id, label: person?.name ?? 'Direct message',
+        id: json.room.id, kind: 'dm', label: person?.name ?? 'Direct message',
         unread: 0, membership: { canPost: true }, members: [],
       })
     } catch { /* the picker can be tapped again */ }
@@ -430,7 +441,7 @@ export default function MessagesHub({
             {dmRooms.map((dm) =>
               chip(
                 dm.id,
-                `✉ ${dm.label}`,
+                `${dm.kind === 'group' ? '◆' : '✉'} ${dm.label}`,
                 activeDm?.id === dm.id,
                 dm.unread,
                 () => {
@@ -439,7 +450,7 @@ export default function MessagesHub({
                 }
               )
             )}
-            {dmPeople.length > 0 && (
+            {canStartDm && dmPeople.length > 0 && (
               <div className="relative flex-shrink-0" data-tl-keep-open>
                 <button
                   onClick={() => setDmPickerOpen((v) => !v)}
@@ -492,13 +503,13 @@ export default function MessagesHub({
             key={activeDm.id}
             role="client"
             clientId={activeDm.id}
-            room={{ id: activeDm.id, kind: 'dm', label: activeDm.label }}
+            room={{ id: activeDm.id, kind: activeDm.kind ?? 'dm', label: activeDm.label }}
             orgId={orgId}
             filter={{ kind: 'all' }}
             currentName={clientName}
             otherName={activeDm.label}
             canSend={activeDm.membership.canPost}
-            allowAttachments={false}
+            allowAttachments={activeDm.membership.canPost}
             selfFallback
             panelCommand={panelCommand}
             showMenuButton={false}

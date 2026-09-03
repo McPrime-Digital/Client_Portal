@@ -30,6 +30,10 @@ import {
   Bookmark,
   MoreHorizontal,
   Copy,
+  Pause,
+  Play,
+  Download,
+  AudioLines,
 } from 'lucide-react'
 import type { Message } from '@/lib/types/database'
 import { splitBody, buildMentionToken, mentionQueryOf, replaceTrailingMentionQuery, stripMentionTokens, type BodyPart } from '@/lib/mentionClient'
@@ -62,8 +66,17 @@ type Props = {
    * behind it. When present, picking a file no longer uploads on pick.
    */
   onSendWithAttachment?: (file: File, body: string) => Promise<void>
-  /** Upload progress per optimistic message id, for the ring over the media. */
-  uploads?: Record<string, { pct: number; bytes: number; failed?: boolean }>
+  /** Upload progress per optimistic message id, for the ring over the media.
+   *  `paused`/`canPause` drive the controls drawn on the ring itself. */
+  uploads?: Record<string, { pct: number; bytes: number; failed?: boolean; paused?: boolean; canPause?: boolean }>
+  /** Pause / resume / cancel an upload from the bubble carrying it. Cancel
+   *  removes the message and destroys whatever reached R2. */
+  onUploadAction?: (messageId: string, action: 'pause' | 'resume' | 'cancel') => void
+  /** Save an attachment to the device (Content-Disposition: attachment). */
+  onDownloadAttachment?: (msg: Message) => void
+  /** Rewrite the caption of a message that is still uploading. The row has no
+   *  server id yet, so this is a local edit the send picks up when it fires. */
+  onEditPending?: (messageId: string, body: string) => void
   onDeleteMessage?: (messageId: string) => Promise<void>
   onEditMessage?: (messageId: string, newBody: string) => Promise<void>
   onTyping?: () => void
@@ -228,6 +241,9 @@ export default function MessageThread({
   onUploadAttachment,
   onSendWithAttachment,
   uploads = {},
+  onUploadAction,
+  onDownloadAttachment,
+  onEditPending,
   onDeleteMessage,
   onEditMessage,
   onTyping,
@@ -391,6 +407,7 @@ export default function MessageThread({
   const fetchingOlderRef = useRef(false)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const videoInputRef = useRef<HTMLInputElement>(null)
+  const audioInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -827,7 +844,9 @@ export default function MessageThread({
             <div
               key={msg.id}
               id={`msg-${msg.id}`}
-              className={`tl-msg-in ${showDate ? '' : prevSame ? 'mt-[2px]' : 'mt-3'} ${highlightId === msg.id ? 'rounded-2xl' : ''}`}
+              // `relative` + a hover lift so THIS row's floating controls
+              // paint above its neighbours rather than under the next one.
+              className={`tl-msg-in relative hover:z-20 ${showDate ? '' : prevSame ? 'mt-[2px]' : 'mt-3'} ${highlightId === msg.id ? 'rounded-2xl' : ''}`}
               style={highlightId === msg.id ? { boxShadow: '0 0 0 2px hsl(var(--primary) / 0.6)', transition: 'box-shadow 0.4s' } : undefined}
             >
               {showDate && (
@@ -888,9 +907,17 @@ export default function MessageThread({
                 >
                   {/* Horizontal action bar (Batch 16): floats over the group
                       on hover — react · quote · thread · more. */}
+                  {/* THE INVISIBLE BAR WAS EATING THE CLICKS (Batch 24).
+                      `opacity-0` hides an element but keeps it clickable, and
+                      this one sits at -top-4 — overlapping the message ABOVE.
+                      So on a tall media bubble the neighbour's own actions
+                      were behind an unseen, un-hoverable strip: "the actions
+                      hide behind rather than in front". pointer-events-none
+                      until hover is the fix; z-30 puts it over the media's
+                      own stacking context for good measure. */}
                   <div
                     data-tl-keep-open
-                    className={`absolute -top-4 ${isMe ? 'right-0' : 'left-0'} z-20 ${selectionMode ? 'hidden' : 'opacity-0 group-hover:opacity-100'} transition-opacity duration-150 flex items-center rounded-full shadow-lg`}
+                    className={`absolute -top-4 ${isMe ? 'right-0' : 'left-0'} z-30 ${selectionMode ? 'hidden' : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto'} transition-opacity duration-150 flex items-center rounded-full shadow-lg`}
                     style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
                   >
                     {onToggleReaction && (
@@ -979,6 +1006,18 @@ export default function MessageThread({
                           {savedIds?.has(msg.id) ? 'Unsave' : 'Save for me'}
                         </button>
                       )}
+                      {/* Save to device — the WhatsApp affordance this had no
+                          equivalent of: media could be viewed, never kept. */}
+                      {onDownloadAttachment && msg.attachment_url && !isPending(msg) && (
+                        <button
+                          onClick={() => { onDownloadAttachment(msg); setMsgMenuFor(null) }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-left transition-colors hover:bg-[hsl(var(--primary)/0.08)]"
+                          style={{ color: 'hsl(var(--foreground))' }}
+                        >
+                          <Download size={12} style={{ color: 'hsl(var(--primary))' }} />
+                          Save to device
+                        </button>
+                      )}
                       {msg.body && (
                         <button
                           onClick={() => {
@@ -992,7 +1031,23 @@ export default function MessageThread({
                           Copy text
                         </button>
                       )}
-                      {isMe && canEdit(msg.created_at) && onEditMessage && msg.body && (
+                      {/* EDIT WORKS DURING AN UPLOAD NOW. It never did: the
+                          row is still a `temp-` id, so the edit PATCH had no
+                          row to name and the menu item was hidden by the
+                          `msg.body` guard whenever the caption was empty. A
+                          pending message's caption is edited LOCALLY and the
+                          send carries the final text (onEditPending). */}
+                      {isPending(msg) && onEditPending && (
+                        <button
+                          onClick={() => { setEditingMsg(msg); setEditText(msg.body ?? ''); setMsgMenuFor(null) }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-left transition-colors hover:bg-[hsl(var(--primary)/0.08)]"
+                          style={{ color: 'hsl(var(--foreground))' }}
+                        >
+                          <Pencil size={12} style={{ color: 'hsl(var(--text-faint))' }} />
+                          {msg.body ? 'Edit caption' : 'Add a caption'}
+                        </button>
+                      )}
+                      {!isPending(msg) && isMe && canEdit(msg.created_at) && onEditMessage && msg.body && (
                         <button
                           onClick={() => { setEditingMsg(msg); setEditText(msg.body); setMsgMenuFor(null) }}
                           className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-left transition-colors hover:bg-[hsl(var(--primary)/0.08)]"
@@ -1000,6 +1055,20 @@ export default function MessageThread({
                         >
                           <Pencil size={12} style={{ color: 'hsl(var(--text-faint))' }} />
                           Edit
+                        </button>
+                      )}
+                      {/* Deleting a message that is still uploading CANCELS
+                          the upload. It used to call the delete route with a
+                          `temp-` id, which 404s — the reported "I deleted a
+                          file that was still loading and it didn't work". */}
+                      {isPending(msg) && onUploadAction && uploads[msg.id] && (
+                        <button
+                          onClick={() => { onUploadAction(msg.id, 'cancel'); setMsgMenuFor(null) }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-left transition-colors hover:bg-[hsl(var(--destructive)/0.12)]"
+                          style={{ color: 'hsl(var(--destructive))' }}
+                        >
+                          <Trash2 size={12} />
+                          Cancel upload
                         </button>
                       )}
                       {deletable && (
@@ -1099,24 +1168,68 @@ export default function MessageThread({
                         style={{ backgroundColor: 'hsl(var(--background) / 0.55)', backdropFilter: 'blur(2px)' }}
                       >
                         {uploads[msg.id].failed ? (
-                          <span className="text-[11px] font-semibold" style={{ color: 'hsl(var(--destructive))' }}>
-                            Upload failed
-                          </span>
+                          <>
+                            <span className="text-[11px] font-semibold" style={{ color: 'hsl(var(--destructive))' }}>
+                              Upload failed
+                            </span>
+                            {onUploadAction && (
+                              <button
+                                type="button"
+                                onClick={() => onUploadAction(msg.id, 'cancel')}
+                                className="text-[10px] font-semibold px-2 py-1 rounded-lg"
+                                style={{ color: 'hsl(var(--destructive))', border: '1px solid hsl(var(--destructive) / 0.4)' }}
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </>
                         ) : (
                           <>
-                            <svg width="42" height="42" viewBox="0 0 42 42" className="-rotate-90">
-                              <circle cx="21" cy="21" r="17" fill="none" strokeWidth="3"
-                                stroke="hsl(var(--foreground) / 0.18)" />
-                              <circle cx="21" cy="21" r="17" fill="none" strokeWidth="3" strokeLinecap="round"
-                                stroke="hsl(var(--primary))"
-                                strokeDasharray={2 * Math.PI * 17}
-                                strokeDashoffset={2 * Math.PI * 17 * (1 - uploads[msg.id].pct / 100)}
-                                style={{ transition: 'stroke-dashoffset 0.2s linear' }} />
-                            </svg>
+                            {/* THE RING IS THE CONTROL, not just a readout
+                                (Batch 24). Tapping the middle pauses or
+                                resumes a resumable upload; the ✕ stops it and
+                                destroys whatever reached R2. Before this the
+                                only way out of a slow upload was to wait for
+                                it — and deleting the message did nothing,
+                                because a `temp-` id is not a row. */}
+                            <div className="relative w-[42px] h-[42px]">
+                              <svg width="42" height="42" viewBox="0 0 42 42" className="-rotate-90">
+                                <circle cx="21" cy="21" r="17" fill="none" strokeWidth="3"
+                                  stroke="hsl(var(--foreground) / 0.18)" />
+                                <circle cx="21" cy="21" r="17" fill="none" strokeWidth="3" strokeLinecap="round"
+                                  stroke="hsl(var(--primary))"
+                                  strokeDasharray={2 * Math.PI * 17}
+                                  strokeDashoffset={2 * Math.PI * 17 * (1 - uploads[msg.id].pct / 100)}
+                                  style={{ transition: 'stroke-dashoffset 0.2s linear' }} />
+                              </svg>
+                              {onUploadAction && uploads[msg.id].canPause && (
+                                <button
+                                  type="button"
+                                  title={uploads[msg.id].paused ? 'Resume upload' : 'Pause upload'}
+                                  onClick={() => onUploadAction(msg.id, uploads[msg.id].paused ? 'resume' : 'pause')}
+                                  className="absolute inset-0 flex items-center justify-center"
+                                  style={{ color: 'hsl(var(--primary))' }}
+                                >
+                                  {uploads[msg.id].paused ? <Play size={15} /> : <Pause size={15} />}
+                                </button>
+                              )}
+                            </div>
                             <span className="text-[10px] font-semibold tabular-nums"
                               style={{ color: 'hsl(var(--foreground))' }}>
+                              {uploads[msg.id].paused ? 'Paused · ' : ''}
                               {uploads[msg.id].pct}% · {formatBytes(uploads[msg.id].bytes)}
                             </span>
+                            {onUploadAction && (
+                              <button
+                                type="button"
+                                onClick={() => onUploadAction(msg.id, 'cancel')}
+                                className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-lg"
+                                style={{ color: 'hsl(var(--destructive))' }}
+                                title="Cancel and delete this upload"
+                              >
+                                <X size={10} /> Cancel
+                              </button>
+                            )}
                           </>
                         )}
                       </div>
@@ -1262,8 +1375,14 @@ export default function MessageThread({
                           value={editText}
                           onChange={(e) => setEditText(e.target.value)}
                           onKeyDown={async (e) => {
-                            if (e.key === 'Enter' && editText.trim() && onEditMessage) {
-                              await onEditMessage(msg.id, editText.trim())
+                            if (e.key === 'Enter') {
+                              if (isPending(msg) && onEditPending) {
+                                onEditPending(msg.id, editText.trim())
+                              } else if (editText.trim() && onEditMessage) {
+                                await onEditMessage(msg.id, editText.trim())
+                              } else {
+                                return
+                              }
                               setEditingMsg(null)
                               setEditText('')
                             }
@@ -1275,7 +1394,9 @@ export default function MessageThread({
                         <div className="flex items-center gap-2 mt-1.5">
                           <button
                             onClick={async () => {
-                              if (editText.trim() && onEditMessage) {
+                              if (isPending(msg) && onEditPending) {
+                                onEditPending(msg.id, editText.trim())
+                              } else if (editText.trim() && onEditMessage) {
                                 await onEditMessage(msg.id, editText.trim())
                               }
                               setEditingMsg(null)
@@ -1589,6 +1710,11 @@ export default function MessageThread({
               {/* Hidden file inputs */}
               <input type="file" ref={imageInputRef} className="hidden" accept="image/*" onChange={handleFileChange} />
               <input type="file" ref={videoInputRef} className="hidden" accept="video/*" onChange={handleFileChange} />
+              {/* Audio as a first-class pick (Batch 24). The recorder captured
+                  a voice note; there was no way to send a track, a mix or a
+                  reference — a file picker with no filter is not the same
+                  offer on a phone, where "Audio" opens the music library. */}
+              <input type="file" ref={audioInputRef} className="hidden" accept="audio/*" onChange={handleFileChange} />
               <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileChange} />
 
               <button
@@ -1630,6 +1756,15 @@ export default function MessageThread({
                   >
                     <Video size={16} style={{ color: 'hsl(var(--status-violet))' }} />
                     Video
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => audioInputRef.current?.click()}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors hover:bg-[hsl(var(--border))]"
+                    style={{ color: 'hsl(var(--foreground))' }}
+                  >
+                    <AudioLines size={16} style={{ color: 'hsl(var(--status-blue))' }} />
+                    Audio
                   </button>
                   <button
                     type="button"

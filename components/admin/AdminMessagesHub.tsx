@@ -16,7 +16,7 @@ import { prefetchThreads, cacheKeyFor, filterKeyFor, threadListUrl } from '@/lib
 import { useDismissOnOutside } from '@/lib/hooks/useDismissOnOutside'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Volume2, VolumeX, MessageSquare, ChevronLeft, MoreVertical } from 'lucide-react'
+import { Volume2, VolumeX, MessageSquare, ChevronLeft, MoreVertical, Hash, Lock, Megaphone, Plus, X } from 'lucide-react'
 import RoomThread, { type RoomFilter, type ExternalRow } from '@/components/shared/RoomThread'
 import type { Message } from '@/lib/types/database'
 import { messagePreview } from '@/lib/messagePreview'
@@ -58,9 +58,38 @@ function timeAgo(date: string) {
   return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+/**
+ * Extra rooms a client company can carry beyond its one primary room
+ * (Batch 24, the owner's correction): channels, private groups, broadcasts
+ * and DMs that are CLIENT-FACING work. They are stamped with the company, so
+ * one column decides which space shows them — this hub, never Crew · Chat.
+ */
+type ExtraRoom = {
+  id: string
+  kind: 'channel' | 'group' | 'dm' | 'broadcast'
+  clientId: string | null
+  label: string
+  unread: number
+  archived: boolean
+  membership: { canPost: boolean }
+}
+
+const EXTRA_ICON: Record<string, typeof Hash> = {
+  channel: Hash, group: Lock, broadcast: Megaphone, dm: MessageSquare,
+}
+
 export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms }: Props) {
   const supabase = createClient()
   const [rooms, setRooms] = useState(initialRooms)
+  const [extraRooms, setExtraRooms] = useState<ExtraRoom[]>([])
+  const [activeExtra, setActiveExtra] = useState<ExtraRoom | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [people, setPeople] = useState<{ id: string; name: string; avatarUrl: string | null; side: string; sub: string }[]>([])
+  const [newKind, setNewKind] = useState<'channel' | 'group' | 'broadcast' | 'dm'>('channel')
+  const [newName, setNewName] = useState('')
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [busy, setBusy] = useState(false)
+  const [createErr, setCreateErr] = useState<string | null>(null)
   // Seeded from the ROOM LIST rather than set by an effect: the studio should
   // land in the busiest room on the first paint, not on a second render after
   // one. This was `useState(null)` plus an effect that immediately called
@@ -227,8 +256,80 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
     return () => { supabase.removeChannel(ch) }
   }, [orgId, supabase])
 
+  // ── The company's extra rooms (Batch 24) ─────────────────────────────────
+  const loadExtraRooms = useCallback(async () => {
+    try {
+      const res = await fetch('/api/rooms')
+      const json = await res.json()
+      if (!res.ok || !json.rooms) return
+      // CLIENT-FACING ONLY. The company column is the space boundary: a room
+      // with no company is internal and belongs to Crew · Chat.
+      setExtraRooms(
+        (json.rooms as { kind: string; clientId: string | null }[])
+          .filter((r) => r.clientId != null && r.kind !== 'client') as unknown as ExtraRoom[]
+      )
+    } catch { /* retried on the next visibility change */ }
+  }, [])
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadExtraRooms()
+    const onVis = () => { if (document.visibilityState === 'visible') void loadExtraRooms() }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [loadExtraRooms])
+
+  // The directory for THIS company: its people, plus the crew who staff the
+  // room. Re-fetched per company — a client-space picker must never offer
+  // another company's contacts.
+  useEffect(() => {
+    if (!activeClientId) return
+    fetch(`/api/rooms?people=1&scope=client&client_id=${activeClientId}`)
+      .then((r) => r.json())
+      .then((json) => { if (json.people) setPeople(json.people) })
+      .catch(() => {})
+  }, [activeClientId])
+
+  const doCreateExtra = useCallback(async () => {
+    if (busy || !activeClientId) return
+    setBusy(true); setCreateErr(null)
+    try {
+      const body = newKind === 'dm'
+        ? { kind: 'dm', with_user_id: [...picked][0] }
+        : {
+            kind: newKind,
+            name: newName.trim(),
+            is_private: newKind === 'group',
+            client_id: activeClientId,
+            member_ids: [...picked],
+          }
+      const res = await fetch('/api/rooms', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Could not create the room')
+      setCreateOpen(false); setNewName(''); setPicked(new Set())
+      await loadExtraRooms()
+      if (json.room?.id) {
+        setActiveExtra({
+          id: json.room.id, kind: newKind, clientId: activeClientId,
+          label: newKind === 'dm'
+            ? (people.find((p) => p.id === [...picked][0])?.name ?? 'Direct message')
+            : newName.trim(),
+          unread: 0, archived: false, membership: { canPost: true },
+        })
+      }
+    } catch (e) {
+      setCreateErr(e instanceof Error ? e.message : 'Could not create the room')
+    } finally {
+      setBusy(false)
+    }
+  }, [busy, activeClientId, newKind, newName, picked, people, loadExtraRooms])
+
   const selectRoom = useCallback((clientId: string) => {
     setActiveClientId(clientId)
+    setActiveExtra(null)
     setFilter({ kind: 'all' })
     setMobileView('thread')
     setClientActivity(null)
@@ -553,11 +654,11 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                     general: false,
                   })),
                 ].map((c) => {
-                  const isOn =
+                  const isOn = !activeExtra && (
                     (c.f.kind === filter.kind && c.f.kind !== 'project') ||
                     (c.f.kind === 'project' &&
                       filter.kind === 'project' &&
-                      c.f.projectId === filter.projectId)
+                      c.f.projectId === filter.projectId))
                   // An active chip wears ITS OWN colour (item 9), so the chip,
                   // the bubble stripe and the composer tag all agree. ALL is
                   // the only gold one — it is the view over everything rather
@@ -566,7 +667,7 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                   return (
                     <button
                       key={c.key}
-                      onClick={() => setFilter(c.f)}
+                      onClick={() => { setActiveExtra(null); setFilter(c.f) }}
                       className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-all duration-150 flex-shrink-0 active:scale-95"
                       style={{
                         backgroundColor: isOn ? (tone ?? 'hsl(var(--primary))') : 'hsl(var(--background))',
@@ -606,9 +707,61 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                     </button>
                   )
                 })}
+                {/* This company's channels, groups, broadcasts and DMs — the
+                    client-facing rooms beyond its one primary conversation. */}
+                {extraRooms.filter((r) => r.clientId === active.clientId).map((r) => {
+                  const Icon = EXTRA_ICON[r.kind] ?? Hash
+                  const isOn = activeExtra?.id === r.id
+                  return (
+                    <button
+                      key={r.id}
+                      onClick={() => { setActiveExtra(r); setExtraRooms((prev) => prev.map((x) => x.id === r.id ? { ...x, unread: 0 } : x)) }}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-all duration-150 flex-shrink-0 active:scale-95"
+                      style={{
+                        backgroundColor: isOn ? 'hsl(var(--primary))' : 'hsl(var(--background))',
+                        color: isOn ? 'hsl(var(--primary-foreground))' : 'hsl(var(--foreground))',
+                        border: `1px solid ${isOn ? 'hsl(var(--primary))' : 'hsl(var(--border))'}`,
+                      }}
+                    >
+                      <Icon size={10} style={{ color: isOn ? 'hsl(var(--primary-foreground))' : 'hsl(var(--primary))' }} />
+                      {r.label}
+                      {r.unread > 0 && !isOn && (
+                        <span className="min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center"
+                          style={{ backgroundColor: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
+                          {r.unread > 99 ? '99+' : r.unread}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+                <button
+                  onClick={() => { setCreateOpen(true); setCreateErr(null); setNewName(''); setPicked(new Set()) }}
+                  className="flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium whitespace-nowrap flex-shrink-0 active:scale-95"
+                  style={{ color: 'hsl(var(--primary))', border: '1px dashed hsl(var(--primary) / 0.5)' }}
+                  title="New channel, group, broadcast or direct message with this company"
+                >
+                  <Plus size={11} />
+                </button>
                 </div>
               </div>
 
+                {activeExtra ? (
+                  <RoomThread
+                    key={activeExtra.id}
+                    role="admin"
+                    clientId={activeExtra.id}
+                    room={{ id: activeExtra.id, kind: activeExtra.kind, label: activeExtra.label }}
+                    orgId={orgId}
+                    filter={{ kind: 'all' }}
+                    currentName={adminName}
+                    otherName={activeExtra.label}
+                    canSend={activeExtra.membership.canPost && !activeExtra.archived}
+                    allowAttachments={activeExtra.membership.canPost && !activeExtra.archived}
+                    selfFallback
+                    panelCommand={panelCommand}
+                    showMenuButton={false}
+                  />
+                ) : (
                 <RoomThread
                   key={active.clientId}
                   role="admin"
@@ -624,11 +777,115 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                   showMenuButton={false}
                   forwardRooms={rooms.map((r) => ({ id: r.clientId, label: r.company ?? r.name }))}
                 />
+                )}
               </div>
             </>
           )}
         </div>
       </div>
+
+      {/* ── New client-facing room ─────────────────────────────────────────
+          Scoped to the OPEN COMPANY: the picker offers that company's people
+          and the crew who staff the room, and the room is stamped with the
+          company so it surfaces here rather than on the internal floor. */}
+      {createOpen && active && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6"
+          style={{ backgroundColor: 'hsl(var(--background) / 0.6)', backdropFilter: 'blur(4px)' }}
+          onClick={() => setCreateOpen(false)}>
+          <div className="w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
+            style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
+            onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: 'hsl(var(--border))' }}>
+              <div>
+                <p className="text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>New room</p>
+                <p className="text-[11px] mt-0.5" style={{ color: 'hsl(var(--text-faint))' }}>
+                  with {active.company ?? active.name}
+                </p>
+              </div>
+              <button onClick={() => setCreateOpen(false)} className="p-1 rounded-lg hover:bg-[hsl(var(--border))]"
+                style={{ color: 'hsl(var(--muted-foreground))' }}>
+                <X size={15} />
+              </button>
+            </div>
+            <div className="p-5 space-y-4 overflow-y-auto scrollbar-thin">
+              <div className="grid grid-cols-4 gap-2">
+                {([
+                  ['channel', 'Channel', Hash],
+                  ['group', 'Group', Lock],
+                  ['broadcast', 'Broadcast', Megaphone],
+                  ['dm', 'Direct', MessageSquare],
+                ] as const).map(([kind, label, Icon]) => (
+                  <button key={kind} type="button"
+                    onClick={() => { setNewKind(kind); setPicked(new Set()) }}
+                    className="rounded-xl p-2.5 text-left border transition-colors"
+                    style={{
+                      borderColor: newKind === kind ? 'hsl(var(--primary))' : 'hsl(var(--border))',
+                      backgroundColor: newKind === kind ? 'hsl(var(--primary) / 0.08)' : 'transparent',
+                    }}>
+                    <Icon size={14} style={{ color: newKind === kind ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))' }} />
+                    <p className="text-[11px] font-semibold mt-1" style={{ color: 'hsl(var(--foreground))' }}>{label}</p>
+                  </button>
+                ))}
+              </div>
+              {newKind !== 'dm' && (
+                <input value={newName} onChange={(e) => setNewName(e.target.value)} autoFocus
+                  placeholder={newKind === 'broadcast' ? 'Announcement channel name' : `${newKind === 'group' ? 'Group' : 'Channel'} name`}
+                  className="w-full px-3 py-2.5 rounded-xl text-sm outline-none focus:border-[hsl(var(--primary))]"
+                  style={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
+              )}
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: 'hsl(var(--text-faint))' }}>
+                  {newKind === 'dm' ? 'Who to message' : `Add people${picked.size > 0 ? ` · ${picked.size} selected` : ''}`}
+                </p>
+                <div className="max-h-56 overflow-y-auto scrollbar-thin space-y-0.5">
+                  {people.map((p) => {
+                    const on = picked.has(p.id)
+                    return (
+                      <button key={p.id} type="button"
+                        onClick={() => setPicked((prev) => {
+                          if (newKind === 'dm') return new Set([p.id])
+                          const next = new Set(prev)
+                          if (next.has(p.id)) next.delete(p.id); else next.add(p.id)
+                          return next
+                        })}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left transition-colors hover:bg-[hsl(var(--primary)/0.08)]"
+                        style={on ? { backgroundColor: 'hsl(var(--primary) / 0.12)' } : undefined}>
+                        <span className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0"
+                          style={{ backgroundColor: 'hsl(var(--primary) / 0.12)', color: 'hsl(var(--primary))' }}>
+                          {p.name.slice(0, 1).toUpperCase()}
+                        </span>
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-sm truncate" style={{ color: 'hsl(var(--foreground))' }}>{p.name}</span>
+                          <span className="block text-[10px] uppercase tracking-wide" style={{ color: 'hsl(var(--text-faint))' }}>{p.sub}</span>
+                        </span>
+                        <span className="w-4 h-4 rounded-full flex-shrink-0"
+                          style={{
+                            border: `2px solid ${on ? 'hsl(var(--primary))' : 'hsl(var(--border))'}`,
+                            backgroundColor: on ? 'hsl(var(--primary))' : 'transparent',
+                          }} />
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+              {createErr && <p className="text-xs" style={{ color: 'hsl(var(--destructive))' }}>{createErr}</p>}
+            </div>
+            <div className="px-5 py-4 border-t flex justify-end gap-2" style={{ borderColor: 'hsl(var(--border))' }}>
+              <button onClick={() => setCreateOpen(false)} className="text-xs px-3 py-2 rounded-xl"
+                style={{ color: 'hsl(var(--muted-foreground))' }}>
+                Cancel
+              </button>
+              <button
+                onClick={() => void doCreateExtra()}
+                disabled={busy || (newKind === 'dm' ? picked.size !== 1 : !newName.trim())}
+                className="text-xs font-bold px-4 py-2 rounded-xl disabled:opacity-40"
+                style={{ backgroundColor: 'hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' }}>
+                {busy ? 'Creating…' : newKind === 'dm' ? 'Open conversation' : 'Create room'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

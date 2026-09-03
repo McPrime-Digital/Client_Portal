@@ -118,7 +118,7 @@ export async function GET(req: NextRequest) {
       const { message_attachments, ...m } = row as Record<string, unknown> & { message_attachments?: { file_id: string }[] }
       return { ...m, attachment_file_id: message_attachments?.[0]?.file_id ?? null }
     })
-    return NextResponse.json({ messages: rows, roomId: room.id, nextCursor: null, hasMore: false })
+    return NextResponse.json({ messages: await signAttachments(supabaseAdmin, rows), roomId: room.id, nextCursor: null, hasMore: false })
   }
   // Thread panel fetch: keyset-cursored like the main list (Batch 21 item 1
   // — the old `.limit(200)` ascending kept the OLDEST 200 and silently
@@ -158,7 +158,7 @@ export async function GET(req: NextRequest) {
         ? { ...m, body: '', attachment_url: null, attachment_name: null, attachment_file_id: null }
         : m
     )
-    return NextResponse.json({ messages: thRows, roomId: room.id, nextCursor: thNextCursor, hasMore: thHasMore })
+    return NextResponse.json({ messages: await signAttachments(supabaseAdmin, thRows), roomId: room.id, nextCursor: thNextCursor, hasMore: thHasMore })
   }
   let msgQ = supabaseAdmin
     .from('messages')
@@ -287,7 +287,7 @@ export async function GET(req: NextRequest) {
           : withId
       })
       .filter((m) => m != null)
-    return NextResponse.json({ messages: pinned, roomId: room.id, nextCursor: null, hasMore: false })
+    return NextResponse.json({ messages: await signAttachments(supabaseAdmin, pinned), roomId: room.id, nextCursor: null, hasMore: false })
   }
   const { data: pinIdRows } = await supabaseAdmin
     .from('message_pins')

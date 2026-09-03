@@ -12,7 +12,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 // - client-scoped (no projectId): prefix `<clientId>/_general` — used for
 //   things like invoice receipts that aren't tied to a project.
 export type Scope =
-  | { clientId: string | null; prefix: string }
+  | { clientId: string | null; prefix: string; orgId?: string | null; roomId?: string | null }
   | { error: string; status: number }
 
 export async function resolveUploadScope(
@@ -20,7 +20,46 @@ export async function resolveUploadScope(
   userId: string,
   projectId: string | undefined,
   bodyClientId: string | undefined,
+  roomId?: string | undefined,
 ): Promise<Scope> {
+  // ── ROOM-SCOPED (Batch 24) ──────────────────────────────────────────────
+  // A channel, group, DM or broadcast has no project and often no client, so
+  // neither existing branch could scope it — which is the whole reason chat
+  // attachments were disabled in the new room kinds. MEMBERSHIP is the
+  // authorization (MD-1): a live `room_members` seat, checked here, is
+  // exactly the right to post into that room's log.
+  //
+  // The prefix keys on the ROOM, so an object can never be reached by
+  // guessing a client or project id, and a client room's files still land
+  // under the company's own prefix — the vault keeps working unchanged.
+  if (roomId) {
+    const { data: seat } = await supabaseAdmin
+      .from('room_members')
+      .select('room_id')
+      .eq('room_id', roomId)
+      .eq('user_id', userId)
+      .is('left_at', null)
+      .maybeSingle()
+    if (!seat) return { error: 'Not a member of this room.', status: 403 }
+
+    const { data: room } = await supabaseAdmin
+      .from('message_rooms')
+      .select('id, organization_id, client_id, archived_at, deleted_at')
+      .eq('id', roomId)
+      .maybeSingle()
+    if (!room || room.deleted_at) return { error: 'Room not found.', status: 404 }
+    if (room.archived_at) return { error: 'This room is archived — read-only.', status: 403 }
+
+    return {
+      clientId: (room.client_id as string) ?? null,
+      orgId: room.organization_id as string,
+      roomId,
+      prefix: room.client_id
+        ? `${room.client_id}/_room/${roomId}`
+        : `_org/${room.organization_id}/_room/${roomId}`,
+    }
+  }
+
   if (projectId) {
     const { data: project } = await supabaseAdmin
       .from('projects')

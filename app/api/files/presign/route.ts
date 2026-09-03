@@ -21,19 +21,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { projectId, clientId: bodyClientId, fileName, contentType } = await req.json()
+    const { projectId, clientId: bodyClientId, roomId, fileName, contentType } = await req.json()
     if (!fileName) {
       return NextResponse.json({ error: 'fileName is required.' }, { status: 400 })
     }
 
     const role = userRole(user)
-    if (role === 'client') {
+    // The company-role upload cap governs the CLIENT VAULT. A room upload is
+    // governed by the room seat instead (resolveUploadScope checks it): an
+    // external collaborator has no client_members row at all, so gating them
+    // on a company capability would refuse the only surface they have.
+    if (role === 'client' && !roomId) {
       const membership = await clientMembershipOf(user)
       if (!membership || !clientCan(membership.role, 'upload', membership.extraCaps)) {
         return NextResponse.json({ error: 'Your role is view-only — uploads are not available.' }, { status: 403 })
       }
     }
-    const scope = await resolveUploadScope(role, user.id, projectId, bodyClientId)
+    const scope = await resolveUploadScope(role, user.id, projectId, bodyClientId, roomId)
     if ('error' in scope) {
       return NextResponse.json({ error: scope.error }, { status: scope.status })
     }

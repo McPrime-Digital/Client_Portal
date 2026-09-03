@@ -18,7 +18,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { ref, file_id } = await req.json()
+    // `download: true` asks for the SAVE url rather than the preview one:
+    // Content-Disposition: attachment plus the real filename, so the browser
+    // writes "Final Cut v3.mp4" instead of the collision-safe key R2 stores
+    // it under (Batch 24 — the download the message menu offers).
+    const { ref, file_id, download } = await req.json()
+    const disposition: 'inline' | 'attachment' = download ? 'attachment' : 'inline'
 
     // Preferred path since Batch 14: a real files id (message_attachments).
     // Authorization comes from the ROW — its client for portal users, its
@@ -26,7 +31,7 @@ export async function POST(req: NextRequest) {
     if (file_id && typeof file_id === 'string') {
       const { data: f } = await supabaseAdmin
         .from('files')
-        .select('id, bucket, file_path, client_id, organization_id')
+        .select('id, bucket, file_path, file_name, mime_type, client_id, organization_id')
         .eq('id', file_id)
         .maybeSingle()
       if (!f) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -38,10 +43,19 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Access denied' }, { status: 403 })
       }
       const url = f.bucket === 'r2'
-        ? await getSignedDownloadUrl(f.file_path, 3600, { disposition: 'inline' })
-        : (await supabaseAdmin.storage.from(f.bucket).createSignedUrl(f.file_path, 3600)).data?.signedUrl
+        ? await getSignedDownloadUrl(f.file_path, 3600, {
+            disposition,
+            fileName: f.file_name ?? undefined,
+            // Legacy rows stored as application/octet-stream will not render
+            // inline without this; the files row knows the real type.
+            contentType: disposition === 'inline' ? (f.mime_type ?? undefined) : undefined,
+          })
+        : (await supabaseAdmin.storage.from(f.bucket).createSignedUrl(
+            f.file_path, 3600,
+            disposition === 'attachment' ? { download: f.file_name ?? true } : undefined
+          )).data?.signedUrl
       if (!url) return NextResponse.json({ error: 'Could not sign' }, { status: 500 })
-      return NextResponse.json({ url })
+      return NextResponse.json({ url, fileName: f.file_name })
     }
 
     if (!ref || typeof ref !== 'string') {
@@ -73,11 +87,11 @@ export async function POST(req: NextRequest) {
 
     let url: string
     if (bucket === 'r2') {
-      url = await getSignedDownloadUrl(path, 3600, { disposition: 'inline' })
+      url = await getSignedDownloadUrl(path, 3600, { disposition })
     } else {
       const { data, error } = await supabaseAdmin.storage
         .from(bucket)
-        .createSignedUrl(path, 3600)
+        .createSignedUrl(path, 3600, disposition === 'attachment' ? { download: true } : undefined)
       if (error) throw error
       url = data.signedUrl
     }

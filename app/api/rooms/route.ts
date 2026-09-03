@@ -48,42 +48,103 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   // ── The people directory: who can I put in a room / DM? ──────────────────
-  // Crew see both trees of their org (the crew space has no limits — the
-  // owner's brief). A client owner/approver sees the studio's owners and
-  // admins — exactly the set they may DM, nothing broader.
+  //
+  // SCOPED BY SPACE (the owner's correction, 2026-09-03). The crew space is
+  // the studio's INTERNAL floor: crew and external collaborators, and no
+  // client companies at all — offering a client contact for an internal
+  // channel was the bug. The client space is the studio's window onto one
+  // company, so its directory is that company's people (plus crew, who staff
+  // the room). A client owner/approver still sees only the studio's
+  // owners/admins, which is the whole set they may DM.
+  //
+  //   ?people=1&scope=internal            → crew + seated collaborators
+  //   ?people=1&scope=client&client_id=X  → company X's members + crew
+  //   ?people=1                           → back-compat: internal
   if (req.nextUrl.searchParams.get('people') === '1') {
     const orgId = userOrgId(user)
+    const scope = req.nextUrl.searchParams.get('scope') ?? 'internal'
+    const forClient = req.nextUrl.searchParams.get('client_id')
     try {
       if (isAdmin(user)) {
-        const [{ data: oms }, { data: cms }, { data: companies }] = await Promise.all([
-          supabaseAdmin.from('organization_members')
+        const { data: oms } = await supabaseAdmin
+          .from('organization_members')
+          .select('user_id, name, role, avatar_url')
+          .eq('organization_id', orgId).eq('status', 'active').not('user_id', 'is', null)
+        const crew = (oms ?? []).map((m) => ({
+          id: m.user_id as string, name: m.name as string,
+          avatarUrl: (m.avatar_url as string) ?? null,
+          side: 'crew' as const, sub: `Studio · ${m.role}`,
+        }))
+
+        if (scope === 'client') {
+          if (!forClient) return NextResponse.json({ people: crew.filter((p) => p.id !== user.id) })
+          const { data: company } = await supabaseAdmin
+            .from('clients').select('id, name, company, organization_id')
+            .eq('id', forClient).maybeSingle()
+          if (!company || company.organization_id !== orgId) {
+            return NextResponse.json({ people: [] })
+          }
+          const { data: cms } = await supabaseAdmin
+            .from('client_members')
             .select('user_id, name, role, avatar_url')
-            .eq('organization_id', orgId).eq('status', 'active').not('user_id', 'is', null),
-          supabaseAdmin.from('client_members')
-            .select('user_id, name, role, avatar_url, client_id')
-            .eq('organization_id', orgId).eq('status', 'active').not('user_id', 'is', null),
-          supabaseAdmin.from('clients')
-            .select('id, name, company').eq('organization_id', orgId),
-        ])
-        const companyBy = new Map((companies ?? []).map((c) => [c.id as string, (c.company ?? c.name) as string]))
-        const people = [
-          ...(oms ?? []).map((m) => ({
-            id: m.user_id as string, name: m.name as string, avatarUrl: (m.avatar_url as string) ?? null,
-            side: 'crew' as const, sub: `Studio · ${m.role}`,
-          })),
-          ...(cms ?? []).map((m) => ({
-            id: m.user_id as string, name: m.name as string, avatarUrl: (m.avatar_url as string) ?? null,
-            side: 'client' as const, sub: companyBy.get(m.client_id as string) ?? 'Client',
-          })),
-        ].filter((p) => p.id !== user.id)
-        return NextResponse.json({ people })
+            .eq('client_id', forClient).eq('status', 'active').not('user_id', 'is', null)
+          const label = (company.company ?? company.name) as string
+          const people = [
+            ...(cms ?? []).map((m) => ({
+              id: m.user_id as string, name: m.name as string,
+              avatarUrl: (m.avatar_url as string) ?? null,
+              side: 'client' as const, sub: `${label} · ${m.role}`,
+            })),
+            ...crew,
+          ].filter((p) => p.id !== user.id)
+          return NextResponse.json({ people })
+        }
+
+        // INTERNAL. Crew, plus anyone seated in a room the caller shares who
+        // holds no roster row on either side — the MD-4 collaborator. They
+        // belong here precisely because they are not a client's contact.
+        const { data: mySeats } = await supabaseAdmin
+          .from('room_members').select('room_id').eq('user_id', user.id).is('left_at', null)
+        const myRoomIds = (mySeats ?? []).map((s) => s.room_id as string)
+        const collaborators: typeof crew = []
+        if (myRoomIds.length) {
+          const { data: peers } = await supabaseAdmin
+            .from('room_members')
+            .select('user_id, display_name, avatar_url')
+            .in('room_id', myRoomIds).is('left_at', null).limit(1000)
+          const peerIds = [...new Set((peers ?? []).map((p) => p.user_id as string))]
+            .filter((id) => id !== user.id && !crew.some((c) => c.id === id))
+          if (peerIds.length) {
+            const { data: clientPeers } = await supabaseAdmin
+              .from('client_members').select('user_id')
+              .eq('organization_id', orgId).in('user_id', peerIds)
+            const rostered = new Set((clientPeers ?? []).map((r) => r.user_id as string))
+            for (const id of peerIds) {
+              if (rostered.has(id)) continue
+              const seat = (peers ?? []).find((p) => p.user_id === id)
+              collaborators.push({
+                id,
+                name: (seat?.display_name as string) ?? 'Collaborator',
+                avatarUrl: (seat?.avatar_url as string) ?? null,
+                side: 'crew' as const,
+                sub: 'Collaborator',
+              })
+            }
+          }
+        }
+        return NextResponse.json({
+          people: [...crew, ...collaborators].filter((p) => p.id !== user.id),
+        })
       }
       // Client side: only an owner/approver gets a list, and it is the
       // studio's owner/admin seats (the DM counterparty rule).
+      // Owner-only, matching the creation gate below: showing an approver a
+      // list of people they cannot actually message is worse than showing
+      // them nothing.
       const { data: me } = await supabaseAdmin.from('client_members')
         .select('role').eq('organization_id', orgId).eq('user_id', user.id)
         .eq('status', 'active').maybeSingle()
-      if (!me || !['owner', 'approver'].includes(me.role as string)) {
+      if (!me || (me.role as string) !== 'owner') {
         return NextResponse.json({ people: [] })
       }
       const { data: oms } = await supabaseAdmin.from('organization_members')
@@ -131,13 +192,13 @@ export async function POST(req: NextRequest) {
       const [{ data: myOm }, { data: myCm }] = await Promise.all([
         supabaseAdmin.from('organization_members').select('id, role')
           .eq('organization_id', orgId).eq('user_id', user.id).eq('status', 'active').maybeSingle(),
-        supabaseAdmin.from('client_members').select('id, role')
+        supabaseAdmin.from('client_members').select('id, role, client_id')
           .eq('organization_id', orgId).eq('user_id', user.id).eq('status', 'active').maybeSingle(),
       ])
       const [{ data: otherOm }, { data: otherCm }] = await Promise.all([
         supabaseAdmin.from('organization_members').select('id, role')
           .eq('organization_id', orgId).eq('user_id', input.with_user_id).eq('status', 'active').maybeSingle(),
-        supabaseAdmin.from('client_members').select('id, role')
+        supabaseAdmin.from('client_members').select('id, role, client_id')
           .eq('organization_id', orgId).eq('user_id', input.with_user_id).eq('status', 'active').maybeSingle(),
       ])
 
@@ -146,9 +207,16 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: 'That person is not in this organization.' }, { status: 403 })
         }
       } else if (myCm) {
-        if (!['owner', 'approver'].includes(myCm.role as string)) {
+        // OWNER ONLY on the client side (the owner's rule, 2026-09-03 — it
+        // was owner-or-approver in Batch 23). Everyone else takes part in the
+        // DMs and groups they are seated in; opening a new line to the studio
+        // is the account owner's decision. RLS still admits an approver, so
+        // this route is the narrower of the two gates and says so out loud.
+        if ((myCm.role as string) !== 'owner') {
           return NextResponse.json(
-            { error: 'Only a company owner or approver can start a direct message.' }, { status: 403 })
+            { error: 'Only the company owner can start a direct message with the studio.' },
+            { status: 403 }
+          )
         }
         if (!otherOm || !['owner', 'admin'].includes(otherOm.role as string)) {
           return NextResponse.json(
@@ -158,8 +226,17 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
       }
 
+      // The company on one side of the conversation routes it to a space.
+      // Crew↔crew stays internal (null); anything touching a client company
+      // is client-facing work and surfaces in Client › Messages.
+      const dmClientId =
+        (otherCm?.client_id as string | undefined) ??
+        (myCm ? ((myCm as { client_id?: string }).client_id ?? null) : null) ??
+        null
+
       const room = await ensureDm(supabase, {
         orgId, createdBy: user.id, otherUserId: input.with_user_id,
+        clientId: dmClientId,
       })
       return NextResponse.json({ room })
     }

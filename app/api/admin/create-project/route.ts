@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { seedDefaultTasks } from '@/lib/defaultTasks'
+import { ensureClientRoom } from '@/lib/messageRooms'
+import { seedClientRoomAll } from '@/lib/rooms'
 
 const DEFAULT_PHASES = [
   { name: 'Discovery & Brief', description: 'Concept development and narrative architecture', sort_order: 0 },
@@ -50,11 +52,25 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // The company decides the tenant. Read it BEFORE the insert so the
+    // project is STAMPED rather than relying on the column DEFAULT (T-5) —
+    // which is McPrime's org, and would have filed a second studio's project
+    // inside tenant zero and then minted its chat room there too.
+    const { data: ownerCompany } = await supabaseAdmin
+      .from('clients')
+      .select('id, organization_id')
+      .eq('id', client_id)
+      .maybeSingle()
+    if (!ownerCompany) {
+      return NextResponse.json({ error: 'Client company not found' }, { status: 404 })
+    }
+
     // 1. Create the project using service_role (bypasses RLS)
     const { data: project, error: projectError } =
       await supabaseAdmin
         .from('projects')
         .insert({
+          organization_id: ownerCompany.organization_id,
           client_id,
           title: title.trim(),
           type: type ?? 'Other',
@@ -156,6 +172,23 @@ export async function POST(request: NextRequest) {
       if (tasksError) {
         console.error('[create-project] Deliverables insert error:', tasksError)
       }
+    }
+
+    // 3b. THE PROJECT'S CHAT EXISTS FROM THE MOMENT THE PROJECT DOES
+    //     (the owner's rule, 2026-09-03). A project is a TAG inside its
+    //     company's room, so the room must exist and be seated before the
+    //     first message — otherwise the new project's chip opens onto a room
+    //     that is minted lazily on first send, and whoever opens it first
+    //     sees an empty thread with no seat and no realtime.
+    //
+    //     Best-effort by design: a project that exists without its chat is
+    //     recoverable (the next hub load self-heals the seats); a project
+    //     that failed to be created because chat minting threw is not.
+    try {
+      await ensureClientRoom(supabaseAdmin, ownerCompany.organization_id, client_id, user.id)
+      await seedClientRoomAll(supabaseAdmin, ownerCompany.organization_id, client_id)
+    } catch (e) {
+      console.error('[create-project] chat mint failed (self-heals on next hub load):', e)
     }
 
     // 4. Create invoice if amount provided
