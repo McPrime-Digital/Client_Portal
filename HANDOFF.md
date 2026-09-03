@@ -5,8 +5,8 @@ did not: the open list was kept outside the repo, drifted from the code with
 nothing able to contradict it, and four live defects fell off it entirely
 (recovered by Batch 6 item 0). Everything below was verified against the code
 and the live database on 2026-08-28 — nothing is quoted from memory of what a
-batch was supposed to do. Last corrected after **Batch 21** (the closeout
-batch, 2026-09-02, with fresh live reads); Batch 8 was the final foundation
+batch was supposed to do. Last corrected after **Batch 22** (the approvals
+engine, 2026-09-02, with fresh live reads); Batch 8 was the final foundation
 batch.
 
 After this, read `docs/specs/` in order: S0 → S0-A → **S0-B** → S0-conformance
@@ -176,9 +176,18 @@ hard-stop at zero balance **on by default — implemented 7.1 (0024 applied); th
 house org's exemption is a stated `org_budgets` row, not a code branch (8.5)**;
 p95 2.5s; no uptime SLA and no copy implying one. Retention: 90-day soft-delete grace, 7-year activity
 log, 30-day erasure — expressed so far only on `messages.deleted_at` (0028;
-this entry said "no `deleted_at` anywhere", stale since Batch 13) and
-`message_rooms.deleted_at`; the purge itself (S3-core migrations 10–11) is
-unbuilt.
+this entry said "no `deleted_at` anywhere", stale since Batch 13),
+`message_rooms.deleted_at` and now `approvals.deleted_at` (0038); the purge
+itself (S3-core migrations 10–11) is unbuilt.
+**THE APPROVALS CARVE-OUT, recorded here so it is not lost between batches:**
+approvals, stages, decisions, their comments and their ledger rows are
+**7-year records and the purge function must REFUSE them** (S3-c §3.2).
+Without the exemption, "permanent" is a word in a spec that a cron job quietly
+disagrees with. S3-c §7 assertion 4 — the purge refuses an approval row,
+control: it accepts an ordinary soft-deleted message — is **deferred to the
+retention batch as harness assertion 21**, because it cannot be asserted
+against a function that does not exist yet. It is the assertion that makes
+"permanent" true rather than intended.
 
 ## 6. What has been built, chronologically
 
@@ -251,13 +260,28 @@ The audited era, each batch with what it *found*:
 | 20 (owner rounds 20.1–20.3) | 20.1: the portal messages GET's 400 guard predated `?scope=room` and `?mention_candidates` and ran FIRST — it starved the All view and the composer roster; guards now run after the requests they must not strangle. 20.2: a live project tag was a render-time TypeError that unmounted BOTH portals (map present, id absent fell through to `card.label` with `card` undefined); the guard is airtight by construction now. 20.3: chat settings move to `user_prefs` (0034, one jsonb row per auth user, Class C RLS, `/api/prefs` on the USER client per AD-001) with localStorage as the zero-latency cache | The admin route's equivalent guard sat AFTER its candidates branch, which is why only the portal broke — the asymmetry was the bug report |
 | 21 (the "Batch 19" brief, renumbered — the repo was at 20.3) | **Closeout: messages fully bounded, the Suite unblocked, the dual-write ended.** 21.1: thread-panel replies keyset-cursored (both routes + panel load-older); admin hub preview one limit-1 query per room; unread scans carry the watermark predicate in-query under an explicit saturating cap; the projects page counts via `messages(count)` + `orgUnread` (the last unbounded message read, reported three times, closed). 21.2: 0036 settles `documents.kind` (screenplay/treatment/bible/breakdown/document; 'script' renamed, default → 'document'). 21.3: sender_role/attachment_url/is_deleted/read_at writes stopped everywhere; sides derive from the ROSTER, read ticks from the other side's watermark, attachment URLs from the FK (`roomSides`/`deriveWire` in lib/messageRead.ts); 0035 applied (NOT NULL relaxed + 13 of 16 null senders recovered). 21.4: 0037 printed + gated on deploy; seven catalogs searched clean. Harness 15/15 | Three premise failures: `documents.kind` had existed since 0004 with four live 'script' sites (the "additive" item was a reconciliation); `sender_role` was NOT NULL/no-default (the brief's stop-write-then-drop order would have 23502'd every send in the window — 0035 is the migration the brief didn't know it needed); the nudge cron's oldest-first window only worked BECAUSE of the legacy read_at prefilter (flipped newest-first or it would silt up). Lint baseline was 318 at start, not the brief's 319 |
 
+| 22 (the approvals engine, S3-c) | **Approval becomes a record, not a gate.** 0038 (five tables + the anchor model on `messages` + `organizations.approval_window_hours`, Class B RLS); 0039 + 0040 + 0041 (three triggers, each written because a defect was PROVEN first); `lib/approvals.ts` — the single write path; five approval capabilities on both rosters behind one new cap; six routes (45 → 51 handlers) with **zero new service-role importers**; the per-org auto-advance sweep + reminder ladder (`/api/cron/approval-sweep`, daily 08:00); harness **15 → 20**; the card in the room, the record on both review pages, the printable certificate; and the browser ledger path DELETED (`lib/logActivity.ts` + `/api/activity` + its allowlist entry) | **Seven premise failures, and three defects found by probing rather than reading.** The brief's `is_org_member(organization_id)` does not exist (no-arg). `messages` has no crew INSERT policy to extend — `messages_crew_all` is an ALL policy, so the comment gate became a RESTRICTIVE policy that touches neither existing one. `messages.timecode_ms` was NEVER created, so S3-c §5.1's premise is false and there is one anchor model, not two (S3-b migration 5 must drop its line). Rule Zero named three legacy columns; **six** are live, and `approved_at` — which the brief does not name — is what both approval pages actually gate on. `deadline-check` was a SECOND, unrecorded instance of HANDOFF §8.3 item 4's page-load-cron defect, and it wrote `approval_status='auto_approved'` while `studio/client/review/page.tsx:131` counted that among the APPROVED — the studio's own page was already reporting timeouts as client sign-offs. **The three probe-found defects:** a client could record a decision and the stage would silently never advance (crew-only UPDATE + PostgREST returning no error on zero rows) — which would have had the record claim "no response received" about a client who responded; a decision with a null `actor_id` could never satisfy a user assignee, so the same silent stall one layer down; and a client assignee could **forge who signed off**, naming a colleague as `actor_id` and anything as `actor_name`, because 0038 permits direct assignee inserts and the routes being careful is not a control. Also: the reminder ladder counted ledger EVENTS, and there is one per RECIPIENT — a three-assignee stage would have gone permanently silent while the record still claimed the window was honoured |
+
 ## 7. Current state (verified 2026-08-28 after Batch 8; Batch 9 deltas from the
 code 2026-08-30, with one live read; Batch 10 deltas from the code 2026-08-31)
 
 - **Branch:** `throughline` (main ⊆ throughline, fast-forward). Not renamed —
   S0-B §6 excludes the branch, and renaming it is a remote/CI change, not a
   code one.
-- **Migrations applied: 0000–0035. Printed and GATED (not merely pending):
+- **Migrations applied: 0000–0041.** 0036 (documents.kind) and 0037 (the
+  migration-12 drops) were applied in Batch 22 after the Batch 21 code
+  finally reached a deploy — they had been committed but NEVER PUSHED, which
+  is why the "gated" state below persisted; the push was the missing step,
+  not the migration. 0038–0041 are the approvals engine. Verified live
+  2026-09-02: five `approval*` tables exist and are empty of production rows,
+  three triggers are installed (`approval_decisions_stamp_actor`,
+  `approval_decisions_advance`, `approvals_project_to_task`), `messages`
+  carries `approval_id`/`anchor_kind`/`anchor_value` and NO LONGER carries
+  `read_at`/`is_deleted`/`sender_role`/`attachment_url`, every organization
+  reads `approval_window_hours = 120`, and `documents` reads
+  `kind = 'screenplay'` on its one row.
+  The superseded line, kept because it is what was true until this batch:
+  **Migrations applied: 0000–0035. Printed and GATED (not merely pending):
   0036 and 0037.** Verified by live probe 2026-09-01 (0025–0033) and
   2026-09-02 (0034 `user_prefs`, 0035 `sender_role` nullable + null-sender
   recovery): `client_members.last_seen_at` exists (0025), `clients.user_id`
@@ -278,7 +302,14 @@ code 2026-08-30, with one live read; Batch 10 deltas from the code 2026-08-31)
 - **Access token hook:** enabled in production, verified from a live JWT. 0026
   changes its body; step 2 (verify a client's token still carries
   `organization_id`) is the check that matters after applying it.
-- **Harness:** `npm run test:rls` → **15 pass / 0 fail / 0 vacuous / 0 error**
+- **Harness:** `npm run test:rls` → **20 pass / 0 fail / 0 vacuous / 0 error**
+  (16–20 added in Batch 22 item 6 from S3-c §7: internal approvals invisible to
+  clients, decision forgery, comment permission, comment visibility, and the
+  one that stops a lapse ever reading as approval). All five approval tables
+  are in the every-table sweeps. **Assertion 17 is SINGLE-USE** — its positive
+  control inserts a real decision and `approval_decisions` is append-only for
+  everyone, so re-run without re-seeding and it reports VACUOUS naming the fix,
+  never FAIL. The pre-Batch-22 line: **15 pass / 0 fail / 0 vacuous / 0 error**
   (10 from S2 §6; 11–14 from Batch 13.7; 15 from Batch 14.6 — a member cannot
   read a colleague's `message_read_state`, and neither can the ORG OWNER; the
   probe checks both doors because the surveillance surface §7.8 worries about
@@ -295,14 +326,18 @@ code 2026-08-30, with one live read; Batch 10 deltas from the code 2026-08-31)
   thread (receipts now derive from watermarks — Batch 21.3). (A sentence
   here was truncated mid-word — "The 0030 policy" — since Batch 14; its
   intent is unrecoverable and it is removed rather than guessed at.)
-- **`tsc --noEmit`:** clean. **Lint: 318** — 355 at Batch 15's start, 319
+- **`tsc --noEmit`:** clean. **Lint: 317** (counted at Batch 22's end; 318 at
+  its start). **Route handlers: 51** — and the count went DOWN for the first
+  time in this project's history, because Batch 22 item 11 deleted
+  `/api/activity`. The superseded line: **Lint: 318** — 355 at Batch 15's start, 319
   after its project-page excisions, and 318 since the owner rounds (this
   entry said 352, stale since Batch 15; §10's 319 was right until it
   wasn't — count it, don't quote it). Failures do not fail the build.
-  **`npm run build`:** green — 7.6s at Batch 8, 8.8s at Batch 9, 9.0s at
-  Batch 10. **45 route handlers** (`find app/api -name route.ts | wc -l`;
-  +prefs in Batch 20.3 — this count has now been corrected four times,
-  which is why it ships with its command).
+  **`npm run build`:** green — 7.6s at Batch 8, 9.0s at Batch 10, **7.7s at
+  Batch 22** (after `rm -rf .next`, which was needed because Next's generated
+  route validators still named the deleted `/api/activity`). Count the routes,
+  do not quote them: `find app/api -name route.ts | wc -l`. This figure has
+  been corrected four times.
 - **Nothing in the application uses Supabase's mailer** (10.3). Zero callers of
   `inviteUserByEmail` or `resetPasswordForEmail`. Supabase SMTP stays pointed
   at Resend so a misconfiguration produces a plain email rather than silence.
@@ -327,10 +362,16 @@ code 2026-08-30, with one live read; Batch 10 deltas from the code 2026-08-31)
   of `https://genreline.com` remain in `lib/appOrigin.ts` — one in a doc
   comment, one inside the error message that tells an operator the expected
   format. Neither is used to build a URL.
-- **Live data:** 3 organizations (McPrime + 2 harness) · 8 client companies (2
-  harness) · 9 `client_members` rows · 13 auth users (6 harness) · 21 files ·
-  ~200 messages · `org_credits` for McPrime at **−15¢** · `org_budgets` holds
-  exactly **one** row (the house org, `hard_stop = false` — its stated opt-out).
+- **Live data (2026-09-02, after Batch 22):** 3 organizations (McPrime + 2
+  harness) · 8 client companies (2 harness) · 122 tasks · **261 messages**
+  (259 production + 2 harness approval fixtures; the seeder prunes
+  approval-carrying messages each run) · 4 `approvals`, all of them harness
+  fixtures — **zero production approvals exist yet** · `documents` holds one
+  row, `kind = 'screenplay'` · `org_credits` for McPrime at **−15¢** ·
+  `org_budgets` holds exactly **one** row (the house org, `hard_stop = false`)
+  · **`organizations.plan` = 'house' for McPrime** — §8.3 item 12's printed
+  statement HAS been applied, contradicting that entry, which said it was
+  printed and not applied.
 - **Every client company has an active `owner` in `client_members`**, and every
   `clients.user_id` value appears on one of those rows. That is what makes the
   0026 drop lossless, and it is now maintained by the create paths rather than
@@ -380,7 +421,21 @@ S2 §11 q4 close with it.
 4. The cron route's **POST** half (`app/api/cron/message-nudge/route.ts:90-99`)
    is a user-session path — `PresencePulse` calls it on every page load —
    running a service-role scan of every unread message. Allowlisted as PERMANENT
-   for its GET half only; the POST half is not.
+   for its GET half only; the POST half is not. **Still open.**
+
+   **A SECOND INSTANCE EXISTED AND THIS LIST DID NOT HAVE IT** (found by the
+   Batch 22 item-0 audit): `app/api/admin/deadline-check/route.ts` POST, also
+   fired on every admin page load, ran a service-role scan that COMPLETED
+   tasks, posted into client chats and sent notifications — and wrote
+   `approval_status = 'auto_approved'`, recording silence as approval, which
+   `app/studio/client/review/page.tsx:131` then counted among the APPROVED.
+   **CLOSED in Batch 22 item 5**: the auto-proceed half is deleted and replaced
+   by `/api/cron/approval-sweep` (GET only, no POST half, per-organization,
+   explicitly capped). The deadline-notification half remains and is
+   notification-only. Nothing had ever run the old path in production —
+   `auto_proceeded` was false on all 122 live task rows — so there was no
+   historical data to reconcile. The lesson this leaves: when a defect is
+   recorded against ONE route, grep for the shape, not the filename.
 5. **CLOSED in 9.5.** `lib/billing/plans.ts` no longer tests
    `orgId === DEFAULT_ORG_ID`; the parameter is gone and the house org's
    exemption is its `organizations.plan` value. The file now has one importer
@@ -482,7 +537,14 @@ S2 §11 q4 close with it.
    rename. Belongs to the C-6 dead-code inventory with `McPrimeLogo.tsx` and
    `public/mcprime-logo.jpg`, both of which become dead the moment §8.3 item 7
    is resolved.
-12. **THE HOUSE ORG HAS NO EXEMPTION AT ALL, and Batch 9.5's commit message
+12. **CLOSED — the statement was applied.** Live read 2026-09-02:
+   `organizations.plan = 'house'` for `00000000-…-0001`. This entry said the
+   fix was "printed, not applied" and that was true when written; the owner
+   has since run it. The wider point below still stands and is §11 q9: nothing
+   in the APPLICATION writes `plan`, so it remains a value set by hand.
+
+   The original entry, kept because it is what was true until 2026-09-02:
+   **THE HOUSE ORG HAS NO EXEMPTION AT ALL, and Batch 9.5's commit message
    overstated this.** Live read 2026-08-30: **all three organizations carry
    `plan = 'agency'`** — the `0001:23` column default. Nothing in the
    application writes that column.
@@ -630,51 +692,57 @@ is why SMS dedupes by number) · provenance tables have zero reads/writes
 
 ## 9. What to do next
 
-**S3-core migrations 1–7 are live** (0027–0033), 0034–0035 on top. The
-message layer is per-person, project-less-capable, realtime-unified,
-FULLY BOUNDED (21.1), off the legacy columns (21.3), and harness-proven
-at 15/15.
+**S3-core migrations 1–7 are live** (0027–0033), 0034–0037 on top, and
+**S3-c's engine is live** (0038–0041). Approval is a record, not a gate:
+silence auto-advances as `auto_advanced` with no actor and no decision row,
+and is never written as approval. One row, three surfaces — the card in the
+room, the record on both review pages, the printable certificate.
 
-**Immediate — the Batch 21 deploy sequence, in this exact order:**
+**Immediate — the Batch 22 deploy, which has NOT happened:**
 
-1. **Deploy HEAD** (21.1–21.4). Until this deploys, 0036 and 0037 MUST NOT
-   be applied — the running deploy still writes `kind='script'` and
-   `sender_role`/`attachment_url`.
-2. **Verify the deploy live**: send both directions (project + General
-   thread), confirm ticks (gray on deliver, blue when the other side opens
-   the thread), an attachment renders, Script Design lists and creates.
-3. **Apply 0036**, run its verification queries, reload the schema cache.
-4. **Re-run 0037's pre-apply catalog checks** (in the file header), **apply
-   0037**, run its verification queries (the file reloads the cache
-   itself), then `npm run seed:harness -- --apply && npm run test:rls` —
-   expect 15/15.
+1. **Push and deploy.** Every migration through 0041 is applied to the live
+   database, but the Batch 22 CODE is committed and unpushed at the time of
+   writing. All of 0038–0041 is ADDITIVE (new tables, new nullable columns,
+   new triggers), so the running deploy is unaffected until it lands — this is
+   the opposite ordering from 0036/0037 and it is why it is safe to sit.
+2. **Click-test the approvals path once deployed**: send a task gate for
+   approval, confirm a card appears in the room with a visible countdown,
+   decide from the card as the client, confirm the studio's review page shows
+   the chain and the certificate prints with the right studio's brand.
+3. **Set `CRON_SECRET` if it is not set on the deployment.** The sweep FAILS
+   CLOSED without it and logs why — it will simply never run, silently to
+   everyone but the logs.
 
 **Then, in order:**
 
-- Still owed from Batch 15's report: copying `lib/keyset.ts` to
-  files/tasks/activity, and the client-portal settings SPEC (the in-room
-  panel shipped; the full settings surface deserves its S-F addendum).
-- **`S3-c` — the approvals engine (migration 8)**: approval as a record,
-  never a gate; auto-advance on silence, never written as approval; one
-  row, three surfaces; minted live artifacts against frozen versions
-  (`documents.kind` from 0036 is its subject axis). Supersedes `S3-core`
-  §2 and §9.2 — read S3-c before printing migration 8.
 - **File version stacking (migration 9)**, with the live artifact viewer
-  (S3-c §4.3, script first per its §8.3) on top.
-- **Migrations 10–11** — `deleted_at` policy sweep (closes §8.3.2's RLS
-  half), purge + tombstone functions (closes its R2 half; the purge must
-  refuse approval rows — S3-c §3.2 makes that a harness assertion).
-  Migration 12's drops are DONE (0037, gated above).
+  (S3-c §4.3, script first per its §8.3) on top. `approvals.subject_version_id`
+  already exists and is unwritten, waiting for it — minting is the snapshot
+  (AP-5), so the viewer and the version stack are one piece of work.
+- **Migrations 10–11** — the `deleted_at` policy sweep (closes §8.3.2's RLS
+  half), then purge + tombstone (closes its R2 half). **THE PURGE MUST REFUSE
+  APPROVAL ROWS** — approvals, stages, decisions, their comments and their
+  ledger rows are 7-year records carved out of the 90-day grace (S3-c §3.2).
+  S3-c §7 assertion 4 is deferred to that batch and is **assertion 21**: the
+  purge refuses an approval row, with an ordinary soft-deleted message as its
+  positive control. It could not be written in Batch 22 because it cannot be
+  asserted against a function that does not exist — and it is the assertion
+  that makes "permanent" true rather than intended.
+- Still owed from Batch 15: copying `lib/keyset.ts` to files/tasks/activity.
+  Batch 22 proved it generalises — `listApprovals` uses it unchanged.
+- The legacy task approval columns drop once the engine has been live and
+  verified. Six of them: `requires_approval`, `approval_status`,
+  `visible_to_client`, `approved_at`, `approval_note`, `auto_proceeded`. The
+  0041 trigger is what keeps them correct until then, and it is the thing to
+  delete first.
 
 Independent of S3-core and available any time: the `$2` per-call ceiling
-(§8.3 item 3 — the other half of I-5, and the one that matters once generation
-exists), and the I-8 read-path migration proper (portal dashboard first, paired
-with I-11, shrinking `admin-allowlist.mjs` one surface at a time).
+(§8.3 item 3), and the I-8 read-path migration proper (portal dashboard first,
+paired with I-11, shrinking `admin-allowlist.mjs` one surface at a time — it
+shrank by one in Batch 22 when `/api/activity` was deleted).
 
 The v1 cap (S-F §7) is the boundary: nothing outside it before studio two is
-live and paying. Studio two is *possible* — `npm run provision:tenant` creates an
-organization and a working owner (7.5) — and as of 8.1 the client companies that
-studio creates work too, which they would not have.
+live and paying.
 
 ## 10. Working agreements
 
@@ -722,10 +790,14 @@ studio creates work too, which they would not have.
 5. **`(admin)` route group** — its pages are canonical modules re-exported by
    studio wrappers (6.6 confirmed), so "delete or retain" is really "where do
    canonical modules live" (S4). 13 of the 71 service-role modules are in it.
-6. **ANSWERED by `S3-core` §5 (Batch 14 item 7):** no. Ledger rows are
-   written server-side as a side effect of the action they record;
-   `lib/logActivity.ts` (browser) is deleted when the approvals engine lands.
-   `S-F` §8 decision 4 settled it.
+6. **CLOSED IN BATCH 22 — the deletion happened.** `lib/logActivity.ts` and
+   `app/api/activity/route.ts` are gone, and the allowlist entry with them.
+   Ledger rows are written server-side as a side effect of the action they
+   record. One correction to the plan as written: the module could not simply
+   be deleted, because two SERVER modules imported `EVENT_TYPES` and
+   `ActivityParams` from it — those moved into `lib/logActivity.server.ts`,
+   which is `server-only`, and is the better home anyway. Nothing failed to
+   move server-side. Do not re-open.
 7. **The `$2` per-call AI ceiling** (new, from 7.1) — where it is enforced, and
    what "confirm above" means in a streaming UI. S0 §4 fixes the number; nothing
    fixes the mechanism.
@@ -746,6 +818,33 @@ studio creates work too, which they would not have.
    something owns it, every plan-gated feature resolves against a default
    nobody chose. Related to §10.4 (does the archetype axis affect billing?) and
    blocks nothing until the first real gate ships.
+
+10. **Does `mode` on an approval stage mean anything?** New, from Batch 22.
+   `approval_stages.mode` is stored as 'sequential' | 'parallel' and does NOT
+   yet change behaviour: a stage completes when every REQUIRED assignee is
+   satisfied, both ways. The difference between the two modes is an ordering
+   AMONG assignees, and `approval_assignees` has no ordering column — so the
+   distinction is not expressible today. Requiring all is the safe direction
+   (the alternative UNDER-requires approvals), and it is recorded as a known
+   gap rather than left as a silent no-op. Resolving it is either an ordering
+   column or dropping `mode`; nobody has asked for either.
+
+11. **What is the reminder ladder's real resolution?** New, from Batch 22.
+   The sweep is a daily Vercel cron (Hobby-plan ceiling), so a 120-hour window
+   with rungs at 50/20/5 percent has 24-hour granularity on a 6-hour final
+   rung. The ladder is POSITION-based to compensate — it computes the highest
+   rung a stage has reached, so crossing two rungs between runs sends one
+   reminder at the higher rung rather than falling behind. Whether that is
+   good enough is a product question that only a real client missing a
+   deadline will answer.
+
+12. **Which approval subjects get a viewer first, and what is a `file_version`
+   until migration 9?** New, from Batch 22. `SUBJECT_TABLE` in
+   `lib/approvals.ts` maps `file_version` → `files` and `milestone` → `tasks`
+   (a milestone is a task with `category='milestone'`; there is no milestones
+   table). Both are deliberately approximate and both are marked in the code.
+   Migration 9 settles the first; S-F settles whether the second ever needs a
+   table of its own.
 
 Hours per week is answered — **30** — and is not carried forward.
 
@@ -828,3 +927,18 @@ one is recognised rather than rediscovered.
    "0024 applied" from "0024 not applied", because the backfill excludes it — the
    stored **default** had to be probed instead (Batch 8.5). **Ask which write
    path actually decides the value.**
+
+6. **A route being careful is not a control when the table accepts direct
+   writes.** 0038 deliberately lets an approval ASSIGNEE insert a decision
+   straight through PostgREST — that is the policy doing its job. But it means
+   every rule that lived only in the route was optional: the stage advance
+   (0039), the actor stamp (0039), and the attribution itself (0040), where a
+   client could name a colleague as the approver of their own decision. Each
+   was found by PROBING as a real persona, not by reading the code, and each is
+   now a trigger. The general form: **when a policy permits a direct write,
+   every invariant about that row has to live at or below the row.** Ask what a
+   caller could send that the handler never would.
+
+   This is also why the item-2 probe passed while the defect was live — it ran
+   as the service role, which bypasses RLS. **A probe that does not run as the
+   persona proves nothing about the persona.**

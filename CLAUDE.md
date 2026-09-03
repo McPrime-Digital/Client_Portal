@@ -38,7 +38,7 @@ order:
 | 10 | `S-C-communications.md` | **DRAFT** — sender identity across email/SMS/push |
 | 11 | `S3-core-messaging-approvals-versioning-retention.md` | **DRAFT** — schema for message rooms, approvals, file versioning, retention; ledger emission moves server-side |
 | 12 | `S3-core-A-amendments.md` | **Supersedes named `S3-core` sections** (A-1 … A-6, from the Batch 13 item 0 audit; two prevented data loss) |
-| 13 | `S3-b-calendar-meetings-documents-seats.md` | **DRAFT** — schema for the four shapes `S-F` §9 moved into v1; sequenced after `S3-core` |
+| 13 | `S3-b-calendar-meetings-documents-seats.md` | **DRAFT** — schema for the four shapes `S-F` §9 moved into v1; sequenced after `S3-core`. **Its migration 5 must DROP its `timecode_ms` line** — that column was never created, and Batch 22 settled one anchor model (`anchor_kind` + `anchor_value`) instead |
 | 14 | `S3-c-approvals-review-live-artifacts.md` | **DRAFT** — **Supersedes `S3-core` §2 (approvals tables), `S3-core` §9.2, and `S-F` §3.3 where they disagree**; approval is a record not a gate — auto-advance on silence, live minted artifacts, anchored review comments; sequenced after `S3-core` migrations 1–7 |
 
 **Where S0 and S0-A disagree, S0-A wins** — and the same rule binds `S3-core`
@@ -79,6 +79,11 @@ Accurate notes on the dependency list — several packages are installed but not
   `app/api/activity/route.ts:1` (Batch 6.1, so the activity ledger stops accepting forged
   entries) and `app/api/admin/erase-person/route.ts` (Batch 12.2). **[VIOLATES S0 I-7 — two
   of 44 route handlers validate against a schema; the rest do not.]**
+- **`zod` is used at eight sites** since Batch 22 — the six approvals routes
+  joined `app/api/admin/erase-person/route.ts`. `app/api/activity/route.ts`,
+  which this file used to name as the first I-7 boundary, is DELETED (Batch 22
+  item 11): the ledger is written server-side as a side effect of the action it
+  records, so the browser-callable endpoint and `lib/logActivity.ts` are gone.
 - **`resend`** is a dependency but still never imported. Email goes out as a raw `fetch`
   to `https://api.resend.com/emails` from **one place** — `lib/email/send.ts`. There
   were briefly two (Batch 10.4); if you add a third, the second one's failures will
@@ -300,8 +305,10 @@ into new code.
 
 `supabase/migrations/` holds one numbering scheme (`00NN`); the retired `2026*` scheme is fenced in `_archive/`:
 
-- `0000_baseline_schema.sql` … `0033_message_attachments_backfill.sql` — the current source
-  of truth, all applied. `0000` is a full captured baseline that **drops and recreates** the
+- `0000_baseline_schema.sql` … `0041_task_projection.sql` — the current source
+  of truth, **all applied** (verified live 2026-09-02). 0038–0041 are the
+  approvals engine: schema + RLS, then three triggers, each written only after
+  the defect it prevents was PROVEN live as a real persona. `0000` is a full captured baseline that **drops and recreates** the
   core tables.
 - `_archive/20260531_*.sql` … `_archive/20260606_*.sql` (phase1–12 + invoicing) — historical,
   already baked into `0000`, moved to `supabase/migrations/_archive/` (Batch 6.9). Read
