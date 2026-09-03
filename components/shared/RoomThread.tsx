@@ -23,11 +23,15 @@ import ApprovalCard from '@/components/shared/ApprovalCard'
 import type { Message } from '@/lib/types/database'
 import { uploadFileToR2 } from '@/lib/uploadClient'
 import {
-  playMessageChime,
+  playInThreadChime,
+  playTestChime,
   primeAudio,
+  soundVolume,
+  setSoundVolume,
+  VOLUMES,
+  type SoundVolume,
   messageSoundEnabled,
   setMessageSoundEnabled,
-  playTestChime,
   focusModeEnabled,
   setFocusModeEnabled,
 } from '@/lib/soundClient'
@@ -167,6 +171,7 @@ export default function RoomThread({
   })
   const [wpPattern, setWpPattern] = useState<WallpaperPattern>(() => wallpaperPattern())
   const [wpIntensity, setWpIntensity] = useState<WallpaperIntensity>(() => wallpaperIntensity())
+  const [vol, setVol] = useState<SoundVolume>(() => soundVolume())
   const setSticky = useCallback((id: string | null) => {
     setStickyTag(id)
     try {
@@ -183,6 +188,7 @@ export default function RoomThread({
       setWpPattern(wallpaperPattern())
       setWpIntensity(wallpaperIntensity())
       setSoundOn(messageSoundEnabled())
+      setVol(soundVolume())
       setFocusOn(focusModeEnabled())
       setTrigger(mentionTrigger())
       try { setStickyTag(localStorage.getItem(`genreline-room-tag:${clientId}`)) } catch { /* non-persistent */ }
@@ -434,7 +440,9 @@ export default function RoomThread({
       if (!matchesFilter(filter, row.project_id ?? null)) return
       if (seenIdsRef.current.has(row.id)) return
       seenIdsRef.current.add(row.id)
-      playMessageChime()
+      // You are LOOKING at this conversation, so this is a nudge that
+      // something arrived below — not a summons (item 8).
+      playInThreadChime()
       if (row.thread_root_id) {
         // A thread reply: never the main list (item 3). Into the open panel
         // if it matches, and onto the root's affordance either way.
@@ -506,7 +514,7 @@ export default function RoomThread({
         // refetch (cheap: one bounded page) so we render the real thing.
         if (!seenIdsRef.current.has(pl.messageId)) {
           seenIdsRef.current.add(pl.messageId)
-          playMessageChime()
+          playInThreadChime()
           void refetch().then(() => markRead())
         }
       })
@@ -1519,6 +1527,34 @@ export default function RoomThread({
                                 backgroundColor: wpIntensity === value ? 'hsl(var(--primary) / 0.15)' : 'hsl(var(--card))',
                                 color: wpIntensity === value ? 'hsl(var(--primary))' : 'hsl(var(--foreground))',
                                 border: '1px solid ' + (wpIntensity === value ? 'hsl(var(--primary) / 0.5)' : 'hsl(var(--border))'),
+                              }}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {/* Message volume (item 8). Choosing one PLAYS it at
+                          that level, so "is the sound working" answers itself
+                          instead of being a claim the panel makes. */}
+                      <div
+                        className="w-full px-3 py-2.5 rounded-xl border"
+                        style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))' }}
+                      >
+                        <p className="text-sm mb-0.5" style={{ color: 'hsl(var(--foreground))' }}>Message volume</p>
+                        <p className="text-[11px] mb-2" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                          Softer again inside the chat you are already reading
+                        </p>
+                        <div className="flex gap-1.5">
+                          {VOLUMES.map(({ value, label }) => (
+                            <button
+                              key={value}
+                              onClick={() => { setVol(value); setSoundVolume(value); playTestChime() }}
+                              className="flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                              style={{
+                                backgroundColor: vol === value ? 'hsl(var(--primary) / 0.15)' : 'hsl(var(--card))',
+                                color: vol === value ? 'hsl(var(--primary))' : 'hsl(var(--foreground))',
+                                border: '1px solid ' + (vol === value ? 'hsl(var(--primary) / 0.5)' : 'hsl(var(--border))'),
                               }}
                             >
                               {label}
