@@ -39,7 +39,8 @@ order:
 | 11 | `S3-core-messaging-approvals-versioning-retention.md` | **DRAFT** — schema for message rooms, approvals, file versioning, retention; ledger emission moves server-side |
 | 12 | `S3-core-A-amendments.md` | **Supersedes named `S3-core` sections** (A-1 … A-6, from the Batch 13 item 0 audit; two prevented data loss) |
 | 13 | `S3-b-calendar-meetings-documents-seats.md` | **DRAFT** — schema for the four shapes `S-F` §9 moved into v1; sequenced after `S3-core`. **Its migration 5 must DROP its `timecode_ms` line** — that column was never created, and Batch 22 settled one anchor model (`anchor_kind` + `anchor_value`) instead |
-| 14 | `S3-c-approvals-review-live-artifacts.md` | **DRAFT** — **Supersedes `S3-core` §2 (approvals tables), `S3-core` §9.2, and `S-F` §3.3 where they disagree**; approval is a record not a gate — auto-advance on silence, live minted artifacts, anchored review comments; sequenced after `S3-core` migrations 1–7 |
+| 14 | `S3-d-messaging-rooms-groups-broadcast.md` | **DRAFT** — **Supersedes `S3-core` §1.2 (the room table) and §9.1** where they disagree. Membership becomes a ROW (`room_members`), not a derivation; channels, groups, DMs, broadcast and external collaborators; the message RLS moves off tenant identity onto membership. Sequenced after Batch 22, migrations 0043+ |
+| 13b | `S3-c-approvals-review-live-artifacts.md` | **DRAFT** — **Supersedes `S3-core` §2 (approvals tables), `S3-core` §9.2, and `S-F` §3.3 where they disagree**; approval is a record not a gate — auto-advance on silence, live minted artifacts, anchored review comments; sequenced after `S3-core` migrations 1–7 |
 
 **Where S0 and S0-A disagree, S0-A wins** — and the same rule binds `S3-core`
 and `S3-core-A`. S0 entries were not edited in place — the original
