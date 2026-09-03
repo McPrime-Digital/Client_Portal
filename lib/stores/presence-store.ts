@@ -9,6 +9,9 @@ export type PresenceEntry = {
   role: 'admin' | 'client'
   userId: string
   clientId: string | null
+  /** WHICH conversation view they are reading (item 6) — null when they are
+   *  signed in but not in a thread. A hint for a subtitle, never authorization. */
+  view?: import('@/lib/presenceView').PresenceView | null
 }
 
 type PresenceStore = {

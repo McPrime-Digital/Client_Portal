@@ -11,10 +11,13 @@
  * sits inside it untouched — rule zero.
  *
  * Realtime protocol (shared with PresencePulse and the hubs since 14.9):
- * topic `thread:<key>` where key is the project id for a tagged view and
+ * topic `thread:room:<clientId>` — ONE topic per room, whatever view each
+ * participant is looking at (item 6). It was previously `thread:<key>` where
+ * key is the project id for a tagged view and
  * `room:<clientId>` for room-level views; events `message`, `typing`, `sync`.
  */
 
+import { setPresenceView, clearPresenceView } from '@/lib/presenceView'
 import { readThread, writeThread, cacheKeyFor } from '@/lib/threadCache'
 import { useDismissOnOutside } from '@/lib/hooks/useDismissOnOutside'
 import { useState, useEffect, useRef, useCallback } from 'react'
@@ -232,6 +235,36 @@ export default function RoomThread({
   const threadKey =
     filter.kind === 'project' ? filter.projectId : `room:${clientId}`
 
+  /**
+   * THE REALTIME TOPIC IS THE ROOM, NOT THE VIEW (item 6).
+   *
+   * It used to be `thread:${threadKey}` — the project id in a project view,
+   * `room:<clientId>` in All. So two people looking at the SAME conversation
+   * through different views were on DIFFERENT channels: someone typing inside
+   * project AMP broadcast to `thread:<AMP>`, and a colleague reading All was
+   * subscribed to `thread:room:<client>` and heard none of it. Their messages
+   * only arrived via the ~1-2s replication fallback, and typing never arrived
+   * at all. That is the "barely loads and then glitches" case exactly.
+   *
+   * One topic per ROOM fixes it: everyone in the conversation is on the same
+   * channel whatever they are looking at, and the PAYLOAD carries which view
+   * the sender was in so the receiver can filter and, for presence, say where
+   * they are. No extra subscription — the same one channel, correctly named.
+   */
+  const roomTopic = `room:${clientId}`
+
+  // Publish WHICH view this tab is reading, so the other side sees "In All" or
+  // "In AMP" rather than a bare "Online" (item 6). Cleared on unmount so a
+  // closed conversation stops claiming anyone is in it.
+  useEffect(() => {
+    setPresenceView(
+      filter.kind === 'project'
+        ? { kind: 'project', clientId, projectId: filter.projectId }
+        : { kind: 'all', clientId }
+    )
+    return () => clearPresenceView(clientId)
+  }, [clientId, filterKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     primeAudio()
     createClient().auth.getUser().then(async ({ data }) => {
@@ -284,11 +317,13 @@ export default function RoomThread({
         channelRef.current?.send({
           type: 'broadcast',
           event: 'sync',
-          payload: { projectId: threadKey },
+          // The real project id (null in All), so a receiver can tell WHICH
+          // view this came from rather than re-deriving it from a topic name.
+          payload: { projectId: filter.kind === 'project' ? filter.projectId : null },
         })
       })
       .catch(() => {})
-  }, [role, patchBody, threadKey])
+  }, [role, patchBody, filter])
 
   // ── Load (bounded latest page; item 2 adds the cursor) ───────────────────
   // Union by id, ordered (created_at, id) — pages and live rows interleave
@@ -505,7 +540,7 @@ export default function RoomThread({
   // ── The thread bus ───────────────────────────────────────────────────────
   useEffect(() => {
     const ch = supabase
-      .channel(`thread:${threadKey}`, { config: { broadcast: { self: false } } })
+      .channel(`thread:${roomTopic}`, { config: { broadcast: { self: false } } })
       .on('broadcast', { event: 'message' }, (p) => {
         const pl = p.payload as ThreadMessagePayload | undefined
         if (!pl?.messageId) return
@@ -544,7 +579,7 @@ export default function RoomThread({
       channelRef.current = null
       supabase.removeChannel(ch)
     }
-  }, [threadKey, role, applyReaction]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [roomTopic, role, applyReaction]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Standalone surfaces: replication fallback, filtered to this room, so a
   // send surface that forgets to broadcast still lands here in ~2s.
@@ -1030,7 +1065,7 @@ export default function RoomThread({
         type: 'broadcast',
         event: 'message',
         payload: {
-          projectId: threadKey,
+          projectId: inserted.project_id ?? null,
           messageId: inserted.id,
           senderRole: role,
           senderId: inserted.sender_id,

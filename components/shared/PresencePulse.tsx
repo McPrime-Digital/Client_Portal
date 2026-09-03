@@ -1,5 +1,6 @@
 'use client'
 
+import { presenceView, PRESENCE_VIEW_EVENT } from '@/lib/presenceView'
 import { useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { usePresenceStore, type PresenceEntry } from '@/lib/stores/presence-store'
@@ -68,7 +69,10 @@ export default function PresencePulse({
     // party never sees a stale "Online" for a backgrounded/closed tab.
     const syncPresence = () => {
       if (document.visibilityState === 'visible') {
-        presenceCh.track({ role, userId, clientId })
+        // `view` says WHICH conversation they are reading (item 6), so the
+        // other side can distinguish "in this thread" from "signed in
+        // somewhere". A hint, never authorization.
+        presenceCh.track({ role, userId, clientId, view: presenceView() })
       } else {
         presenceCh.untrack()
       }
@@ -84,6 +88,7 @@ export default function PresencePulse({
                 role: p.role,
                 userId: p.userId ?? '',
                 clientId: p.clientId ?? null,
+                view: p.view ?? null,
               })
             }
           }
@@ -94,6 +99,10 @@ export default function PresencePulse({
         if (status === 'SUBSCRIBED') syncPresence()
       })
 
+    // Re-track the moment the view changes rather than on the next heartbeat:
+    // "they just opened this thread" is only useful if it is immediate.
+    window.addEventListener(PRESENCE_VIEW_EVENT, syncPresence)
+
     // ── 2. Auto-deliver incoming messages anywhere in the app ──
     const endpoint = role === 'admin' ? '/api/admin/messages' : '/api/portal/messages'
     // Ping the sender (cross-browser) so their tick flips to double-grey the
@@ -103,7 +112,15 @@ export default function PresencePulse({
     // one topic on the shared socket would collide).
     const pingDelivered = (projectId: string) => {
       if (isHubMounted()) return
-      const ch = supabase.channel(`thread:${projectId}`)
+      // ROOM topic, matching RoomThread (item 6). This used to ping
+      // `thread:${projectId}` — the per-VIEW topic — which after the room-scoped
+      // move would have been a broadcast into a channel nobody subscribes to:
+      // a receipt that silently never arrived. A client session always has its
+      // own room; an admin session outside a hub has no single room to name, so
+      // it falls back to replication, which flips the tick a second later
+      // rather than not at all.
+      if (!clientId) return
+      const ch = supabase.channel(`thread:room:${clientId}`)
       ch.subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           ch.send({ type: 'broadcast', event: 'sync', payload: { projectId } })
