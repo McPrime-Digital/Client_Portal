@@ -340,36 +340,41 @@ export default function MessagesHub({
         </div>
       </div>
 
-      {/* ── Filter chips: views over one room ──
-          CENTRED and sized to CONTENT (item 4). It used to be a full-bleed
-          band with a border running the whole width, which read as a piece of
-          page chrome rather than a small set of tabs over one conversation.
-          The rail scrolls horizontally only when the projects outgrow it. */}
-      <div className="flex justify-center px-3 py-1.5">
-        <div
-          className="inline-flex items-center gap-1.5 px-1.5 py-1 rounded-full max-w-full overflow-x-auto scrollbar-thin"
-          style={{ backgroundColor: 'hsl(var(--card) / 0.75)', border: '1px solid hsl(var(--border))' }}
-        >
-        {chip('all', 'All', filter.kind === 'all', 0, () => selectFilter({ kind: 'all' }))}
-        {projects.map((p) =>
-          chip(
-            p.id,
-            p.title,
-            filter.kind === 'project' && filter.projectId === p.id,
-            chipUnread.byProject[p.id] ?? 0,
-            () => selectFilter({ kind: 'project', projectId: p.id }),
-            false,
-            projectColor(p.id)
-          )
-        )}
-        </div>
-      </div>
-
-      {/* ── The one conversation engine ── */}
+      {/* ── The one conversation engine, with THE NOTCH over it ──
+          The thread tabs live in a single squircle hanging from the header —
+          a notch. ONLY the squircle carries a background; everything around
+          it is the conversation itself, scrolling underneath. It used to be a
+          full-width band that consumed a strip of the page between header and
+          chat, which read as chrome and cost the chat that height. */}
       <div
-        className="flex-1 min-h-0 rounded-b-2xl border overflow-hidden"
+        className="flex-1 min-h-0 rounded-b-2xl border overflow-hidden relative"
         style={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))' }}
       >
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 z-30 max-w-[calc(100%-96px)]">
+          <div
+            className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-b-2xl max-w-full overflow-x-auto scrollbar-none shadow-lg"
+            style={{
+              backgroundColor: 'hsl(var(--card) / 0.88)',
+              border: '1px solid hsl(var(--border))',
+              borderTop: 'none',
+              backdropFilter: 'blur(10px)',
+              WebkitBackdropFilter: 'blur(10px)',
+            }}
+          >
+            {chip('all', 'All', filter.kind === 'all', 0, () => selectFilter({ kind: 'all' }))}
+            {projects.map((p) =>
+              chip(
+                p.id,
+                p.title,
+                filter.kind === 'project' && filter.projectId === p.id,
+                chipUnread.byProject[p.id] ?? 0,
+                () => selectFilter({ kind: 'project', projectId: p.id }),
+                false,
+                projectColor(p.id)
+              )
+            )}
+          </div>
+        </div>
         <RoomThread
           role="client"
           clientId={clientId}

@@ -29,6 +29,7 @@ import type { Message } from '@/lib/types/database'
 import { uploadFileToR2 } from '@/lib/uploadClient'
 import {
   playInThreadChime,
+  playMessageChime,
   playTestChime,
   primeAudio,
   soundVolume,
@@ -238,6 +239,34 @@ export default function RoomThread({
     filter.kind === 'project' ? filter.projectId : `room:${clientId}`
 
   /**
+   * THE VIEW'S PREDICATE IS LAW — the fix for "every thread shows everything".
+   *
+   * Two leaks put another view's rows into this one, and both got WORSE the
+   * longer you navigated:
+   *
+   *   1. A stale RESPONSE: `load()`/`refetch()` are async, and a filter switch
+   *      while one is in flight let the OLD view's page MERGE into the new
+   *      view's list (merge, never replace, is right for pagination and wrong
+   *      for cross-view).
+   *   2. A stale CLOSURE: the realtime effects deliberately don't re-subscribe
+   *      per view, so their captured `refetch`/`handleIncomingRow` kept the
+   *      previous view's filter and URL alive indefinitely.
+   *
+   * Then the cache-writer persisted the contaminated list, so the corruption
+   * SURVIVED the navigation that would have cleared it. Three controls, all
+   * needed: responses are dropped when the view has moved on (issue-key
+   * check), every row is re-checked against the CURRENT predicate before
+   * merge or cache write, and the realtime handlers read the latest closures
+   * through refs.
+   */
+  const filterKeyRef = useRef(filterKey)
+  useEffect(() => { filterKeyRef.current = filterKey }, [filterKey])
+  const scopeRows = useCallback(
+    (rows: Message[]) => rows.filter((m) => matchesFilter(filter, m.project_id ?? null)),
+    [filterKey] // eslint-disable-line react-hooks/exhaustive-deps
+  )
+
+  /**
    * THE REALTIME TOPIC IS THE ROOM, NOT THE VIEW (item 6).
    *
    * It used to be `thread:${threadKey}` — the project id in a project view,
@@ -354,12 +383,16 @@ export default function RoomThread({
   }, [])
 
   const load = useCallback(async () => {
+    const issuedFor = filterKeyRef.current
     setLoading(true)
     try {
       const res = await fetch(listUrl())
       const json = await res.json()
-      const rows: Message[] = res.ok ? json.messages ?? [] : []
-      setMessages((prev) => (prev.length ? mergeRows(prev, rows) : rows))
+      // The view moved on while this was in flight — this page belongs to a
+      // filter that is no longer on screen. Merging it is the contamination.
+      if (filterKeyRef.current !== issuedFor) return
+      const rows: Message[] = scopeRows(res.ok ? json.messages ?? [] : [])
+      setMessages((prev) => (prev.length ? mergeRows(scopeRows(prev), rows) : rows))
       setPageCursor(json.nextCursor ?? null)
       setHasMore(!!json.hasMore)
       if (json.replyMeta) setReplyMeta(json.replyMeta)
@@ -377,21 +410,23 @@ export default function RoomThread({
       if (json.roomId) roomIdRef.current = json.roomId
       for (const r of rows) seenIdsRef.current.add(r.id)
     } catch {
-      setMessages([])
+      if (filterKeyRef.current === issuedFor) setMessages([])
     } finally {
       setLoading(false)
     }
-    markRead()
-  }, [listUrl, markRead, mergeRows])
+    if (filterKeyRef.current === issuedFor) markRead()
+  }, [listUrl, markRead, mergeRows, scopeRows])
 
   const loadOlder = useCallback(async () => {
     if (!pageCursor || loadingOlder) return
+    const issuedFor = filterKeyRef.current
     setLoadingOlder(true)
     try {
       const res = await fetch(`${listUrl()}&before=${encodeURIComponent(pageCursor)}`)
       const json = await res.json()
+      if (filterKeyRef.current !== issuedFor) return
       if (res.ok && json.messages) {
-        const older = json.messages as Message[]
+        const older = scopeRows(json.messages as Message[])
         for (const r of older) seenIdsRef.current.add(r.id)
         setMessages((prev) => mergeRows(prev, older))
         setPageCursor(json.nextCursor ?? null)
@@ -400,7 +435,7 @@ export default function RoomThread({
     } catch {} finally {
       setLoadingOlder(false)
     }
-  }, [pageCursor, loadingOlder, listUrl, mergeRows])
+  }, [pageCursor, loadingOlder, listUrl, mergeRows, scopeRows])
 
   const cacheKey = cacheKeyFor(role, clientId, filterKey)
   useEffect(() => {
@@ -408,11 +443,15 @@ export default function RoomThread({
     const cached = readThread(cacheKey)
     const allCached = readThread(cacheKeyFor(role, clientId, 'all'))
     if (cached) {
-      setMessages(cached.rows)
+      // Re-checked against the predicate on the way OUT of the cache: a cache
+      // contaminated by the pre-fix merge bug self-heals on its next read
+      // instead of replaying the corruption forever.
+      const rows = scopeRows(cached.rows)
+      setMessages(rows)
       setPageCursor(cached.cursor)
       setHasMore(cached.hasMore)
       if (cached.roomId) roomIdRef.current = cached.roomId
-      for (const r of cached.rows) seenIdsRef.current.add(r.id)
+      for (const r of rows) seenIdsRef.current.add(r.id)
     } else if (filter.kind !== 'all' && allCached) {
       // Seeding a project view from the All superset uses the SAME predicate,
       // so a seeded view can never show more than a fetched one.
@@ -450,17 +489,19 @@ export default function RoomThread({
   }, [role, clientId])
 
   const refetch = useCallback(async () => {
+    const issuedFor = filterKeyRef.current
     try {
       const res = await fetch(listUrl())
       const json = await res.json()
+      if (filterKeyRef.current !== issuedFor) return
       if (!res.ok || !json.messages) return
-      const incoming = json.messages as Message[]
+      const incoming = scopeRows(json.messages as Message[])
       for (const r of incoming) seenIdsRef.current.add(r.id)
       // Merge, never replace — older keyset pages already on screen survive.
       setMessages((prev) => mergeRows(prev, incoming))
       if (json.replyMeta) setReplyMeta((prev) => ({ ...prev, ...json.replyMeta }))
     } catch {}
-  }, [listUrl, mergeRows])
+  }, [listUrl, mergeRows, scopeRows])
 
   // ── Reactions (item 4): optimistic, user-client RLS write, bus reconcile ──
   const applyReaction = useCallback(
@@ -482,6 +523,39 @@ export default function RoomThread({
   )
 
 
+  /**
+   * ACKNOWLEDGE what just arrived — and TELL THE TRUTH about it.
+   *
+   * Read is a claim about a person, not a tab. A hidden tab that marked
+   * arrivals READ (which the bus handler did) forged blue ticks for a message
+   * nobody saw, cleared the recipient's own badge, and — because the away
+   * nudge keys on unread — silenced the push that was that person's only
+   * remaining signal. Hidden ⇒ delivered; read waits for eyes.
+   */
+  const acknowledge = useCallback(() => {
+    const visible =
+      typeof document !== 'undefined' && document.visibilityState === 'visible'
+    if (visible) markRead()
+    else {
+      const base = role === 'admin' ? '/api/admin/messages' : '/api/portal/messages'
+      fetch(base, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patchBody('delivered')),
+      }).catch(() => {})
+    }
+  }, [role, patchBody, markRead])
+
+  /** The right sound for where the reader actually is: reading this thread —
+   *  a quiet nudge; this tab hidden — the real summons. */
+  const chimeForArrival = useCallback(() => {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+      playMessageChime()
+    } else {
+      playInThreadChime()
+    }
+  }, [])
+
   // ── One incoming path for broadcast AND replication ──────────────────────
   const handleIncomingRow = useCallback(
     (row: Message) => {
@@ -491,7 +565,7 @@ export default function RoomThread({
       seenIdsRef.current.add(row.id)
       // You are LOOKING at this conversation, so this is a nudge that
       // something arrived below — not a summons (item 8).
-      playInThreadChime()
+      chimeForArrival()
       if (row.thread_root_id) {
         // A thread reply: never the main list (item 3). Into the open panel
         // if it matches, and onto the root's affordance either way.
@@ -516,19 +590,9 @@ export default function RoomThread({
         prev.some((m) => m.id === row.id) ? prev : [...prev, row]
       )
       onActivity?.(row, 'incoming')
-      const visible =
-        typeof document !== 'undefined' && document.visibilityState === 'visible'
-      if (visible) markRead()
-      else {
-        const base = role === 'admin' ? '/api/admin/messages' : '/api/portal/messages'
-        fetch(base, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(patchBody('delivered')),
-        }).catch(() => {})
-      }
+      acknowledge()
     },
-    [filter, role, patchBody, markRead, onActivity] // eslint-disable-line react-hooks/exhaustive-deps
+    [filter, acknowledge, chimeForArrival, onActivity]
   )
 
   // Row UPDATES (read/delivered ticks, edits, deletes) patch in place —
@@ -551,6 +615,46 @@ export default function RoomThread({
     else handleIncomingRow(externalRow.row)
   }, [externalRow, handleIncomingRow, patchRow])
 
+  // The realtime effects deliberately survive filter switches (one channel
+  // per ROOM), so everything they call goes through refs — a channel that
+  // outlives the view must never act with the view it was born under.
+  const refetchRef = useRef(refetch)
+  useEffect(() => { refetchRef.current = refetch }, [refetch])
+  const markReadRef = useRef(markRead)
+  useEffect(() => { markReadRef.current = markRead }, [markRead])
+  const handleIncomingRowRef = useRef(handleIncomingRow)
+  useEffect(() => { handleIncomingRowRef.current = handleIncomingRow }, [handleIncomingRow])
+  const patchRowRef = useRef(patchRow)
+  useEffect(() => { patchRowRef.current = patchRow }, [patchRow])
+  const acknowledgeRef = useRef(acknowledge)
+  useEffect(() => { acknowledgeRef.current = acknowledge }, [acknowledge])
+  const chimeForArrivalRef = useRef(chimeForArrival)
+  useEffect(() => { chimeForArrivalRef.current = chimeForArrival }, [chimeForArrival])
+
+  /**
+   * CATCH-UP ON RETURN — the "works for a while, then nothing" fix.
+   *
+   * A backgrounded tab throttles timers, the realtime socket misses its
+   * heartbeats, the server closes it, and every message sent in that window
+   * is simply GONE from this session — replication has no replay. The client
+   * reconnects on its own, but reconnecting only resumes the future; nothing
+   * re-fetched the past, which is why the thread looked frozen until a manual
+   * refresh. Coming back to visibility (or back online) now refetches the
+   * open view and re-marks it read. One bounded page — cheap, idempotent.
+   */
+  useEffect(() => {
+    const catchUp = () => {
+      if (document.visibilityState !== 'visible') return
+      void refetchRef.current().then(() => markReadRef.current())
+    }
+    document.addEventListener('visibilitychange', catchUp)
+    window.addEventListener('online', catchUp)
+    return () => {
+      document.removeEventListener('visibilitychange', catchUp)
+      window.removeEventListener('online', catchUp)
+    }
+  }, [])
+
   // ── The thread bus ───────────────────────────────────────────────────────
   useEffect(() => {
     const ch = supabase
@@ -563,8 +667,8 @@ export default function RoomThread({
         // refetch (cheap: one bounded page) so we render the real thing.
         if (!seenIdsRef.current.has(pl.messageId)) {
           seenIdsRef.current.add(pl.messageId)
-          playInThreadChime()
-          void refetch().then(() => markRead())
+          chimeForArrivalRef.current()
+          void refetchRef.current().then(() => acknowledgeRef.current())
         }
       })
       .on('broadcast', { event: 'typing' }, (p) => {
@@ -585,7 +689,7 @@ export default function RoomThread({
         // The approval card re-reads on this too — it opens NO channel of its
         // own (I-2: the budget was halved by the room model, not fixed).
         setApprovalSync((n) => n + 1)
-        void refetch()
+        void refetchRef.current()
       })
       .subscribe()
     channelRef.current = ch
@@ -608,12 +712,12 @@ export default function RoomThread({
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'messages', filter: `room_id=eq.${roomId}` },
-          (p) => handleIncomingRow(p.new as Message)
+          (p) => handleIncomingRowRef.current(p.new as Message)
         )
         .on(
           'postgres_changes',
           { event: 'UPDATE', schema: 'public', table: 'messages', filter: `room_id=eq.${roomId}` },
-          (p) => patchRow(p.new as Message)
+          (p) => patchRowRef.current(p.new as Message)
         )
         .subscribe()
     }

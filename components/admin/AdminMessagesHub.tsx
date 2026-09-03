@@ -526,16 +526,21 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                 </div>
               </div>
 
-              {/* Filter chips: views over the ONE room.
-                  CENTRED and sized to CONTENT (item 4) — a full-bleed band
-                  with an edge-to-edge border read as page chrome rather than
-                  as tabs over one conversation. */}
-              <div className="flex justify-center px-3 py-1.5 flex-shrink-0">
+              {/* Filter chips: views over the ONE room, in THE NOTCH — a
+                  single squircle hanging from the header. Only the squircle
+                  carries a background; the conversation scrolls beneath it,
+                  where the old full-width band cost the chat a strip of
+                  height and read as page chrome. */}
+              <div className="flex-1 min-h-0 relative">
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 z-30 max-w-[calc(100%-96px)]">
                 <div
-                  className="inline-flex items-center gap-1.5 px-1.5 py-1 rounded-full max-w-full overflow-x-auto scrollbar-thin"
+                  className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-b-2xl max-w-full overflow-x-auto scrollbar-none shadow-lg"
                   style={{
-                    backgroundColor: 'hsl(var(--card) / 0.75)',
+                    backgroundColor: 'hsl(var(--card) / 0.88)',
                     border: '1px solid hsl(var(--border))',
+                    borderTop: 'none',
+                    backdropFilter: 'blur(10px)',
+                    WebkitBackdropFilter: 'blur(10px)',
                   }}
                 >
                 {[
@@ -604,7 +609,6 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                 </div>
               </div>
 
-              <div className="flex-1 min-h-0">
                 <RoomThread
                   key={active.clientId}
                   role="admin"

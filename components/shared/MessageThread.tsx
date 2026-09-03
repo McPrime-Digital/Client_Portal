@@ -1,6 +1,7 @@
 'use client'
 
 import { EMOJI_CATEGORIES, searchEmoji } from '@/lib/emojiData'
+import { unsupportedEmoji } from '@/lib/emojiSupport'
 import { stickerClass, stickerMotion } from '@/lib/stickerMotion'
 import { senderColor } from '@/lib/projectColor'
 import { useDismissOnOutside } from '@/lib/hooks/useDismissOnOutside'
@@ -282,9 +283,25 @@ export default function MessageThread({
       return next
     })
   }, [])
-  const visibleEmoji = emojiQuery
+  /**
+   * Emoji this DEVICE cannot draw (invisible or tofu). The generator verified
+   * every codepoint is assigned in Unicode; only the viewer's font decides
+   * whether it renders, so the last filter runs here. Measured once when the
+   * picker first opens, cached per device (lib/emojiSupport).
+   */
+  const [emojiBad, setEmojiBad] = useState<Set<string> | null>(null)
+  const openEmojiPicker = useCallback(() => {
+    setEmojiOpen((v) => !v)
+    // Measured in the gesture, not an effect: the sweep is synchronous and
+    // cached per device, so the first open pays ~a frame and the rest nothing.
+    setEmojiBad((prev) =>
+      prev ?? unsupportedEmoji(EMOJI_CATEGORIES.flatMap((c) => c.items.map((i) => i.e)))
+    )
+  }, [])
+  const visibleEmoji = (emojiQuery
     ? searchEmoji(emojiQuery)
     : (EMOJI_CATEGORIES.find((c) => c.key === emojiCat)?.items ?? [])
+  ).filter((i) => !emojiBad?.has(i.e))
 
   /**
    * When to print a project's NAME on a message.
@@ -384,7 +401,16 @@ export default function MessageThread({
   // Opening a chat lands AT the latest message — an instant, before-paint
   // jump, never a visible top-to-bottom ride. Smooth scrolling is reserved
   // for messages that arrive while you are already reading at the tail.
+  //
+  // THE SETTLE WINDOW is what stops the "keeps going up and down" open: a
+  // fresh view renders from cache, then the network merge lands, then media
+  // finishes loading — three height changes in the first second, and each
+  // one used to trigger an ANIMATED scroll that chased the last one. While the
+  // view is settling, every correction is a hard pin (invisible); animation
+  // is reserved for messages that arrive after the view has come to rest.
   const didInitialScrollRef = useRef(false)
+  const settleUntilRef = useRef(0)
+  const contentRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     didInitialScrollRef.current = false
   }, [projectId])
@@ -398,12 +424,31 @@ export default function MessageThread({
       if (el) el.scrollTop = el.scrollHeight
       didInitialScrollRef.current = true
       nearBottomRef.current = true
+      settleUntilRef.current = Date.now() + 1500
       return
     }
     if (nearBottomRef.current && !fetchingOlderRef.current) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+      if (el && Date.now() < settleUntilRef.current) el.scrollTop = el.scrollHeight
+      else messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
   }, [messages, projectId])
+
+  // Late media (an image finishing its load, a PDF frame) grows the content
+  // ABOVE the tail after the scroll already happened. A reader at the tail
+  // stays at the tail: any content resize while near the bottom re-pins
+  // instantly. Reading history (not near bottom) is never yanked.
+  useEffect(() => {
+    const content = contentRef.current
+    const el = scrollBoxRef.current
+    if (!content || !el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => {
+      if (nearBottomRef.current && !fetchingOlderRef.current) {
+        el.scrollTop = el.scrollHeight
+      }
+    })
+    ro.observe(content)
+    return () => ro.disconnect()
+  }, [])
 
   async function handleScroll() {
     const el = scrollBoxRef.current
@@ -684,6 +729,7 @@ export default function MessageThread({
         onScroll={handleScroll}
         className="h-full overflow-y-auto px-4 py-3 scrollbar-thin relative"
       >
+      <div ref={contentRef}>
 
         {!hasMore && messages.length > 0 && (
           <p
@@ -1052,13 +1098,16 @@ export default function MessageThread({
                     )}
 
                     {/* Loading skeleton — while the signed URL resolves, show a
-                        placeholder so an attachment is never a blank bubble. */}
+                        placeholder so an attachment is never a blank bubble.
+                        Its dimensions EQUAL the loaded media's, so resolution
+                        changes pixels, never layout — a bubble that grows
+                        after the scroll landed is what made opens bounce. */}
                     {msg.attachment_url && !resolvedAttachUrl && (
                       <div
                         className="m-1.5 flex items-center justify-center rounded-xl"
                         style={{
                           width: isImg || isVid || isPdf ? 256 : 200,
-                          height: isImg || isVid || isPdf ? 160 : 56,
+                          height: isPdf ? 236 : isImg || isVid ? 180 : 56,
                           maxWidth: '100%',
                           backgroundColor: isMe ? 'hsl(var(--background) / 0.12)' : 'hsl(var(--background) / 0.35)',
                         }}
@@ -1067,30 +1116,34 @@ export default function MessageThread({
                       </div>
                     )}
 
-                    {/* Inline Image Preview */}
+                    {/* Inline Image Preview — a FIXED box the image covers.
+                        Intrinsic sizing meant a zero-height hole until the
+                        bytes arrived, then a jump; the viewer shows it whole. */}
                     {resolvedAttachUrl && isImg && (
                       <div
-                        className="cursor-pointer"
+                        className="cursor-pointer overflow-hidden"
+                        style={{ width: 256, height: 180, maxWidth: '100%' }}
                         onClick={() => setViewerSource({ url: resolvedAttachUrl, name: attachName || 'image' })}
                       >
                         <img
                           src={resolvedAttachUrl}
                           alt={attachName}
-                          className="w-full max-h-[300px] object-cover transition-transform duration-300 hover:scale-[1.03]"
+                          className="w-full h-full object-cover transition-transform duration-300 hover:scale-[1.03]"
                           loading="lazy"
                         />
                       </div>
                     )}
 
-                    {/* Inline Video Preview */}
+                    {/* Inline Video Preview — same fixed box as images */}
                     {resolvedAttachUrl && isVid && (
                       <div
-                        className="cursor-pointer"
+                        className="cursor-pointer overflow-hidden"
+                        style={{ width: 256, height: 180, maxWidth: '100%' }}
                         onClick={() => setViewerSource({ url: resolvedAttachUrl, name: attachName || 'video' })}
                       >
                         <video
                           src={resolvedAttachUrl}
-                          className="w-full max-h-[300px] object-cover"
+                          className="w-full h-full object-cover"
                           muted
                           loop
                           playsInline
@@ -1324,6 +1377,7 @@ export default function MessageThread({
           )
         })}
         <div ref={messagesEndRef} />
+      </div>
       </div>
       </div>
 
@@ -1569,7 +1623,7 @@ export default function MessageThread({
           <div className="relative" data-tl-keep-open>
             <button
               type="button"
-              onClick={() => setEmojiOpen((v) => !v)}
+              onClick={openEmojiPicker}
               className="w-9 h-9 rounded-xl flex items-center justify-center transition-all"
               style={{
                 backgroundColor: emojiOpen ? 'hsl(var(--primary))' : 'hsl(var(--border))',
@@ -1664,7 +1718,7 @@ export default function MessageThread({
                       <p className="text-[9px] font-semibold uppercase tracking-widest mb-1"
                         style={{ color: 'hsl(var(--text-faint))' }}>Recent</p>
                       <div className="flex flex-wrap gap-0.5">
-                        {recentEmoji.map((e) => (
+                        {recentEmoji.filter((e) => !emojiBad?.has(e)).map((e) => (
                           <button key={`r-${e}`} type="button" onClick={() => insertEmoji(e)}
                             className="text-xl w-8 h-8 rounded-lg hover:bg-[hsl(var(--border))] transition-colors">
                             {e}
