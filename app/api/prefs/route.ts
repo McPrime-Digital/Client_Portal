@@ -16,8 +16,17 @@ import { createClient } from '@/lib/supabase/server'
  * not become a dumping ground.
  */
 
-const PATTERNS = new Set(['film', 'aurora', 'waves', 'dots', 'grid', 'none'])
+// Accepts the CURRENT set plus the three retired names, deliberately: a
+// browser that still holds 'aurora' must be able to write it back without a
+// 400, and lib/chatPrefs maps it to its nearest survivor on read. Refusing
+// the old value would make the push fail, leave the key dirty, and strand
+// that device on a preference it can never replace.
+const PATTERNS = new Set([
+  'grain', 'filmstrip', 'storyboard', 'slate', 'bokeh', 'vignette', 'dots', 'film', 'none',
+  'aurora', 'waves', 'grid',
+])
 const INTENSITIES = new Set(['faint', 'medium', 'bold'])
+const VOLUMES = new Set(['off', 'low', 'medium', 'high'])
 const TRIGGERS = new Set(['at', 'slash', 'both'])
 const ONOFF = new Set(['on', 'off'])
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -34,6 +43,10 @@ function sanitizeChat(input: unknown): Record<string, unknown> | null {
   if ('wallpaperIntensity' in src) {
     if (typeof src.wallpaperIntensity !== 'string' || !INTENSITIES.has(src.wallpaperIntensity)) return null
     out.wallpaperIntensity = src.wallpaperIntensity
+  }
+  if ('soundVolume' in src) {
+    if (typeof src.soundVolume !== 'string' || !VOLUMES.has(src.soundVolume)) return null
+    out.soundVolume = src.soundVolume
   }
   if ('sound' in src) {
     if (typeof src.sound !== 'string' || !ONOFF.has(src.sound)) return null

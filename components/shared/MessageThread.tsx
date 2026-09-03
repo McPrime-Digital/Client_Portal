@@ -1,5 +1,6 @@
 'use client'
 
+import { DEFAULT_WALLPAPER, type WallpaperPattern } from '@/lib/chatPrefs'
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
 import {
   Send,
@@ -82,7 +83,11 @@ type Props = {
   composerTagLocked?: boolean
   onComposerTagChange?: (id: string | null) => void
   /** viewer's wallpaper (Batch 17): pattern class + intensity alpha */
-  wallpaper?: { pattern: 'film' | 'aurora' | 'waves' | 'dots' | 'grid' | 'none'; alpha: number }
+  /** Viewer's wallpaper (Batch 17, set rebuilt). The pattern union lives in
+   *  lib/chatPrefs so the picker, the validator and this renderer cannot
+   *  drift — three copies of a string union is how 'aurora' survived in one
+   *  place after being retired in another. */
+  wallpaper?: { pattern: WallpaperPattern; alpha: number }
   /** forward + bulk select (Batch 18) */
   onForward?: (msgs: Message[]) => void
   selectionMode?: boolean
@@ -201,7 +206,7 @@ export default function MessageThread({
   composerTagOptions = [],
   composerTagLocked = false,
   onComposerTagChange,
-  wallpaper = { pattern: 'film', alpha: 0.75 },
+  wallpaper = { pattern: DEFAULT_WALLPAPER, alpha: 0.75 },
   onForward,
   selectionMode = false,
   selectedIds,

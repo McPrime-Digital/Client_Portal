@@ -40,6 +40,7 @@ import {
   wallpaperIntensity,
   setWallpaperIntensity,
   INTENSITY_ALPHA,
+  WALLPAPERS,
   type WallpaperPattern,
   type WallpaperIntensity,
 } from '@/lib/chatPrefs'
@@ -1481,14 +1482,7 @@ export default function RoomThread({
                       >
                         <p className="text-sm mb-2" style={{ color: 'hsl(var(--foreground))' }}>Wallpaper</p>
                         <div className="grid grid-cols-3 gap-1.5 mb-2">
-                          {([
-                            ['film', 'Film'],
-                            ['aurora', 'Aurora'],
-                            ['waves', 'Waves'],
-                            ['dots', 'Dots'],
-                            ['grid', 'Grid'],
-                            ['none', 'None'],
-                          ] as const).map(([value, label]) => (
+                          {WALLPAPERS.map(({ value, label }) => (
                             <button
                               key={value}
                               onClick={() => { setWpPattern(value); setWallpaperPattern(value) }}
