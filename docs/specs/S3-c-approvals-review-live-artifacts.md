@@ -137,7 +137,9 @@ A review comment is a message with an anchor. **Not a separate system.**
 | Storyboard, shot list | Panel or shot |
 | Image, still, location plate | Region on the image |
 
-`S3-core` already placed `timecode_ms` on `messages` for this. What it needs is the anchor kind and its value, so a comment on a script and a comment on a frame are the same row with different anchors.
+~~`S3-core` already placed `timecode_ms` on `messages` for this.~~ **CORRECTED IN BUILD (Batch 22 item 0).** That premise is false and was inherited rather than checked. `messages.timecode_ms` has NEVER existed: `S3-core` §1.3 does not list it, and the only document that adds it is `S3-b` §2.2, in a migration that has not run. A live column read on 2026-09-02 confirmed it absent.
+
+So there was no reconciliation to make and no "alongside" option to weigh. What `messages` needs is the anchor kind and its value — **and nothing else** — so a comment on a script and a comment on a frame are the same row with different anchors.
 
 **Why this matters beyond tidiness:** review comments then live in the messaging engine built across Batches 13–16. Threading, mentions, read state, notifications, search, realtime — all of it works on review comments for free. A separate review-comment system rebuilds every one of them.
 
@@ -169,7 +171,11 @@ Everything in `S3-core` §2 stands except:
 
 **`approval_comment_permissions`** — `approval_id`, `user_id`, `can_comment` boolean. Absent row means the default for that person's role. Set by a capability-holder.
 
-**`messages`** — `anchor_kind` text null (`timecode`|`block`|`panel`|`region`), `anchor_value` jsonb null. `timecode_ms` folds into `anchor_value` or stays alongside it; decide at build time and record which.
+**`messages`** — `anchor_kind` text null (`timecode`|`block`|`panel`|`region`), `anchor_value` jsonb null, plus a CHECK that the two are both-or-neither: a kind with no value anchors nothing, and a value with no kind cannot be interpreted.
+
+**DECIDED AT BUILD TIME AND RECORDED HERE, as this section asked (Batch 22, migration 0038): there is ONE anchor model.** A timecode anchor is `anchor_kind = 'timecode'` with `anchor_value = {"ms": <int>}`. `timecode_ms` is NOT added — it never existed (see §5.1), so "folds into or stays alongside" was a choice between a real column and an imaginary one.
+
+**This obliges `S3-b`:** its §2.2 and its migration 5 both still say to add `messages.timecode_ms`. They must not — a second, redundant representation of the same anchor is exactly the drift this section exists to prevent. `S3-b` has been annotated accordingly.
 
 **Retention** — approvals, stages, decisions, comments and their ledger rows are excluded from the `S3-core` §4.2 purge. The purge function must refuse them explicitly, the way it already refuses the activity log.
 

@@ -134,7 +134,9 @@ Google, Outlook, Apple and CalDAV sync is what `S-F` §3.4's baseline expects. *
 
 `AD-006` needs synced playback: everyone on the same frame. That is a `meeting_sync_state` row — `meeting_id`, `file_id`, `frame`, `playing`, `updated_by`, `updated_at` — broadcast over Realtime, plus comments carrying a timecode.
 
-**Not built in v1.** Specified here because `S-F` §3.4 requires the Meetings page to admit the session as a mode rather than a new page, and because the comment model in `S3-core` §1 must be able to carry a timecode without a schema change. Add `timecode_ms int null` to `messages` in this document's migration, unused until the session ships.
+**Not built in v1.** Specified here because `S-F` §3.4 requires the Meetings page to admit the session as a mode rather than a new page, and because the comment model in `S3-core` §1 must be able to carry a timecode without a schema change.
+
+> **SUPERSEDED BY `S3-c` §6 AND BY THE BUILD (Batch 22, migration 0038).** This paragraph originally said: *"Add `timecode_ms int null` to `messages` in this document's migration, unused until the session ships."* **Do not.** `messages` already carries the anchor model — `anchor_kind` (`timecode`|`block`|`panel`|`region`) and `anchor_value` jsonb, both-or-neither — and a timecode is `anchor_kind = 'timecode'` with `anchor_value = {"ms": <int>}`. The requirement this paragraph states is already met: the comment model carries a timecode with no schema change, which is precisely why no column is needed. Adding `timecode_ms` now would create a second representation of one anchor, and the first comment written through the wrong one is a comment the viewer cannot place.
 
 ### 2.3 Tokens and access
 
@@ -263,7 +265,7 @@ Runs after `S3-core`. Additive first.
 | 2 | `calendar_entries`, `calendar_entry_attendees` + RLS | Additive |
 | 3 | `availability_rules`, `booking_types`, `bookings` + exclusion constraint + RLS | Additive |
 | 4 | `calendar_connections` + RLS — **blocked on the token-storage decision in §1.6** | Additive |
-| 5 | `meetings`, `meeting_participants` + RLS; `messages.timecode_ms` | Additive |
+| 5 | `meetings`, `meeting_participants` + RLS. ~~`messages.timecode_ms`~~ — **removed; see §2.2. The anchor model in 0038 already carries a timecode and that column must not be added** | Additive |
 | 6 | `contracts`, `contract_fields`, `contract_signers`, `contract_events` + RLS | Additive |
 
 Every migration here is additive, so each is apply-then-deploy. No destructive step. Rules from `HANDOFF` §10 apply throughout: printed never applied, forward-only, idempotent, `drop policy if exists` first.
