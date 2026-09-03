@@ -16,6 +16,35 @@ import { tenantBrand } from '@/lib/tenantBrand'
 //            away party, giving near-real-time coverage between cron runs.
 const NO_REPLY_MS = 5 * 60 * 60 * 1000
 
+/**
+ * How often the APP-LOAD trigger may actually run the scan, per organization.
+ *
+ * PresencePulse fires POST once per mount, so before this the full scan — up
+ * to 500 messages plus room and watermark joins, through the SERVICE ROLE —
+ * ran on every page load by every authenticated user. The 5-hour window means
+ * the overwhelming majority of those found nothing and were pure cost.
+ *
+ * Fifteen minutes preserves what the trigger exists for. The alternative
+ * considered and rejected was deleting the POST half outright: it is the only
+ * thing giving near-real-time coverage between once-daily Vercel crons, so
+ * removing it turns a 5-hour nudge into as much as 29. A cost problem does not
+ * justify a product regression.
+ *
+ * BEST-EFFORT BY CONSTRUCTION, and stated rather than implied: this map is
+ * per-lambda-instance and resets on a cold start, so a scaled-out deployment
+ * runs the scan once per instance per window rather than once globally. That
+ * is a large reduction, not a guarantee — and a guarantee would need a table,
+ * which is not worth a migration for a throttle. The scan is idempotent
+ * (`nudged_at`), so an extra run costs work, never a duplicate alert.
+ *
+ * WHAT THIS DOES NOT FIX: the POST half is still a user-session path running
+ * a service-role scan — HANDOFF §8.3 item 4, and the allowlist comment on this
+ * file. That is structural and belongs to the S2 §7 write-path pass, where the
+ * question is which client it should use, not how often it should run.
+ */
+const APP_TRIGGER_THROTTLE_MS = 15 * 60 * 1000
+const lastAppTriggerByOrg = new Map<string, number>()
+
 // `orgId` bounds the scan to one tenant. The cron (GET) passes nothing and
 // sweeps every tenant, which is correct for a scheduled job — each group's
 // recipients are then resolved per-tenant downstream by notifyAwayRecipient →
@@ -223,8 +252,21 @@ export async function POST() {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
     // Scoped to the caller's own tenant, resolved from the verified session.
-    const result = await runNudge(userOrgId(user))
-    return NextResponse.json({ ok: true, ...result })
+    const orgId = userOrgId(user)
+
+    // Throttled per organization. Without this the full service-role scan ran
+    // on EVERY page load by EVERY user; the 5-hour window means almost all of
+    // those found nothing. Returning early is honest about having skipped —
+    // `throttled: true` rather than a fake zero, so a caller reading the
+    // response cannot mistake "not scanned" for "nothing to nudge".
+    const last = lastAppTriggerByOrg.get(orgId) ?? 0
+    if (Date.now() - last < APP_TRIGGER_THROTTLE_MS) {
+      return NextResponse.json({ ok: true, throttled: true, nudged: 0 })
+    }
+    lastAppTriggerByOrg.set(orgId, Date.now())
+
+    const result = await runNudge(orgId)
+    return NextResponse.json({ ok: true, throttled: false, ...result })
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? 'error' }, { status: 500 })
   }
