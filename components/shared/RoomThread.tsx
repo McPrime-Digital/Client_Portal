@@ -253,6 +253,10 @@ export default function RoomThread({
    */
   const roomTopic = `room:${clientId}`
 
+  /** Per-optimistic-message upload progress, for the ring drawn over the
+   *  media itself rather than in the composer (item 5). */
+  const [uploads, setUploads] = useState<Record<string, { pct: number; bytes: number; failed?: boolean }>>({})
+
   // Publish WHICH view this tab is reading, so the other side sees "In All" or
   // "In AMP" rather than a bare "Online" (item 6). Cleared on unmount so a
   // closed conversation stops claiming anyone is in it.
@@ -1163,6 +1167,117 @@ export default function RoomThread({
   }
 
   // ── Attachments (project scope, or the client's `_general` scope) ────────
+  /**
+   * INSTANT MEDIA SEND (item 5) — the WhatsApp shape.
+   *
+   * The old flow uploaded the file the moment it was PICKED, then parked a
+   * "ready to send" chip in the composer while you waited. That is backwards
+   * twice over: the wait happens before you have said anything, and the
+   * progress lives in the text box rather than on the thing being sent.
+   *
+   * Now: picking a file only stages it. On SEND the bubble appears in the
+   * thread IMMEDIATELY, rendered from a local object URL so an image or video
+   * is visible at once, with a circular progress ring over it carrying the
+   * percentage and the file size. The upload and the send ride behind it.
+   *
+   * A failure leaves the optimistic bubble in place, marked failed, rather
+   * than vanishing — a message that disappears is indistinguishable from one
+   * that was never written, and the user has no idea whether to retype it.
+   */
+  async function sendWithAttachment(file: File, body: string) {
+    const blobUrl = URL.createObjectURL(file)
+    const tempId = `temp-${Date.now()}`
+    const optimistic: Message = {
+      id: tempId,
+      room_id: null,
+      thread_root_id: null,
+      deleted_at: null,
+      project_id: effectiveTag as unknown as string,
+      sender_id: ownIdRef.current ?? '',
+      sender_role: role,
+      sender_name: currentName,
+      body,
+      read_at: null,
+      delivered_at: null,
+      reply_to_id: null,
+      attachment_url: blobUrl,
+      attachment_signed_url: blobUrl,
+      attachment_name: file.name,
+      is_deleted: false,
+      edited_at: null,
+      created_at: new Date().toISOString(),
+    }
+    setMessages((prev) => [...prev, optimistic])
+    setUploads((u) => ({ ...u, [tempId]: { pct: 0, bytes: file.size } }))
+
+    try {
+      const uploaded = await uploadFileToR2({
+        file,
+        ...(effectiveTag ? { projectId: effectiveTag } : { clientId }),
+        direction: role === 'admin' ? 'delivery' : 'client-upload',
+        category: 'message',
+        onProgress: (pct) => setUploads((u) => (u[tempId] ? { ...u, [tempId]: { ...u[tempId], pct } } : u)),
+      })
+      const res = await fetch(
+        role === 'admin' ? '/api/admin/project-actions' : '/api/portal/actions',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'send_message',
+            ...(effectiveTag
+              ? { project_id: effectiveTag }
+              : role === 'admin'
+                ? { client_id: clientId }
+                : {}),
+            body,
+            attachment_url: `${uploaded.bucket}::${uploaded.file_path}`,
+            attachment_name: uploaded.file_name,
+            attachment_file_id: uploaded.id,
+          }),
+        }
+      )
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Send failed')
+      const inserted: Message | null = json.message ?? null
+      if (inserted) {
+        seenIdsRef.current.add(inserted.id)
+        setMessages((prev) =>
+          prev.some((m) => m.id === inserted.id)
+            ? prev.filter((m) => m.id !== tempId)
+            : prev.map((m) => (m.id === tempId ? inserted : m))
+        )
+        onActivity?.(inserted, 'sent')
+        channelRef.current?.send({
+          type: 'broadcast',
+          event: 'message',
+          payload: {
+            projectId: inserted.project_id ?? null,
+            messageId: inserted.id,
+            senderRole: role,
+            senderId: inserted.sender_id,
+            senderName: inserted.sender_name,
+            body: inserted.body,
+            attachmentName: inserted.attachment_name,
+            createdAt: inserted.created_at,
+          },
+        })
+      }
+      setUploads((u) => { const { [tempId]: _drop, ...rest } = u; return rest })
+    } catch (e) {
+      // Kept, marked, and explained — never silently removed.
+      setUploads((u) => ({
+        ...u,
+        [tempId]: { ...(u[tempId] ?? { pct: 0, bytes: file.size }), failed: true },
+      }))
+      console.error('attachment send failed', e)
+    } finally {
+      // The blob URL stays alive while the optimistic row still references it;
+      // revoking here would blank the bubble before the real row replaces it.
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000)
+    }
+  }
+
   async function handleAttachmentUpload(file: File) {
     const uploaded = await uploadFileToR2({
       file,
@@ -1241,6 +1356,8 @@ export default function RoomThread({
             onSendMessage={sendMessage}
             readOnly={!canSend}
             onUploadAttachment={allowAttachments ? handleAttachmentUpload : undefined}
+            onSendWithAttachment={allowAttachments ? sendWithAttachment : undefined}
+            uploads={uploads}
             onDeleteMessage={handleDeleteMessage}
             onEditMessage={handleEditMessage}
             onTyping={handleTyping}
@@ -1727,6 +1844,8 @@ export default function RoomThread({
                   hasMore={replyHasMore}
                   readOnly={!canSend}
                   onUploadAttachment={allowAttachments ? handleAttachmentUpload : undefined}
+            onSendWithAttachment={allowAttachments ? sendWithAttachment : undefined}
+            uploads={uploads}
                   onDeleteMessage={handleDeleteMessage}
                   onEditMessage={handleEditMessage}
                   onTyping={handleTyping}

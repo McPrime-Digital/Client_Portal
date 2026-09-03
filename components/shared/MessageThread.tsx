@@ -52,6 +52,14 @@ type Props = {
   projectId: string
   onSendMessage: (body: string, replyToId?: string, attachmentUrl?: string, attachmentName?: string, attachmentFileId?: string) => Promise<void>
   onUploadAttachment?: (file: File) => Promise<{ url: string; name: string; fileId?: string }>
+  /**
+   * Instant media send (item 5). Given the staged File and the typed caption,
+   * the room puts an optimistic bubble in the thread immediately and uploads
+   * behind it. When present, picking a file no longer uploads on pick.
+   */
+  onSendWithAttachment?: (file: File, body: string) => Promise<void>
+  /** Upload progress per optimistic message id, for the ring over the media. */
+  uploads?: Record<string, { pct: number; bytes: number; failed?: boolean }>
   onDeleteMessage?: (messageId: string) => Promise<void>
   onEditMessage?: (messageId: string, newBody: string) => Promise<void>
   onTyping?: () => void
@@ -180,6 +188,13 @@ function canEdit(createdAt: string): boolean {
   return Date.now() - new Date(createdAt).getTime() < oneHourMs
 }
 
+/** Compact size for the upload ring — "2.4 MB", not a raw byte count. */
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
 export default function MessageThread({
   renderApproval,
   messages,
@@ -191,6 +206,8 @@ export default function MessageThread({
   readOnly = false,
   onSendMessage,
   onUploadAttachment,
+  onSendWithAttachment,
+  uploads = {},
   onDeleteMessage,
   onEditMessage,
   onTyping,
@@ -226,6 +243,10 @@ export default function MessageThread({
   const [replyTo, setReplyTo] = useState<Message | null>(null)
   const [uploading, setUploading] = useState(false)
   const [attachment, setAttachment] = useState<{ url: string; name: string; fileId?: string } | null>(null)
+  /** The picked file, held UNSENT until you press send (item 5). Uploading on
+   *  pick made you wait before you had said anything, and put the progress in
+   *  the text box instead of on the thing being sent. */
+  const [stagedFile, setStagedFile] = useState<File | null>(null)
   const [showAttachMenu, setShowAttachMenu] = useState(false)
   const [recording, setRecording] = useState(false)
   const [viewerSource, setViewerSource] = useState<{ url: string; name: string } | null>(null)
@@ -398,9 +419,12 @@ export default function MessageThread({
     const replyId = replyTo && !isPending(replyTo) ? replyTo.id : undefined
     const att = attachment
 
+    const staged = stagedFile
+
     setNewMessage('')
     setReplyTo(null)
     setAttachment(null)
+    setStagedFile(null)
     requestAnimationFrame(() => {
       const el = inputRef.current
       if (el) {
@@ -409,6 +433,11 @@ export default function MessageThread({
       }
     })
 
+    if (staged && onSendWithAttachment) {
+      // The bubble appears now; the upload rides behind it.
+      void onSendWithAttachment(staged, body).catch((err) => console.error(err))
+      return
+    }
     void onSendMessage(body, replyId, att?.url, att?.name, att?.fileId).catch((err) => {
       console.error(err)
     })
@@ -418,8 +447,17 @@ export default function MessageThread({
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file || !onUploadAttachment) return
-    setUploading(true)
     setShowAttachMenu(false)
+    // STAGE ONLY (item 5) — the upload starts when you send, not when you
+    // pick, so the wait lands on the bubble in the thread rather than on an
+    // empty composer.
+    if (onSendWithAttachment) {
+      setStagedFile(file)
+      setAttachment({ url: URL.createObjectURL(file), name: file.name })
+      e.target.value = ''
+      return
+    }
+    setUploading(true)
     try {
       const result = await onUploadAttachment(file)
       setAttachment(result)
@@ -554,26 +592,38 @@ export default function MessageThread({
     const url = (msg as { attachment_signed_url?: string | null }).attachment_signed_url
     if (msg.attachment_url && url) preSigned[msg.attachment_url] = url
   }
-  const urlFor = (raw: string | null | undefined): string | null =>
-    raw ? (preSigned[raw] ?? resolvedUrls[raw] ?? null) : null
+  const urlFor = (raw: string | null | undefined): string | null => {
+    if (!raw) return null
+    // A local object URL is ALREADY the renderable thing — it is the staged
+    // file or an optimistic bubble (item 5). Sending one to the signing route
+    // would 400, and worse, leave the preview blank while it did.
+    if (raw.startsWith('blob:') || raw.startsWith('data:')) return raw
+    return preSigned[raw] ?? resolvedUrls[raw] ?? null
+  }
+  const needsSigning = (raw: string | null | undefined): raw is string =>
+    !!raw && !raw.startsWith('blob:') && !raw.startsWith('data:')
 
   useEffect(() => {
     messages.forEach(msg => {
+      if (!needsSigning(msg.attachment_url)) return
       const already =
         (msg as { attachment_signed_url?: string | null }).attachment_signed_url ||
-        (msg.attachment_url && resolvedUrls[msg.attachment_url])
-      if (msg.attachment_url && !already) {
-        resolveUrl(msg.attachment_url, (msg as { attachment_file_id?: string | null }).attachment_file_id)
-      }
+        resolvedUrls[msg.attachment_url]
+      if (already) return
+      resolveUrl(msg.attachment_url, (msg as { attachment_file_id?: string | null }).attachment_file_id)
     })
+    // resolveUrl/resolvedUrls are intentionally out: including them re-runs
+    // this on every resolution, which is the loop it exists to avoid.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages])
 
   // Resolve the staged composer attachment too, so the preview bar can show a
   // real thumbnail of the image/video you're about to send (not a blank chip).
   useEffect(() => {
-    if (attachment?.url && !resolvedUrls[attachment.url]) {
-      resolveUrl(attachment.url)
+    if (needsSigning(attachment?.url) && !resolvedUrls[attachment!.url]) {
+      resolveUrl(attachment!.url)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attachment])
 
   // ── Render ──────────────────────────────────────────────
@@ -882,6 +932,42 @@ export default function MessageThread({
                       borderBottomLeftRadius: !isMe ? (nextSame ? 6 : 5) : 18,
                     }}
                   >
+                    {/* UPLOAD RING (item 5) — drawn OVER the media, centred,
+                        carrying the percentage and the file size. It belongs
+                        here rather than in the composer: the thing that is
+                        loading is this message, so the progress is on this
+                        message. A failure KEEPS the bubble and says so — a
+                        message that vanishes is indistinguishable from one
+                        that was never written, and the sender has no idea
+                        whether to retype it. */}
+                    {uploads[msg.id] && (
+                      <div
+                        className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-1.5"
+                        style={{ backgroundColor: 'hsl(var(--background) / 0.55)', backdropFilter: 'blur(2px)' }}
+                      >
+                        {uploads[msg.id].failed ? (
+                          <span className="text-[11px] font-semibold" style={{ color: 'hsl(var(--destructive))' }}>
+                            Upload failed
+                          </span>
+                        ) : (
+                          <>
+                            <svg width="42" height="42" viewBox="0 0 42 42" className="-rotate-90">
+                              <circle cx="21" cy="21" r="17" fill="none" strokeWidth="3"
+                                stroke="hsl(var(--foreground) / 0.18)" />
+                              <circle cx="21" cy="21" r="17" fill="none" strokeWidth="3" strokeLinecap="round"
+                                stroke="hsl(var(--primary))"
+                                strokeDasharray={2 * Math.PI * 17}
+                                strokeDashoffset={2 * Math.PI * 17 * (1 - uploads[msg.id].pct / 100)}
+                                style={{ transition: 'stroke-dashoffset 0.2s linear' }} />
+                            </svg>
+                            <span className="text-[10px] font-semibold tabular-nums"
+                              style={{ color: 'hsl(var(--foreground))' }}>
+                              {uploads[msg.id].pct}% · {formatBytes(uploads[msg.id].bytes)}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    )}
                     {/* Replied Context */}
                     {repliedMsg && (
                       <div
@@ -1239,7 +1325,7 @@ export default function MessageThread({
                   </p>
                 </div>
               </div>
-              <button onClick={() => setAttachment(null)} className="p-1 hover:bg-[hsl(var(--border))] rounded text-[hsl(var(--muted-foreground))] flex-shrink-0">
+              <button onClick={() => { setAttachment(null); setStagedFile(null) }} className="p-1 hover:bg-[hsl(var(--border))] rounded text-[hsl(var(--muted-foreground))] flex-shrink-0">
                 <X size={14} />
               </button>
             </div>
