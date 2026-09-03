@@ -60,7 +60,7 @@ export const PROJECT_3_ID = '0f0f0f0f-0002-4000-8000-000000000003' // company 2
 const DOMAIN = 'rls-harness.example.com'
 
 export type PersonaKey =
-  | 'owner' | 'crew' | 'revoked' | 'c1own' | 'c1mate' | 'c2own'
+  | 'owner' | 'crew' | 'revoked' | 'c1own' | 'c1mate' | 'c2own' | 'collab'
 
 export interface Persona {
   key: PersonaKey
@@ -120,6 +120,13 @@ export const PERSONAS: Record<PersonaKey, Persona> = {
     role: 'client',
     label: 'company 2 owner',
   },
+  collab: {
+    key: 'collab',
+    email: `harness-collab@${DOMAIN}`,
+    envKey: 'HARNESS_COLLAB_PASSWORD',
+    role: 'client',
+    label: 'external collaborator (MD-4: room_members row only, NO roster anywhere)',
+  },
 }
 
 export const PERSONA_LIST: Persona[] = Object.values(PERSONAS)
@@ -136,6 +143,9 @@ export const WORK_TABLES = [
   // inherited through the approvals FK).
   'approvals', 'approval_stages', 'approval_assignees',
   'approval_decisions', 'approval_comment_permissions',
+  // Batch 23 (0043). Membership rows join the sweeps: a revoked member and an
+  // anonymous session must read zero of them like everything else.
+  'room_members',
 ] as const
 
 // ── approval fixtures (Batch 22 item 6, assertions 16–20) ──────────────────
@@ -155,6 +165,23 @@ export const APPROVAL_DECIDED_ID = '0f0f0f0f-000a-4000-8000-000000000004'
 export const APPROVAL_DECIDED_STAGE_ID = '0f0f0f0f-000b-4000-8000-000000000004'
 /** A message carrying approval_id — the review comment assertions 18/19 read. */
 export const APPROVAL_COMMENT_MESSAGE_ID = '0f0f0f0f-000c-4000-8000-000000000001'
+
+// ── S3-d fixtures (Batch 23, assertions 22–29) ─────────────────────────────
+// Groups, a DM and a collaborator: membership as a ROW (MD-1). Fixed ids —
+// unlike the client rooms there is no one-live-room index to defer to.
+/** Group A: c1own (owner) + collab (member, history_from set) + crew (LEFT). */
+export const ROOM_GROUP_A_ID = '0f0f0f0f-000d-4000-8000-000000000001'
+/** Group B: org owner (admin) + c1mate (member, can_post = false). */
+export const ROOM_GROUP_B_ID = '0f0f0f0f-000d-4000-8000-000000000002'
+/** DM: crew ↔ c1own. Readable by exactly those two — org owner included out. */
+export const ROOM_DM_ID = '0f0f0f0f-000d-4000-8000-000000000003'
+/** Group A messages: one before the history cutoff, one after (assertion 26),
+ *  and one sent by crew BEFORE leaving (assertion 25's surviving history). */
+export const GA_MSG_OLD_ID = '0f0f0f0f-000e-4000-8000-000000000001'
+export const GA_MSG_NEW_ID = '0f0f0f0f-000e-4000-8000-000000000002'
+export const GA_MSG_CREW_ID = '0f0f0f0f-000e-4000-8000-000000000003'
+export const GB_MSG_ID = '0f0f0f0f-000e-4000-8000-000000000004'
+export const DM_MSG_ID = '0f0f0f0f-000e-4000-8000-000000000005'
 
 export const MEMBERSHIP_TABLES = ['organization_members', 'client_members'] as const
 

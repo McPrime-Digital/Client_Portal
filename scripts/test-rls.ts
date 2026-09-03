@@ -1,14 +1,16 @@
 /**
  * scripts/test-rls.ts — S2 §6, Part B. The RLS test harness.
  *
- * Twenty assertions (10 from S2 §6; 11–14 from S3-core §7, Batch 13 item 7; 15 —
- * the watermark privacy assertion, Batch 14 item 6 — rooms tenant-scoped,
- * untagged visibility, sibling-tag isolation, history in the room, private
- * read state; 16–20 from S3-c §7, Batch 22 item 6 — internal approvals,
- * decision forgery, comment permission, comment visibility, and the one that
- * keeps a lapse from ever reading as approval). Most are a row count that must
- * be zero; 12 and 19 are deliberately POSITIVE assertions, because both models'
- * failure mode is hiding what they must show. Every one runs through a
+ * Twenty-nine assertions (10 from S2 §6; 11–14 from S3-core §7, Batch 13 item
+ * 7; 15 — the watermark privacy assertion, Batch 14 item 6; 16–20 from S3-c
+ * §7, Batch 22 item 6 — internal approvals, decision forgery, comment
+ * permission, comment visibility, and the one that keeps a lapse from ever
+ * reading as approval; 22–29 from S3-d §7, Batch 23 — membership as a ROW:
+ * non-member isolation, the collaborator's blast radius, can_post, leaving
+ * without erasure, per-seat history, DM privacy against the org owner,
+ * same-company group isolation, and access parity across the 0046 flip).
+ * Most are a row count that must be zero; 12 and 19 are deliberately POSITIVE
+ * assertions, because both models' failure mode is hiding what they must show. Every one runs through a
  * REAL user session obtained with signInWithPassword against the anon key.
  * This script never constructs a service-role client and never reads
  * SUPABASE_SERVICE_ROLE_KEY — a service-role read bypasses RLS entirely and
@@ -45,6 +47,8 @@ import {
   DECOY_ORG_ID, PERSONAS, type PersonaKey,
   APPROVAL_CLIENT_ID, APPROVAL_CLIENT_STAGE_ID, APPROVAL_INTERNAL_ID,
   APPROVAL_LAPSED_STAGE_ID, APPROVAL_DECIDED_STAGE_ID,
+  ROOM_GROUP_A_ID, ROOM_GROUP_B_ID, ROOM_DM_ID,
+  GA_MSG_OLD_ID, GA_MSG_NEW_ID, GA_MSG_CREW_ID,
   ALL_TABLES, readManifest, loadEnv, requireEnv,
 } from './harness-constants'
 
@@ -175,6 +179,7 @@ async function main() {
   const c1own   = await signIn(url, anonKey, 'c1own', env)
   const c1mate  = await signIn(url, anonKey, 'c1mate', env)
   const c2own   = await signIn(url, anonKey, 'c2own', env)
+  const collab  = await signIn(url, anonKey, 'collab', env)
   const anon    = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } })
 
   // Company 1's room, read as the client rather than carried as a constant —
@@ -513,9 +518,14 @@ async function main() {
     // approval-carrying messages, so these do not accumulate across seeds.
     const deniedId = randomUUID()
     const permittedId = randomUUID()
+    // sender_id rides both probes since 0046: the membership INSERT policy
+    // pins sender_id = auth.uid() (I-6), so a probe without it would fail on
+    // the pin rather than on the gate under test — a vacuous pass in FAIL's
+    // clothing for the denied half, and a broken control for the permitted.
     const { data: denied } = await c1mate.from('messages').insert({
       id: deniedId, room_id: roomIdC1,
       organization_id: HARNESS_ORG_ID, project_id: null,
+      sender_id: manifest.userIds.c1mate,
       sender_name: 'Harness C1 Mate', body: 'ZZ-HARNESS denied review comment',
       approval_id: APPROVAL_CLIENT_ID,
     }).select('id')
@@ -526,6 +536,7 @@ async function main() {
     const { data: permitted } = await c1own.from('messages').insert({
       id: permittedId, room_id: roomIdC1,
       organization_id: HARNESS_ORG_ID, project_id: null,
+      sender_id: manifest.userIds.c1own,
       sender_name: 'Harness C1 Owner', body: 'ZZ-HARNESS permitted review comment',
       approval_id: APPROVAL_CLIENT_ID,
     }).select('id')
@@ -561,6 +572,141 @@ async function main() {
       [{ op: 'eq', col: 'stage_id', val: APPROVAL_DECIDED_STAGE_ID }])
     if (decided !== 1) leaks.push(`decided stage carries ${decided} decision rows, expected exactly 1`)
     judge(20, 'an auto_advanced stage has zero approval_decisions rows', leaks, decided)
+  }
+
+  // ══ Batch 23 · membership becomes a row (S3-d, migrations 0043–0046) ══════
+  // Written BEFORE the 0046 flip and run against the pre-flip database (where
+  // several are VACUOUS or FAIL by design — a group is unreadable to its own
+  // members until the flip); all green only after 0046. S3-d §7.
+
+  // ── 22 · a non-member reads zero messages of a room ───────────────────────
+  {
+    const leaks = await leaksAcross(c1mate, [
+      { table: 'messages', filters: [{ op: 'eq', col: 'room_id', val: ROOM_GROUP_A_ID }] },
+    ])
+    const control = await countRows(c1own, 'messages',
+      [{ op: 'eq', col: 'room_id', val: ROOM_GROUP_A_ID }])
+    judge(22, 'a non-member (c1mate) reads zero messages of group A', leaks, control)
+  }
+
+  // ── 23 · the collaborator's blast radius is their room and NOTHING else ───
+  // MD-4's assertion — the one that makes "external" mean something. Their
+  // room's rows are the control; every other table in the tenant is a leak.
+  {
+    const leaks = await leaksAcross(collab, ALL_TABLES.map((table) => ({
+      table,
+      filters:
+        table === 'messages' ? [{ op: 'neq', col: 'room_id', val: ROOM_GROUP_A_ID } as Filter]
+        : table === 'message_rooms' ? [{ op: 'neq', col: 'id', val: ROOM_GROUP_A_ID } as Filter]
+        : table === 'room_members' ? [{ op: 'neq', col: 'room_id', val: ROOM_GROUP_A_ID } as Filter]
+        : [],
+    })))
+    const control = await countRows(collab, 'messages',
+      [{ op: 'eq', col: 'room_id', val: ROOM_GROUP_A_ID }])
+    judge(23, 'the collaborator reads their room and zero rows of every other table', leaks, control)
+  }
+
+  // ── 24 · can_post = false cannot insert (MD-5) ────────────────────────────
+  // Broadcast as a MEMBERSHIP property: the read stays open, the write is a
+  // per-member column, and the policy — not the route — enforces it.
+  {
+    const leaks: string[] = []
+    const { data: muted } = await c1mate.from('messages').insert({
+      id: randomUUID(), room_id: ROOM_GROUP_B_ID,
+      organization_id: HARNESS_ORG_ID, project_id: null,
+      sender_id: manifest.userIds.c1mate, sender_name: 'Harness C1 Mate',
+      body: 'ZZ-HARNESS-24 muted member probe',
+    }).select('id')
+    if (muted && muted.length > 0) leaks.push(`messages(can_post=false)=${muted.length}`)
+    // Control: a permitted member CAN. Fresh id per run; the seed prunes.
+    const { data: allowed } = await owner.from('messages').insert({
+      id: randomUUID(), room_id: ROOM_GROUP_B_ID,
+      organization_id: HARNESS_ORG_ID, project_id: null,
+      sender_id: manifest.userIds.owner, sender_name: 'Harness Owner',
+      body: 'ZZ-HARNESS-24 permitted control',
+    }).select('id')
+    judge(24, 'a member with can_post = false cannot insert into that room', leaks, allowed?.length ?? 0)
+  }
+
+  // ── 25 · leaving is not erasure (AD-003 applied to rooms) ─────────────────
+  // crew LEFT group A: they read nothing new; the message they sent before
+  // leaving still renders to the remaining members, name attached.
+  {
+    const leaks = await leaksAcross(crew, [
+      { table: 'messages', filters: [{ op: 'eq', col: 'room_id', val: ROOM_GROUP_A_ID }] },
+    ])
+    const { data: history } = await c1own.from('messages')
+      .select('id, sender_name').eq('id', GA_MSG_CREW_ID).maybeSingle()
+    const survives = history && (history as { sender_name?: string }).sender_name === 'Harness Crew' ? 1 : 0
+    judge(25, 'a LEFT member reads nothing new; their history survives with their name', leaks, survives)
+  }
+
+  // ── 26 · history_from on the MEMBERSHIP row hides the backlog ─────────────
+  // Per-person-per-room (S3-d §4.1) — the cutoff moved off the tenant roster
+  // onto the seat. The collaborator joined mid-stream and reads forward only.
+  {
+    const leaks = await leaksAcross(collab, [
+      { table: 'messages', filters: [{ op: 'eq', col: 'id', val: GA_MSG_OLD_ID }] },
+    ])
+    const control = await countRows(collab, 'messages', [{ op: 'eq', col: 'id', val: GA_MSG_NEW_ID }])
+    judge(26, 'room_members.history_from hides everything before it (control: after)', leaks, control)
+  }
+
+  // ── 27 · a DM is its two members — SPECIFICALLY not the org owner ─────────
+  // The sharpest edge of MD-1: before the flip the org owner read every org
+  // message by construction. If this passes, membership replaced tenancy.
+  {
+    const leaks: string[] = []
+    const bossPeek = await countRows(owner, 'messages', [{ op: 'eq', col: 'room_id', val: ROOM_DM_ID }])
+    if (bossPeek > 0) leaks.push(`messages(org-owner→dm)=${bossPeek}`)
+    const outsider = await countRows(c2own, 'messages', [{ op: 'eq', col: 'room_id', val: ROOM_DM_ID }])
+    if (outsider > 0) leaks.push(`messages(c2own→dm)=${outsider}`)
+    const a = await countRows(crew, 'messages', [{ op: 'eq', col: 'room_id', val: ROOM_DM_ID }])
+    const b = await countRows(c1own, 'messages', [{ op: 'eq', col: 'room_id', val: ROOM_DM_ID }])
+    judge(27, 'a DM is readable by exactly its two members — not by the org owner', leaks, Math.min(a, b))
+  }
+
+  // ── 28 · same company, different groups, zero cross-read ──────────────────
+  // The assertion that proves membership replaced company identity (S3-d §7):
+  // without it the whole batch could pass while access was still tenant-derived.
+  {
+    const leaks: string[] = []
+    const ownIntoB = await countRows(c1own, 'messages', [{ op: 'eq', col: 'room_id', val: ROOM_GROUP_B_ID }])
+    if (ownIntoB > 0) leaks.push(`messages(c1own→groupB)=${ownIntoB}`)
+    const mateIntoA = await countRows(c1mate, 'messages', [{ op: 'eq', col: 'room_id', val: ROOM_GROUP_A_ID }])
+    if (mateIntoA > 0) leaks.push(`messages(c1mate→groupA)=${mateIntoA}`)
+    const ownA = await countRows(c1own, 'messages', [{ op: 'eq', col: 'room_id', val: ROOM_GROUP_A_ID }])
+    const mateB = await countRows(c1mate, 'messages', [{ op: 'eq', col: 'room_id', val: ROOM_GROUP_B_ID }])
+    judge(28, 'two members of one COMPANY in different groups read zero of each other\'s', leaks, Math.min(ownA, mateB))
+  }
+
+  // ── 29 · the flip changed the AUTHORITY, not anyone's access ──────────────
+  // The migration's real gate (S3-d §7). Its full form is the entire suite:
+  // 1–21 encode pre-flip access and must stay green through 0046 — that IS
+  // the "before" half of the diff. What is asserted here is the equality the
+  // suite cannot see: the crew door and the client door agree exactly on a
+  // room both fully-sighted personas occupy, in both directions.
+  {
+    const leaks: string[] = []
+    if (roomIdC1) {
+      const viaCrewDoor = await countRows(owner, 'messages', [{ op: 'eq', col: 'room_id', val: roomIdC1 }])
+      const viaClientDoor = await countRows(c1own, 'messages', [{ op: 'eq', col: 'room_id', val: roomIdC1 }])
+      if (viaCrewDoor !== viaClientDoor) {
+        leaks.push(`room C1 disagrees across the doors (owner=${viaCrewDoor}, c1own=${viaClientDoor})`)
+      }
+      // Scoped crew and scoped client agree on the P1 thread they both keep.
+      const crewP1 = await countRows(crew, 'messages',
+        [{ op: 'eq', col: 'room_id', val: roomIdC1 }, { op: 'eq', col: 'project_id', val: PROJECT_1_ID }])
+      const ownP1 = await countRows(c1own, 'messages',
+        [{ op: 'eq', col: 'room_id', val: roomIdC1 }, { op: 'eq', col: 'project_id', val: PROJECT_1_ID }])
+      if (crewP1 !== ownP1) {
+        leaks.push(`P1 thread disagrees (scoped crew=${crewP1}, c1own=${ownP1})`)
+      }
+      judge(29, 'access parity across the flip: both doors agree, both directions', leaks, viaClientDoor)
+    } else {
+      record(29, 'access parity across the flip: both doors agree, both directions', 'ERROR',
+        'company-1 room unresolvable — cannot run the parity probes')
+    }
   }
 
   // ── report ────────────────────────────────────────────────────────────────

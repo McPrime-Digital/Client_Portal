@@ -40,6 +40,8 @@ import {
   APPROVAL_LAPSED_ID, APPROVAL_LAPSED_STAGE_ID,
   APPROVAL_DECIDED_ID, APPROVAL_DECIDED_STAGE_ID,
   APPROVAL_COMMENT_MESSAGE_ID,
+  ROOM_GROUP_A_ID, ROOM_GROUP_B_ID, ROOM_DM_ID,
+  GA_MSG_OLD_ID, GA_MSG_NEW_ID, GA_MSG_CREW_ID, GB_MSG_ID, DM_MSG_ID,
   loadEnv, requireEnv, assertEnvLocalIgnored,
 } from './harness-constants'
 
@@ -263,6 +265,9 @@ async function main() {
   const clientOf: Record<PersonaKey, string | null> = {
     owner: null, crew: null, revoked: null,
     c1own: COMPANY_1_ID, c1mate: COMPANY_1_ID, c2own: COMPANY_2_ID,
+    // MD-4 made literal: the collaborator gets NO roster row anywhere — their
+    // only foothold is a room_members row, seeded below.
+    collab: null,
   }
   for (const p of PERSONA_LIST) {
     const pw = newPassword()
@@ -391,6 +396,87 @@ async function main() {
     if (wmErr) throw new Error(`message_read_state: ${wmErr.message}`)
     console.log(`  ✓ ${'message_read_state'.padEnd(28)} 2 row(s)`)
   }
+
+  // ── S3-d fixtures (Batch 23, assertions 22–29): groups, a DM, memberships ──
+  // room_members and the group/dm rooms have no organization_id column pattern
+  // that assertHarnessOnly can check on every row (room_members inherits
+  // tenancy through the room FK), so the membership writes go direct, the way
+  // message_read_state does. The ROOMS are stamped and guarded as usual.
+  record(`\n-- ═══ S3-d rooms: two groups + one DM (assertions 22–29) ═══`)
+  const dmKey = [userIds.crew, userIds.c1own].sort().join(':')
+  if (APPLY) {
+    const { error: grErr } = await admin.from('message_rooms').upsert([
+      { id: ROOM_GROUP_A_ID, organization_id: HARNESS_ORG_ID, kind: 'group',
+        name: 'ZZ-HARNESS Group A', is_private: true, created_by: userIds.c1own },
+      { id: ROOM_GROUP_B_ID, organization_id: HARNESS_ORG_ID, kind: 'group',
+        name: 'ZZ-HARNESS Group B', is_private: true, created_by: userIds.owner },
+      { id: ROOM_DM_ID, organization_id: HARNESS_ORG_ID, kind: 'dm',
+        name: null, is_private: true, created_by: userIds.crew, dm_key: dmKey },
+    ], { onConflict: 'id' })
+    if (grErr) throw new Error(`message_rooms (S3-d): ${grErr.message}`)
+    console.log(`  ✓ ${'message_rooms (S3-d)'.padEnd(28)} 3 row(s)`)
+
+    // Memberships — the SINGLE authority after the 0046 flip (MD-1). The
+    // client-room rows mirror what the 0044 backfill derives, so a re-seeded
+    // tenant matches a backfilled one; the group/DM rows are the fixtures the
+    // new assertions read. Every shape S3-d §7 names is present: a member
+    // with can_post=false (24), a LEFT member (25), a history_from cutoff on
+    // a room row (26), a DM pair (27), same-company members in disjoint
+    // groups (28), and a collaborator with no roster (23).
+    const rm = (room_id: string, user_id: string, extra: Row = {}): Row =>
+      ({ room_id, user_id, role: 'member', can_post: true, ...extra })
+    const { error: rmErr } = await admin.from('room_members').upsert([
+      // client room C1: both sides of the house, the scoped mate with cutoff
+      rm(roomC1, userIds.owner, { role: 'owner' }),
+      rm(roomC1, userIds.crew),
+      rm(roomC1, userIds.c1own, { role: 'owner' }),
+      rm(roomC1, userIds.c1mate, { history_from: HISTORY_CUTOFF }),
+      // client room C2
+      rm(roomC2, userIds.owner, { role: 'owner' }),
+      rm(roomC2, userIds.crew),
+      rm(roomC2, userIds.c2own, { role: 'owner' }),
+      // group A: c1own owns it; collab reads forward from the cutoff; crew LEFT
+      rm(ROOM_GROUP_A_ID, userIds.c1own, { role: 'owner' }),
+      rm(ROOM_GROUP_A_ID, userIds.collab, { history_from: HISTORY_CUTOFF }),
+      rm(ROOM_GROUP_A_ID, userIds.crew, { left_at: at(1 * DAY) }),
+      // group B: the org owner manages; c1mate may read but never post
+      rm(ROOM_GROUP_B_ID, userIds.owner, { role: 'admin' }),
+      rm(ROOM_GROUP_B_ID, userIds.c1mate, { can_post: false }),
+      // the DM pair
+      rm(ROOM_DM_ID, userIds.crew),
+      rm(ROOM_DM_ID, userIds.c1own),
+    ], { onConflict: 'room_id,user_id' })
+    if (rmErr) throw new Error(`room_members: ${rmErr.message}`)
+    console.log(`  ✓ ${'room_members'.padEnd(28)} 14 row(s)`)
+
+    // Assertion 24's positive control INSERTS into group B with a fresh id
+    // each run (a fixed id would collide on the PK the second time and read
+    // as "the policy blocked it" — the assertion-18 lesson). The seed is the
+    // reset, exactly as it is for approval comments.
+    await admin.from('messages').delete()
+      .eq('room_id', ROOM_GROUP_B_ID).like('body', 'ZZ-HARNESS-24%')
+  }
+
+  record(`\n-- ═══ S3-d messages (groups + DM) ═══`)
+  await seedRows(admin, 'messages', [
+    { id: GA_MSG_OLD_ID, organization_id: HARNESS_ORG_ID, project_id: null, room_id: ROOM_GROUP_A_ID,
+      sender_id: userIds.c1own, sender_name: 'Harness C1 Owner',
+      body: 'GROUP A · before cutoff · 5d', created_at: at(5 * DAY) },
+    { id: GA_MSG_NEW_ID, organization_id: HARNESS_ORG_ID, project_id: null, room_id: ROOM_GROUP_A_ID,
+      sender_id: userIds.c1own, sender_name: 'Harness C1 Owner',
+      body: 'GROUP A · after cutoff · 2h', created_at: at(2 * 3_600_000) },
+    // Sent by crew BEFORE their left_at (1d ago): the history that must
+    // survive their leaving, with their name on it (assertion 25 / AD-003).
+    { id: GA_MSG_CREW_ID, organization_id: HARNESS_ORG_ID, project_id: null, room_id: ROOM_GROUP_A_ID,
+      sender_id: userIds.crew, sender_name: 'Harness Crew',
+      body: 'GROUP A · from crew before leaving · 3d', created_at: at(3 * DAY) },
+    { id: GB_MSG_ID, organization_id: HARNESS_ORG_ID, project_id: null, room_id: ROOM_GROUP_B_ID,
+      sender_id: userIds.owner, sender_name: 'Harness Owner',
+      body: 'GROUP B · owner · 1d', created_at: at(1 * DAY) },
+    { id: DM_MSG_ID, organization_id: HARNESS_ORG_ID, project_id: null, room_id: ROOM_DM_ID,
+      sender_id: userIds.crew, sender_name: 'Harness Crew',
+      body: 'DM · crew to c1own · 1d', created_at: at(1 * DAY) },
+  ])
 
   record(`\n-- ═══ tasks (visible_to_client so the client policy can match) ═══`)
   await seedRows(admin, 'tasks', projects.flatMap((p, i) => [
