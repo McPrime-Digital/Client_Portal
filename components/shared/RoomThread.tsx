@@ -17,6 +17,7 @@
  * `room:<clientId>` for room-level views; events `message`, `typing`, `sync`.
  */
 
+import ChatSettings from '@/components/shared/ChatSettings'
 import { setPresenceView, clearPresenceView } from '@/lib/presenceView'
 import { readThread, writeThread, cacheKeyFor } from '@/lib/threadCache'
 import { useDismissOnOutside } from '@/lib/hooks/useDismissOnOutside'
@@ -32,7 +33,6 @@ import {
   primeAudio,
   soundVolume,
   setSoundVolume,
-  VOLUMES,
   type SoundVolume,
   messageSoundEnabled,
   setMessageSoundEnabled,
@@ -49,7 +49,6 @@ import {
   wallpaperIntensity,
   setWallpaperIntensity,
   INTENSITY_ALPHA,
-  WALLPAPERS,
   type WallpaperPattern,
   type WallpaperIntensity,
 } from '@/lib/chatPrefs'
@@ -1269,7 +1268,7 @@ export default function RoomThread({
           },
         })
       }
-      setUploads((u) => { const { [tempId]: _drop, ...rest } = u; return rest })
+      setUploads((u) => Object.fromEntries(Object.entries(u).filter(([k]) => k !== tempId)))
     } catch (e) {
       // Kept, marked, and explained — never silently removed.
       setUploads((u) => ({
@@ -1578,169 +1577,23 @@ export default function RoomThread({
                   </div>
                 )}
                 {panel === 'settings' && (
-                  <div className="space-y-4 p-1">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-widest mb-2" style={{ color: 'hsl(var(--text-faint))' }}>
-                        This room notifies you about
-                      </p>
-                      {([
-                        ['all', 'Everything', 'Every new message'],
-                        ['mentions', 'Mentions only', 'Only when someone @mentions you'],
-                        ['muted', 'Nothing', 'No pushes, no chime — the badge still counts'],
-                      ] as const).map(([value, label, sub]) => (
-                        <button
-                          key={value}
-                          onClick={() => void setLevel(value)}
-                          className="w-full text-left px-3 py-2.5 rounded-xl mb-1.5 border transition-colors"
-                          style={{
-                            backgroundColor: roomLevel === value ? 'hsl(var(--primary) / 0.08)' : 'hsl(var(--background))',
-                            borderColor: roomLevel === value ? 'hsl(var(--primary) / 0.5)' : 'hsl(var(--border))',
-                          }}
-                        >
-                          <p className="text-sm font-medium" style={{ color: roomLevel === value ? 'hsl(var(--primary))' : 'hsl(var(--foreground))' }}>
-                            {label}
-                          </p>
-                          <p className="text-[11px] mt-0.5" style={{ color: 'hsl(var(--muted-foreground))' }}>{sub}</p>
-                        </button>
-                      ))}
-                    </div>
-                    <div className="pt-2 border-t space-y-2" style={{ borderColor: 'hsl(var(--border))' }}>
-                      <p className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'hsl(var(--text-faint))' }}>
-                        This device
-                      </p>
-                      <button
-                        onClick={() => {
-                          const next = !soundOn
-                          setSoundOn(next)
-                          setMessageSoundEnabled(next)
-                          if (next) playTestChime()
-                        }}
-                        className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border"
-                        style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))' }}
-                      >
-                        <span className="text-sm" style={{ color: 'hsl(var(--foreground))' }}>Message sound</span>
-                        <span className="text-xs font-semibold" style={{ color: soundOn ? 'hsl(var(--primary))' : 'hsl(var(--text-faint))' }}>
-                          {soundOn ? 'On' : 'Off'}
-                        </span>
-                      </button>
-                      <div
-                        className="w-full px-3 py-2.5 rounded-xl border"
-                        style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))' }}
-                      >
-                        <p className="text-sm mb-2" style={{ color: 'hsl(var(--foreground))' }}>Mention trigger</p>
-                        <div className="flex gap-1.5">
-                          {([
-                            ['at', '@ only'],
-                            ['slash', '/ only'],
-                            ['both', '@ and /'],
-                          ] as const).map(([value, label]) => (
-                            <button
-                              key={value}
-                              onClick={() => { setTrigger(value); setMentionTrigger(value) }}
-                              className="flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors"
-                              style={{
-                                backgroundColor: trigger === value ? 'hsl(var(--primary))' : 'hsl(var(--card))',
-                                color: trigger === value ? 'hsl(var(--primary-foreground))' : 'hsl(var(--foreground))',
-                                border: '1px solid ' + (trigger === value ? 'hsl(var(--primary))' : 'hsl(var(--border))'),
-                              }}
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div
-                        className="w-full px-3 py-2.5 rounded-xl border"
-                        style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))' }}
-                      >
-                        <p className="text-sm mb-2" style={{ color: 'hsl(var(--foreground))' }}>Wallpaper</p>
-                        <div className="grid grid-cols-3 gap-1.5 mb-2">
-                          {WALLPAPERS.map(({ value, label }) => (
-                            <button
-                              key={value}
-                              onClick={() => { setWpPattern(value); setWallpaperPattern(value) }}
-                              className="px-2 py-1.5 rounded-lg text-xs font-medium transition-colors"
-                              style={{
-                                backgroundColor: wpPattern === value ? 'hsl(var(--primary))' : 'hsl(var(--card))',
-                                color: wpPattern === value ? 'hsl(var(--primary-foreground))' : 'hsl(var(--foreground))',
-                                border: '1px solid ' + (wpPattern === value ? 'hsl(var(--primary))' : 'hsl(var(--border))'),
-                              }}
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                        <div className="flex gap-1.5">
-                          {([
-                            ['faint', 'Faint'],
-                            ['medium', 'Medium'],
-                            ['bold', 'Bold'],
-                          ] as const).map(([value, label]) => (
-                            <button
-                              key={value}
-                              disabled={wpPattern === 'none'}
-                              onClick={() => { setWpIntensity(value); setWallpaperIntensity(value) }}
-                              className="flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40"
-                              style={{
-                                backgroundColor: wpIntensity === value ? 'hsl(var(--primary) / 0.15)' : 'hsl(var(--card))',
-                                color: wpIntensity === value ? 'hsl(var(--primary))' : 'hsl(var(--foreground))',
-                                border: '1px solid ' + (wpIntensity === value ? 'hsl(var(--primary) / 0.5)' : 'hsl(var(--border))'),
-                              }}
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      {/* Message volume (item 8). Choosing one PLAYS it at
-                          that level, so "is the sound working" answers itself
-                          instead of being a claim the panel makes. */}
-                      <div
-                        className="w-full px-3 py-2.5 rounded-xl border"
-                        style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))' }}
-                      >
-                        <p className="text-sm mb-0.5" style={{ color: 'hsl(var(--foreground))' }}>Message volume</p>
-                        <p className="text-[11px] mb-2" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                          Softer again inside the chat you are already reading
-                        </p>
-                        <div className="flex gap-1.5">
-                          {VOLUMES.map(({ value, label }) => (
-                            <button
-                              key={value}
-                              onClick={() => { setVol(value); setSoundVolume(value); playTestChime() }}
-                              className="flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors"
-                              style={{
-                                backgroundColor: vol === value ? 'hsl(var(--primary) / 0.15)' : 'hsl(var(--card))',
-                                color: vol === value ? 'hsl(var(--primary))' : 'hsl(var(--foreground))',
-                                border: '1px solid ' + (vol === value ? 'hsl(var(--primary) / 0.5)' : 'hsl(var(--border))'),
-                              }}
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => {
-                          const next = !focusOn
-                          setFocusOn(next)
-                          setFocusModeEnabled(next)
-                        }}
-                        className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border"
-                        style={{ backgroundColor: 'hsl(var(--background))', borderColor: 'hsl(var(--border))' }}
-                      >
-                        <span className="text-left">
-                          <span className="text-sm block" style={{ color: 'hsl(var(--foreground))' }}>Focus mode</span>
-                          <span className="text-[11px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
-                            Silence the chime everywhere on this device
-                          </span>
-                        </span>
-                        <span className="text-xs font-semibold" style={{ color: focusOn ? 'hsl(var(--primary))' : 'hsl(var(--text-faint))' }}>
-                          {focusOn ? 'On' : 'Off'}
-                        </span>
-                      </button>
-                    </div>
-                  </div>
+                  <ChatSettings
+                    roomLevel={roomLevel}
+                    onRoomLevel={(v) => void setLevel(v)}
+                    wpPattern={wpPattern}
+                    onWpPattern={(v) => { setWpPattern(v); setWallpaperPattern(v) }}
+                    wpIntensity={wpIntensity}
+                    onWpIntensity={(v) => { setWpIntensity(v); setWallpaperIntensity(v) }}
+                    wpAlpha={INTENSITY_ALPHA[wpIntensity]}
+                    soundOn={soundOn}
+                    onSoundOn={(v) => { setSoundOn(v); setMessageSoundEnabled(v); if (v) playTestChime() }}
+                    volume={vol}
+                    onVolume={(v) => { setVol(v); setSoundVolume(v); playTestChime() }}
+                    focusOn={focusOn}
+                    onFocusOn={(v) => { setFocusOn(v); setFocusModeEnabled(v) }}
+                    trigger={trigger}
+                    onTrigger={(v) => { setTrigger(v); setMentionTrigger(v) }}
+                  />
                 )}
                 {panel === 'people' && (
                   <div className="space-y-1.5 p-1">
