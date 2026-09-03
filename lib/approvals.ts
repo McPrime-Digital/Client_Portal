@@ -969,3 +969,78 @@ export async function ensureApprovalForTaskGate(
   })
   return approval
 }
+
+/**
+ * Mirror a decision made through the LEGACY task path into the engine.
+ *
+ * ── WHY THIS EXISTS, found in production data ───────────────────────────────
+ * The dual-write made the legacy task columns a PROJECTION of the approval
+ * (0041). But the legacy WRITE path survived: `app/api/portal/actions`
+ * approve / request_changes updates `tasks` directly and told the engine
+ * nothing. A live production row proved the consequence within a day —
+ *
+ *     approval "Rough cut review"  status open,   stage active, deadline +5d
+ *     its task                     approval_status approved, status completed
+ *
+ * — the client HAD approved, the engine had no idea, and the item-5 sweep
+ * would eventually have lapsed that stage and written "no response was
+ * received by the agreed review date" into the permanent record about a client
+ * who responded on day one. That is precisely the false record AP-2 exists to
+ * prevent, reached through the one door the projection left open.
+ *
+ * So the legacy path now records a real decision. The engine then projects
+ * back onto the same columns the caller just wrote, which is harmless because
+ * they agree — and the approval, the certificate and the sweep all see what
+ * actually happened.
+ *
+ * Best-effort by design: a task with no live approval (most of them, until
+ * every gate has been re-sent through the engine) is a no-op, and a failure
+ * here must never fail the client's approval — they DID approve, and refusing
+ * their click because a mirror write failed would be the worse outcome.
+ */
+export async function mirrorLegacyTaskDecision(
+  db: SupabaseClient,
+  params: {
+    taskId: string
+    orgId: string
+    actorId: string
+    actorName: string
+    actorRole: 'admin' | 'client'
+    decision: DecisionOutcome
+    comment?: string | null
+  }
+): Promise<void> {
+  const { taskId, orgId, actorId, actorName, actorRole, decision, comment = null } = params
+  try {
+    const { data: approval } = await db
+      .from('approvals')
+      .select('id')
+      .eq('subject_kind', 'task')
+      .eq('subject_id', taskId)
+      .eq('organization_id', orgId)
+      .is('deleted_at', null)
+      .in('status', ['open', 'changes_requested'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (!approval) return
+
+    const { data: stage } = await db
+      .from('approval_stages')
+      .select('id')
+      .eq('approval_id', (approval as { id: string }).id)
+      .eq('status', 'active')
+      .order('seq')
+      .limit(1)
+      .maybeSingle()
+    if (!stage) return
+
+    await recordDecision(db, {
+      stageId: (stage as { id: string }).id,
+      actorId, actorName, actorRole, decision, comment,
+    })
+  } catch (e) {
+    // Surfaced, never fatal: the client's decision already landed on the task.
+    console.error('mirrorLegacyTaskDecision failed', e)
+  }
+}

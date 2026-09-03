@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { createAdminNotification, pushMessageAlert } from '@/lib/notify'
 import { messagePreview } from '@/lib/messagePreview'
 import { recordActivity } from '@/lib/logActivity.server'
+import { mirrorLegacyTaskDecision } from '@/lib/approvals'
 import { clientMembershipOf, type ClientRole } from '@/lib/team'
 import { clientCan } from '@/lib/permissions'
 import { ensureClientRoom } from '@/lib/messageRooms'
@@ -83,6 +84,15 @@ export async function POST(req: NextRequest) {
           .select()
           .single()
         if (error) throw error
+
+        // Tell the ENGINE (Batch 22). Without this the approval row stays
+        // open, and the item-5 sweep eventually writes "no response was
+        // received" about a client who just approved — found in live data.
+        await mirrorLegacyTaskDecision(supabaseAdmin, {
+          taskId: task_id, orgId: client.organization_id,
+          actorId: user.id, actorName: auth.memberName, actorRole: 'client',
+          decision: 'approved', comment: trimmedNote || null,
+        })
 
         // Register the approval in the project chat as proof. Framed as a task
         // trigger carrying the process name, the action, any file, and the note.
@@ -165,6 +175,15 @@ export async function POST(req: NextRequest) {
           .select()
           .single()
         if (error) throw error
+
+        // Same mirror as the approve branch: the engine must see the change
+        // request, or the stage stays 'active' and lapses on a client who
+        // answered (AP-3 exists precisely so a changed-work stage never does).
+        await mirrorLegacyTaskDecision(supabaseAdmin, {
+          taskId: task_id, orgId: client.organization_id,
+          actorId: user.id, actorName: auth.memberName, actorRole: 'client',
+          decision: 'changes_requested', comment: trimmed || null,
+        })
 
         // Auto-post the change request into the project chat (with any file).
         // Framed as a task trigger carrying the process name, action, file, note.
