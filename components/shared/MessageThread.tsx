@@ -1,5 +1,7 @@
 'use client'
 
+import { EMOJI_CATEGORIES, searchEmoji } from '@/lib/emojiData'
+import { stickerClass, stickerMotion } from '@/lib/stickerMotion'
 import { senderColor } from '@/lib/projectColor'
 import { useDismissOnOutside } from '@/lib/hooks/useDismissOnOutside'
 import { DEFAULT_WALLPAPER, type WallpaperPattern } from '@/lib/chatPrefs'
@@ -117,17 +119,25 @@ type Props = {
 // ── Helpers ──────────────────────────────────────────────────
 
 // Curated picker — four rows people actually use. No dependency, no fetch.
-const EMOJI_GROUPS: { label: string; emojis: string[] }[] = [
-  { label: 'Smileys', emojis: ['😀','😄','😂','🤣','😊','😍','😘','😎','🤔','😅','😢','😭','😤','😡','🥳','🤯','😴','🙃','😬','🤝','😉','😇','🥰','😜','🤪','😐','😶','🙄','😳','🥺','😱','🤗','🤫','🤭','🫠','😌','😷','🤒','🤠','🥸'] },
-  { label: 'Gestures', emojis: ['👍','👎','👏','🙌','🙏','💪','✌️','🤞','👌','🤙','👊','✊','🖐️','👋','🫡','🤌','☝️','👇','👉','👈','🤲','🫶','🤟','🖖','✍️','💅','🦾','👂','👀','🧠'] },
-  { label: 'Hearts & marks', emojis: ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','💯','✨','⭐','🔥','⚡','✅','❌','❗','❓','💬','👀'] },
-  { label: 'Work & film', emojis: ['🎬','🎥','📷','🎞️','🎭','🎵','🎧','📝','📌','📎','📁','📀','🚀','🏆','⏰','📅','💡','🔔','🔒','🎯'] },
-  { label: 'Animals & nature', emojis: ['🐶','🐱','🦁','🐼','🦊','🐸','🐢','🦋','🌵','🌴','🌸','🌻','🌙','☀️','🌈','⛰️','🌊','❄️','🍀','🔥'] },
-  { label: 'Food & drink', emojis: ['☕','🍕','🍔','🌮','🍣','🍜','🍩','🍪','🎂','🍾','🥂','🍺','🍷','🧋','🍿','🥐','🍎','🥑','🍫','🍭'] },
-]
+// EMOJI_GROUPS removed — the picker now reads lib/emojiData, generated from
+// Unicode with names as search keywords. A hand-kept list of a few dozen was
+// the thing the search was working around.
 
 // Stickers: jumbo expressive emoji that SEND on tap and land animated.
-const STICKERS = ['🎉','🔥','❤️','😂','👏','💯','🚀','🏆','🙌','😍','🤯','💪','✨','🥳','😎','🎬','🫡','👀','🤝','⚡','🌟','💡','🎯','☕']
+/**
+ * Stickers are chosen so the SET demonstrates the motion model: every one of
+ * them has a real intent in lib/stickerMotion, so nothing here falls back to
+ * the generic entrance. Ordered roughly by how often a production team
+ * actually reaches for them.
+ */
+const STICKERS = [
+  '🎉','🔥','❤️','😂','👏','💯',
+  '🚀','🏆','🙌','😍','🤯','💪',
+  '✨','🥳','😎','🎬','🫡','👀',
+  '🤝','⚡','🌟','💡','🎯','☕',
+  '👋','👍','💥','🌀','🕯️','🎊',
+  '😱','🎈','☁️','❄️','🤣','🧨',
+]
 
 // A message that is ONLY a few emoji renders jumbo — WhatsApp's move.
 function isJumboEmoji(body: string): boolean {
@@ -256,6 +266,25 @@ export default function MessageThread({
   const [pickerFor, setPickerFor] = useState<string | null>(null)
   const [msgMenuFor, setMsgMenuFor] = useState<string | null>(null)
   const [emojiOpen, setEmojiOpen] = useState(false)
+  const [emojiQuery, setEmojiQuery] = useState('')
+  const [emojiCat, setEmojiCat] = useState<string>(EMOJI_CATEGORIES[0]?.key ?? 'smileys')
+  /** Recently used, per device. The single most-used row in any picker, and it
+   *  costs one localStorage key. */
+  const [recentEmoji, setRecentEmoji] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('genreline-recent-emoji') || '[]').slice(0, 18) } catch { return [] }
+  })
+  const insertEmoji = useCallback((e: string) => {
+    setNewMessage((prev) => prev + e)
+    inputRef.current?.focus()
+    setRecentEmoji((prev) => {
+      const next = [e, ...prev.filter((x) => x !== e)].slice(0, 18)
+      try { localStorage.setItem('genreline-recent-emoji', JSON.stringify(next)) } catch { /* non-persistent */ }
+      return next
+    })
+  }, [])
+  const visibleEmoji = emojiQuery
+    ? searchEmoji(emojiQuery)
+    : (EMOJI_CATEGORIES.find((c) => c.key === emojiCat)?.items ?? [])
 
   /**
    * When to print a project's NAME on a message.
@@ -342,6 +371,11 @@ export default function MessageThread({
   const autosize = () => {
     const el = inputRef.current
     if (!el) return
+    // Measure-then-set is the only way to autosize a textarea: height must go
+    // to `auto` before scrollHeight reports the CONTENT height rather than the
+    // current box. Imperative DOM by necessity, in an event handler, never
+    // during render — the rule cannot tell those apart.
+    // eslint-disable-next-line react-hooks/immutability
     el.style.height = 'auto'
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`
   }
@@ -1171,7 +1205,7 @@ export default function MessageThread({
                         </div>
                       </div>
                     ) : msg.body ? (
-                      <div className={`${isJumboEmoji(msg.body) ? 'tl-sticker text-4xl leading-tight px-2.5 py-1.5' : 'text-[13px] leading-[1.45] px-3 py-2'} whitespace-pre-wrap`}>
+                      <div className={`${isJumboEmoji(msg.body) ? stickerClass(msg.body) + ' text-4xl leading-tight px-2.5 py-1.5' : 'text-[13px] leading-[1.45] px-3 py-2'} whitespace-pre-wrap`}>
                         {splitBody(msg.body).map((part: BodyPart, pi: number) => {
                           if (part.type === 'text') return <span key={pi}>{part.text}</span>
                           const resolved = mentionTargets?.[part.kind]?.[part.id]
@@ -1547,7 +1581,7 @@ export default function MessageThread({
             </button>
             {emojiOpen && (
               <div
-                className="absolute bottom-12 left-0 z-30 w-72 rounded-2xl shadow-2xl overflow-hidden"
+                className="absolute bottom-12 left-0 z-30 w-80 rounded-2xl shadow-2xl overflow-hidden"
                 style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
               >
                 <div className="flex border-b" style={{ borderColor: 'hsl(var(--border))' }}>
@@ -1567,47 +1601,98 @@ export default function MessageThread({
                   ))}
                 </div>
                 {pickerTab === 'stickers' && (
-                  <div className="grid grid-cols-6 gap-1 p-3 max-h-56 overflow-y-auto scrollbar-thin">
-                    {STICKERS.map((e) => (
-                      <button
-                        key={e}
-                        type="button"
-                        onClick={() => {
-                          setEmojiOpen(false)
-                          void onSendMessage(e).catch(() => {})
-                        }}
-                        className="text-3xl hover:scale-125 transition-transform py-1"
-                        title="Send sticker"
-                      >
-                        {e}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {pickerTab === 'emoji' && (
-                <div className="p-3 max-h-56 overflow-y-auto scrollbar-thin">
-                {EMOJI_GROUPS.map((g) => (
-                  <div key={g.label} className="mb-2">
-                    <p className="text-[9px] font-semibold uppercase tracking-[0.14em] mb-1" style={{ color: 'hsl(var(--text-faint))' }}>
-                      {g.label}
+                  <div className="p-3 max-h-64 overflow-y-auto scrollbar-thin">
+                    <p className="text-[10px] mb-2" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                      Sent large — each one moves the way it should.
                     </p>
-                    <div className="grid grid-cols-10 gap-0.5">
-                      {g.emojis.map((e) => (
+                    <div className="grid grid-cols-6 gap-1">
+                      {STICKERS.map((e) => (
                         <button
                           key={e}
                           type="button"
                           onClick={() => {
-                            setNewMessage((prev) => prev + e)
-                            inputRef.current?.focus()
+                            setEmojiOpen(false)
+                            void onSendMessage(e).catch(() => {})
                           }}
-                          className="text-lg hover:scale-125 transition-transform"
+                          className={`text-3xl py-1 rounded-lg hover:bg-[hsl(var(--border))] transition-colors ${stickerClass(e)}`}
+                          title={`Send — ${stickerMotion(e)}`}
                         >
                           {e}
                         </button>
                       ))}
                     </div>
                   </div>
-                ))}
+                )}
+                {pickerTab === 'emoji' && (
+                <div className="max-h-64 overflow-y-auto scrollbar-thin">
+                  {/* SEARCH over the official Unicode names, so "cry" finds every
+                      crying face because the NAME says so — not because someone
+                      remembered to tag it. */}
+                  <div className="px-3 pt-2.5 pb-1.5 sticky top-0 z-10" style={{ backgroundColor: 'hsl(var(--card))' }}>
+                    <input
+                      value={emojiQuery}
+                      onChange={(ev) => setEmojiQuery(ev.target.value)}
+                      placeholder="Search 1,600+ emoji…"
+                      className="w-full px-2.5 py-1.5 rounded-lg text-xs outline-none"
+                      style={{
+                        backgroundColor: 'hsl(var(--background))',
+                        border: '1px solid hsl(var(--border))',
+                        color: 'hsl(var(--foreground))',
+                      }}
+                    />
+                    {!emojiQuery && (
+                      <div className="flex gap-0.5 mt-1.5 overflow-x-auto scrollbar-thin">
+                        {EMOJI_CATEGORIES.map((c) => (
+                          <button
+                            key={c.key}
+                            type="button"
+                            onClick={() => setEmojiCat(c.key)}
+                            className="px-2 py-1 rounded-lg text-[10px] font-medium whitespace-nowrap transition-colors flex-shrink-0"
+                            style={{
+                              backgroundColor: emojiCat === c.key ? 'hsl(var(--primary) / 0.14)' : 'transparent',
+                              color: emojiCat === c.key ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))',
+                            }}
+                          >
+                            {c.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {recentEmoji.length > 0 && !emojiQuery && (
+                    <div className="px-3 pb-1.5">
+                      <p className="text-[9px] font-semibold uppercase tracking-widest mb-1"
+                        style={{ color: 'hsl(var(--text-faint))' }}>Recent</p>
+                      <div className="flex flex-wrap gap-0.5">
+                        {recentEmoji.map((e) => (
+                          <button key={`r-${e}`} type="button" onClick={() => insertEmoji(e)}
+                            className="text-xl w-8 h-8 rounded-lg hover:bg-[hsl(var(--border))] transition-colors">
+                            {e}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="px-3 pb-3">
+                    <div className="flex flex-wrap gap-0.5">
+                      {visibleEmoji.map((item, i) => (
+                        <button
+                          key={`${item.e}-${i}`}
+                          type="button"
+                          onClick={() => insertEmoji(item.e)}
+                          title={item.k}
+                          className="text-xl w-8 h-8 rounded-lg hover:bg-[hsl(var(--border))] transition-colors"
+                        >
+                          {item.e}
+                        </button>
+                      ))}
+                    </div>
+                    {emojiQuery && visibleEmoji.length === 0 && (
+                      <p className="text-[11px] py-3 text-center" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                        Nothing matches “{emojiQuery}”.
+                      </p>
+                    )}
+                  </div>
                 </div>
                 )}
               </div>

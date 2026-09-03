@@ -664,22 +664,153 @@ svg .gl-rise, svg .gl-pop { transform-origin: 50% 50%; }
   background-position: 0 0, 8px 8px;
 }
 
-/* ── Stickers (Batch 17): jumbo emoji land with life ── */
-@keyframes tl-sticker-pop {
-  0% { transform: scale(0.3) rotate(-8deg); opacity: 0; }
-  60% { transform: scale(1.18) rotate(3deg); }
-  100% { transform: scale(1) rotate(0); opacity: 1; }
-}
-@keyframes tl-sticker-sway {
-  0%, 100% { transform: rotate(-4deg); }
-  50% { transform: rotate(4deg); }
-}
+/* ── STICKER MOTION — what the thing DOES ─────────────────────────────────
+   Every jumbo emoji used to get one sway: a rocket swayed, a heart swayed, a
+   crying face swayed. That reads as decoration applied to a character rather
+   than a character doing something. Motion is now chosen from MEANING
+   (lib/stickerMotion.ts) and each one is timed for the gesture it represents.
+
+   The default is `pop`: arrive well, then STOP. A sticker that keeps moving
+   forever with no reason to is worse than one that simply lands. */
+
 .tl-sticker {
   display: inline-block;
-  animation: tl-sticker-pop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1),
-             tl-sticker-sway 1.4s ease-in-out 0.5s 2;
-  transform-origin: 50% 80%;
+  transform-origin: 50% 85%;
+  will-change: transform, opacity;
 }
+
+/* Arrive — shared entrance, then each motion takes over. */
+@keyframes tl-arrive {
+  0%   { transform: scale(0.3) rotate(-8deg); opacity: 0; }
+  60%  { transform: scale(1.16) rotate(3deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+
+/* pop — the honest default. Lands and is still. */
+.tl-motion-pop { animation: tl-arrive 0.5s cubic-bezier(0.2, 1.4, 0.4, 1); }
+
+/* launch — leaves the ground and goes, then returns to be read. */
+@keyframes tl-launch {
+  0%   { transform: translateY(18px) scale(0.6); opacity: 0; }
+  45%  { transform: translateY(-14px) scale(1.1); opacity: 1; }
+  70%  { transform: translateY(-22px) scale(1.05); }
+  100% { transform: translateY(0) scale(1); }
+}
+.tl-motion-launch { animation: tl-launch 0.95s cubic-bezier(0.2, 0.9, 0.3, 1); }
+
+/* beat — the DOUBLE thump of a real pulse, not a single squeeze. */
+@keyframes tl-beat {
+  0%, 100%     { transform: scale(1); }
+  12%          { transform: scale(1.24); }
+  24%          { transform: scale(1); }
+  36%          { transform: scale(1.16); }
+  50%          { transform: scale(1); }
+}
+.tl-motion-beat { animation: tl-arrive 0.4s cubic-bezier(0.2,1.4,0.4,1), tl-beat 1.25s ease-in-out 0.4s 3; }
+
+/* clap — two halves meeting: squash horizontally, not a rotation. */
+@keyframes tl-clap {
+  0%, 100% { transform: scaleX(1) rotate(0); }
+  25%      { transform: scaleX(0.72) rotate(-9deg); }
+  50%      { transform: scaleX(1.08) rotate(6deg); }
+  75%      { transform: scaleX(0.86) rotate(-4deg); }
+}
+.tl-motion-clap { animation: tl-arrive 0.35s cubic-bezier(0.2,1.4,0.4,1), tl-clap 0.5s ease-in-out 0.35s 3; }
+
+/* bounce — lands, and each landing is smaller than the last. */
+@keyframes tl-bounce {
+  0%   { transform: translateY(0); }
+  20%  { transform: translateY(-16px); }
+  40%  { transform: translateY(0) scaleY(0.9); }
+  55%  { transform: translateY(-8px) scaleY(1); }
+  70%  { transform: translateY(0) scaleY(0.95); }
+  85%  { transform: translateY(-3px); }
+  100% { transform: translateY(0); }
+}
+.tl-motion-bounce { animation: tl-arrive 0.3s cubic-bezier(0.2,1.4,0.4,1), tl-bounce 1.1s ease-out 0.3s 2; }
+
+/* flicker — light that is not steady. Irregular on purpose; an even pulse
+   reads as a strobe rather than a flame. */
+@keyframes tl-flicker {
+  0%, 100% { opacity: 1;    transform: scale(1); }
+  14%      { opacity: 0.72; transform: scale(1.09); }
+  22%      { opacity: 1;    transform: scale(0.97); }
+  47%      { opacity: 0.85; transform: scale(1.06); }
+  62%      { opacity: 1;    transform: scale(1); }
+  79%      { opacity: 0.66; transform: scale(1.11); }
+}
+.tl-motion-flicker { animation: tl-arrive 0.3s cubic-bezier(0.2,1.4,0.4,1), tl-flicker 1.7s ease-in-out 0.3s 3; }
+
+/* spin — one full turn about its own centre, decelerating. */
+@keyframes tl-spin { to { transform: rotate(360deg); } }
+.tl-motion-spin {
+  transform-origin: 50% 50%;
+  animation: tl-arrive 0.3s cubic-bezier(0.2,1.4,0.4,1), tl-spin 1.1s cubic-bezier(0.25,0.9,0.3,1) 0.3s 2;
+}
+
+/* burst — ONE expansion and then rest. Confetti does not keep exploding. */
+@keyframes tl-burst {
+  0%   { transform: scale(0.2) rotate(-14deg); opacity: 0; }
+  40%  { transform: scale(1.45) rotate(8deg);  opacity: 1; }
+  62%  { transform: scale(0.92) rotate(-3deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+.tl-motion-burst { animation: tl-burst 0.8s cubic-bezier(0.2, 1.5, 0.35, 1); }
+
+/* wave — from the WRIST, which is why the origin moves to the bottom.
+   This is the one gesture the old universal sway was ever right for. */
+@keyframes tl-wave {
+  0%, 100% { transform: rotate(0); }
+  20%      { transform: rotate(-16deg); }
+  40%      { transform: rotate(12deg); }
+  60%      { transform: rotate(-10deg); }
+  80%      { transform: rotate(6deg); }
+}
+.tl-motion-wave {
+  transform-origin: 70% 90%;
+  animation: tl-arrive 0.3s cubic-bezier(0.2,1.4,0.4,1), tl-wave 1s ease-in-out 0.3s 2;
+}
+
+/* fall — gravity, with a little drift. */
+@keyframes tl-fall {
+  0%   { transform: translateY(-14px) rotate(-6deg); opacity: 0; }
+  30%  { opacity: 1; }
+  60%  { transform: translateY(5px) rotate(4deg); }
+  100% { transform: translateY(0) rotate(0); opacity: 1; }
+}
+.tl-motion-fall { animation: tl-fall 1.1s cubic-bezier(0.3, 0.7, 0.4, 1); }
+
+/* float — buoyancy: rises, hangs, settles. Slow, because light things are. */
+@keyframes tl-float {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50%      { transform: translateY(-9px) rotate(2deg); }
+}
+.tl-motion-float { animation: tl-arrive 0.4s cubic-bezier(0.2,1.4,0.4,1), tl-float 2.6s ease-in-out 0.4s 3; }
+
+/* laugh — the shoulders-shaking one: fast, small, and it loses energy. */
+@keyframes tl-laugh {
+  0%, 100% { transform: rotate(0) scale(1); }
+  15%      { transform: rotate(-9deg) scale(1.08); }
+  30%      { transform: rotate(7deg)  scale(1.04); }
+  45%      { transform: rotate(-6deg) scale(1.06); }
+  60%      { transform: rotate(4deg)  scale(1.02); }
+  75%      { transform: rotate(-2deg) scale(1); }
+}
+.tl-motion-laugh { animation: tl-arrive 0.3s cubic-bezier(0.2,1.4,0.4,1), tl-laugh 0.85s ease-in-out 0.3s 3; }
+
+/* shock — a recoil away and back, once, hard. */
+@keyframes tl-shock {
+  0%   { transform: scale(0.6); opacity: 0; }
+  35%  { transform: scale(1.35) translateY(-6px); opacity: 1; }
+  50%  { transform: scale(0.95) translateY(2px); }
+  65%  { transform: scale(1.12) translateY(-2px); }
+  100% { transform: scale(1) translateY(0); }
+}
+.tl-motion-shock { animation: tl-shock 0.8s cubic-bezier(0.25, 1.4, 0.35, 1); }
+
+/* Motion is expression, never information — nothing here is the only way to
+   learn anything, so honouring the OS setting costs the user nothing. */
 @media (prefers-reduced-motion: reduce) {
-  .tl-sticker { animation: none; }
+  .tl-sticker,
+  [class*='tl-motion-'] { animation: none !important; }
 }
