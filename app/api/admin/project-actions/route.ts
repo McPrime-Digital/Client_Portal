@@ -7,6 +7,8 @@ import { computeProjectProgress, deriveProjectStatus } from '@/lib/projectProgre
 import { createNotification, clientIdForProject, pushMessageAlert } from '@/lib/notify'
 import { messagePreview } from '@/lib/messagePreview'
 import { recordActivity } from '@/lib/logActivity.server'
+import { ensureApprovalForTaskGate } from '@/lib/approvals'
+import { captureError } from '@/lib/errors'
 import { seedDefaultTasks, buildPhaseTaskRows, safeCategory } from '@/lib/defaultTasks'
 import { ensureClientRoom, ensureCrewRoom } from '@/lib/messageRooms'
 import { verifyAttachment, writeAttachmentRow } from '@/lib/messageAttachments'
@@ -14,17 +16,40 @@ import { writeMentions, notifyMentions } from '@/lib/messageMentions'
 
 // Records an approval-gate send into the Approvals & Records ledger when a
 // visible approval gate enters review (first send OR a resend for re-approval).
-async function recordGateSent(task: { id: string; title: string; project_id: string; visible_to_client?: boolean; requires_approval?: boolean; category?: string }, actorId: string, studioName: string, resend = false) {
+async function recordGateSent(task: { id: string; title: string; project_id: string; visible_to_client?: boolean; requires_approval?: boolean; category?: string }, actorId: string, studioName: string, resend = false, orgId?: string) {
   const isGate = task.requires_approval || task.category === 'approval'
   if (!isGate || task.visible_to_client === false) return
+  const clientId = await clientIdForProject(task.project_id)
   await recordActivity({
-    projectId: task.project_id, clientId: await clientIdForProject(task.project_id),
+    projectId: task.project_id, clientId,
     actorId, actorName: studioName, actorRole: 'admin',
     eventType: 'approval_requested',
     title: `${resend ? 'Re-sent for approval' : 'Approval requested'}: “${task.title}”`,
     body: null,
     meta: { task_id: task.id, resend },
   })
+
+  // BOTH gate-send paths funnel through here, so this is the single place the
+  // legacy flow meets the engine (Batch 22 item 8). Idempotent: a live
+  // approval for the task is reused, a re-send after "changes requested"
+  // reopens it on a fresh clock, and an internal task opens nothing.
+  //
+  // The 0041 trigger then projects the approval's state back onto the legacy
+  // task columns, so the existing approval pages and the Batch 12.2 rail
+  // badges keep working off rows the engine now owns (RULE ZERO).
+  //
+  // Failure here must NOT fail the send: the gate has already been recorded
+  // and the client already notified. Surfaced rather than swallowed (I-10).
+  if (orgId && clientId) {
+    try {
+      await ensureApprovalForTaskGate(supabaseAdmin, {
+        orgId, taskId: task.id, taskTitle: task.title,
+        projectId: task.project_id, clientId, actorId, actorName: studioName,
+      })
+    } catch (e) {
+      captureError(e, { where: 'recordGateSent approval bridge', taskId: task.id })
+    }
+  }
 }
 
 // Verify the calling user is an admin
@@ -508,7 +533,7 @@ export async function POST(req: NextRequest) {
             body: title ?? null,
           })
           // A visible gate created directly in review is an approval send.
-          if (initialStatus === 'review') await recordGateSent(data, user.id, studioName, false)
+          if (initialStatus === 'review') await recordGateSent(data, user.id, studioName, false, userOrgId(user))
         }
         return NextResponse.json({ task: data })
       }
@@ -546,7 +571,7 @@ export async function POST(req: NextRequest) {
               body: data.title ?? null,
             })
             // Record the gate send (resend if it was previously changed).
-            await recordGateSent(data, user.id, studioName, data.approval_status === 'changes_requested')
+            await recordGateSent(data, user.id, studioName, data.approval_status === 'changes_requested', userOrgId(user))
           } else if (status === 'completed') {
             await createNotification({
               clientId: await clientIdForProject(data.project_id),
@@ -621,7 +646,7 @@ export async function POST(req: NextRequest) {
             title: 'A task needs your approval',
             body: data.title ?? null,
           })
-          await recordGateSent(data, user.id, studioName, data.approval_status === 'changes_requested')
+          await recordGateSent(data, user.id, studioName, data.approval_status === 'changes_requested', userOrgId(user))
         }
         return NextResponse.json({ task: data })
       }
@@ -652,7 +677,7 @@ export async function POST(req: NextRequest) {
             body: data.title ?? null,
           })
         }
-        await recordGateSent(data, user.id, studioName, true)
+        await recordGateSent(data, user.id, studioName, true, userOrgId(user))
         return NextResponse.json({ task: data })
       }
 

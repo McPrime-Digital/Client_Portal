@@ -401,6 +401,12 @@ async function main() {
   ]))
 
   // ── approvals (Batch 22 item 6, assertions 16–20) ────────────────────────
+  // FOUR DISTINCT SUBJECT TASKS, one per fixture. Since 0041 projects an
+  // approval's status onto its subject task, four fixtures sharing one task
+  // meant the last INSERT won and that task read 'approved' regardless of the
+  // other three — deterministic, but confusing to anyone reading the seeded
+  // state, and fragile the moment an assertion looks at a task.
+  //
   // TORN DOWN AND REBUILT each run rather than upserted. Assertion 17's
   // positive control INSERTS a real decision, and approval_decisions is
   // APPEND-ONLY by design (0038 gives it no UPDATE and no DELETE policy, for
@@ -422,13 +428,13 @@ async function main() {
         client_id: COMPANY_1_ID, title: 'Harness · client approval', status: 'open',
         review_window_hours: 120 },
       { id: APPROVAL_INTERNAL_ID, organization_id: HARNESS_ORG_ID, subject_kind: 'task',
-        subject_id: '0f0f0f0f-0006-4000-8000-000000000001', project_id: PROJECT_1_ID,
+        subject_id: '0f0f0f0f-0006-4000-8000-000000000002', project_id: PROJECT_1_ID,
         client_id: null, title: 'Harness · INTERNAL approval', status: 'open' },
       { id: APPROVAL_LAPSED_ID, organization_id: HARNESS_ORG_ID, subject_kind: 'task',
-        subject_id: '0f0f0f0f-0006-4000-8000-000000000001', project_id: PROJECT_1_ID,
+        subject_id: '0f0f0f0f-0006-4000-8000-000000001001', project_id: PROJECT_2_ID,
         client_id: COMPANY_1_ID, title: 'Harness · lapsed on silence', status: 'auto_advanced' },
       { id: APPROVAL_DECIDED_ID, organization_id: HARNESS_ORG_ID, subject_kind: 'task',
-        subject_id: '0f0f0f0f-0006-4000-8000-000000000001', project_id: PROJECT_1_ID,
+        subject_id: '0f0f0f0f-0006-4000-8000-000000001002', project_id: PROJECT_2_ID,
         client_id: COMPANY_1_ID, title: 'Harness · decided', status: 'approved' },
     ])
     if (apErr) throw new Error(`approvals: ${apErr.message}`)

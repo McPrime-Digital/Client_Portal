@@ -779,3 +779,117 @@ export async function readApproval(
     })),
   }
 }
+
+// ── the legacy task projection (RULE ZERO) ──────────────────────────────────
+//
+// There is no function here, and that is the decision.
+//
+// RULE ZERO: the tasks-based approval path is LIVE. `requires_approval`,
+// `approval_status`, `visible_to_client` — and three MORE the brief did not
+// name, which the item-0 audit found: `approved_at`, `approval_note` and
+// `auto_proceeded` — are read by both existing approval pages, TaskBoard, both
+// project details, both badge routes and the Batch 12.2 rail badges. Nothing
+// stops writing them. The approval rows are the AUTHORITY; those columns are a
+// PROJECTION, and they drop in a later batch once this has been live.
+//
+// The projection was first written HERE, in TypeScript, and it could not work:
+// `tasks` is crew-writable only (tasks_client_read is SELECT), so the portal
+// decide path would have produced a PostgREST update matching zero rows and
+// returning no error — the identical silent no-op that 0039 exists to end, one
+// table over. So it lives in 0041 as a trigger on `approvals`, which fires for
+// every writer including 0039's own nested update, and needs no privilege the
+// caller does not have.
+//
+// See supabase/migrations/0041_task_projection.sql for the mapping, including
+// the one that matters: 'auto_advanced' projects as 'auto_advanced', never as
+// 'approved' and never as the retired 'auto_approved'.
+
+// ── the task bridge (item 8) ────────────────────────────────────────────────
+
+/**
+ * Get-or-open the live approval for a task gate, and reopen it on a re-send.
+ *
+ * This is where the LEGACY gate flow meets the engine. Both existing send
+ * paths (`resend_approval` and `attach_task_media`) funnel through
+ * `recordGateSent`, so hooking there means every gate send — today's and
+ * tomorrow's — opens a real approval without either call site changing shape.
+ *
+ * IDEMPOTENT, because `recordGateSent` is not guaranteed to run once: a live
+ * approval for the task is reused rather than duplicated. Two approvals
+ * against one task would be two records disagreeing about the same sign-off,
+ * which is the failure S3-c §3 opens with.
+ *
+ * A RE-SEND after "changes requested" REOPENS rather than creating a second
+ * approval. The stage goes back to 'active' with a FRESH deadline — the
+ * client's window restarts when the new work is offered, not from the original
+ * request, because they cannot be expected to review something that did not
+ * exist yet. The blocked stage's decisions stay exactly where they are: the
+ * request for changes is part of the permanent record (AP-4), not something
+ * the re-send erases.
+ *
+ * Returns null when the task is not a client-facing gate — internal tasks and
+ * invisible ones open nothing, and that is not an error.
+ */
+export async function ensureApprovalForTaskGate(
+  db: SupabaseClient,
+  params: {
+    orgId: string
+    taskId: string
+    taskTitle: string
+    projectId: string | null
+    clientId: string | null
+    actorId: string
+    actorName: string
+  }
+): Promise<ApprovalRow | null> {
+  const { orgId, taskId, taskTitle, projectId, clientId, actorId, actorName } = params
+  if (!clientId) return null // an internal task gates nothing external
+
+  const { data: existingData } = await db
+    .from('approvals')
+    .select(APPROVAL_COLUMNS)
+    .eq('subject_kind', 'task')
+    .eq('subject_id', taskId)
+    .eq('organization_id', orgId)
+    .is('deleted_at', null)
+    .in('status', ['open', 'changes_requested'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const existing = existingData as unknown as ApprovalRow | null
+
+  if (existing) {
+    if (existing.status !== 'changes_requested') return existing
+
+    // Reopen: the blocked stage becomes active again on a fresh clock.
+    const hours = existing.review_window_hours ?? (await orgWindowHours(db, orgId))
+    const { data: blocked } = await db
+      .from('approval_stages').select('id')
+      .eq('approval_id', existing.id).eq('status', 'blocked_on_changes')
+      .order('seq').limit(1).maybeSingle()
+    if (blocked) {
+      await db.from('approval_stages')
+        .update({ status: 'active', deadline_at: hoursFromNow(hours), advanced_at: null })
+        .eq('id', (blocked as { id: string }).id)
+    }
+    await db.from('approvals').update({ status: 'open' }).eq('id', existing.id)
+    return { ...existing, status: 'open' }
+  }
+
+  const { approval } = await createApproval(db, {
+    orgId, actorId, actorName, actorRole: 'admin',
+    subjectKind: 'task', subjectId: taskId,
+    title: taskTitle || 'Approval',
+    clientId, projectId,
+    stages: [
+      {
+        name: 'Client sign-off',
+        // Addressed to the COMPANY, not a named person: whoever holds the
+        // seat can act, and someone leaving cannot deadlock it
+        // (S3-core §2.4).
+        assignees: [{ clientId }],
+      },
+    ],
+  })
+  return approval
+}
