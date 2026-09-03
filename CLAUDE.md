@@ -40,7 +40,7 @@ order:
 | 12 | `S3-core-A-amendments.md` | **Supersedes named `S3-core` sections** (A-1 … A-6, from the Batch 13 item 0 audit; two prevented data loss) |
 | 13 | `S3-b-calendar-meetings-documents-seats.md` | **DRAFT** — schema for the four shapes `S-F` §9 moved into v1; sequenced after `S3-core`. **Its migration 5 must DROP its `timecode_ms` line** — that column was never created, and Batch 22 settled one anchor model (`anchor_kind` + `anchor_value`) instead |
 | 14 | `S3-c-approvals-review-live-artifacts.md` | **DRAFT** — **Supersedes `S3-core` §2 (approvals tables), `S3-core` §9.2, and `S-F` §3.3 where they disagree**; approval is a record not a gate — auto-advance on silence, live minted artifacts, anchored review comments; sequenced after `S3-core` migrations 1–7 |
-| 15 | `S3-d-messaging-rooms-groups-broadcast.md` | **DRAFT** — **Supersedes `S3-core` §1.2 (the room table) and §9.1** where they disagree. Membership becomes a ROW (`room_members`), not a derivation; channels, groups, DMs, broadcast and external collaborators; the message RLS moves off tenant identity onto membership. Sequenced after Batch 22, migrations 0043+ |
+| 15 | `S3-d-messaging-rooms-groups-broadcast.md` | **LANDED (Batch 23, migrations 0043–0049)** — **Supersedes `S3-core` §1.2 (the room table) and §9.1** where they disagree. Membership is a ROW (`room_members`); channels, groups, DMs, broadcast; the message RLS runs on membership (`is_room_member` + `room_can_post` + per-seat `history_from`), with ONE recorded deviation: the project-visibility conjunct stays (a live scoped crew member made §5.2's drop an access-widening). Rooms API: `lib/rooms.ts` + `/api/rooms*`; crew Chat hub; portal DMs. Open remainder in HANDOFF §9 |
 
 **Where S0 and S0-A disagree, S0-A wins** — and the same rule binds `S3-core`
 and `S3-core-A`. S0 entries were not edited in place — the original
@@ -243,11 +243,15 @@ Walk each of these paths mentally before saving an edit to `proxy.ts`.
   `internal.pipeline` (house org only) via the sidebar filter and `requireOrgFeature`.
   Features without an implementation render a "Phase N · coming soon" card
   (`app/studio/[space]/[feature]/page.tsx:40-66`). Whether stubs stay advertised is owned by S4.
-- `app/api/` — **44** route handlers (files, portal, admin, studio, cron, presence, push,
-  Stripe webhook; Batch 10 added `studio/organization/logo` + `auth/password-reset`, Batch
-  12.2 added `admin/erase-person` — and found the previous count of 42 was already one
-  short before it landed). This entry has now been off by one twice — count it
-  (`find app/api -name route.ts | wc -l`), don't quote it.
+- `app/api/` — route handlers for files, portal, admin, studio, rooms, cron,
+  presence, push, and the Stripe webhook. This entry was off by one twice when
+  it carried a number — count it (`find app/api -name route.ts | wc -l`),
+  don't quote it (55 at Batch 23's end). `app/api/rooms*` (Batch 23) is the
+  S3-d surface: room list/create (channels, groups, broadcast, DMs), seating,
+  and room-addressed messages — zod-validated, and the WRITES run on the user
+  client so the 0046 policies are the authorization (AD-001 as written; the
+  service role there only resolves rosters, presigns R2, and stamps delivered
+  on other people's rows).
 - `app/auth/callback/route.ts` — **implemented, not reserved.** It handles the PKCE
   `exchangeCodeForSession` flow and the `token_hash`/`verifyOtp` magic-link/invite flow, and
   marks clients onboarded. Its admin success path still redirects to `/admin/dashboard`
@@ -306,11 +310,13 @@ into new code.
 
 `supabase/migrations/` holds one numbering scheme (`00NN`); the retired `2026*` scheme is fenced in `_archive/`:
 
-- `0000_baseline_schema.sql` … `0041_task_projection.sql` — the current source
-  of truth, **all applied** (verified live 2026-09-02). 0038–0041 are the
-  approvals engine: schema + RLS, then three triggers, each written only after
-  the defect it prevents was PROVEN live as a real persona. `0000` is a full captured baseline that **drops and recreates** the
-  core tables.
+- `0000_baseline_schema.sql` … `0049_person_avatars.sql` — the current source
+  of truth, **all applied except 0048** (verified live 2026-09-03). 0038–0041
+  are the approvals engine; 0043–0047 + 0049 are S3-d (membership as a row,
+  the RLS flip onto `is_room_member()`, many crew rooms, person avatars).
+  **0048 is GATED on the Batch 23 deploy** — it drops `message_room_prefs`,
+  which the running deploy still reads. `0000` is a full captured baseline
+  that **drops and recreates** the core tables.
 - `_archive/20260531_*.sql` … `_archive/20260606_*.sql` (phase1–12 + invoicing) — historical,
   already baked into `0000`, moved to `supabase/migrations/_archive/` (Batch 6.9). Read
   `_archive/README.md` before touching them; nothing in that directory is ever applied.

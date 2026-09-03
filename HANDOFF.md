@@ -5,9 +5,10 @@ did not: the open list was kept outside the repo, drifted from the code with
 nothing able to contradict it, and four live defects fell off it entirely
 (recovered by Batch 6 item 0). Everything below was verified against the code
 and the live database on 2026-08-28 — nothing is quoted from memory of what a
-batch was supposed to do. Last corrected after **Batch 22** (the approvals
-engine, 2026-09-02, with fresh live reads); Batch 8 was the final foundation
-batch.
+batch was supposed to do. Last corrected after **Batch 23** (S3-d — membership
+becomes a row; channels, groups, DMs, broadcast; the crew Chat hub — 2026-09-03,
+with fresh live reads and a 13-probe RLS smoke run); Batch 8 was the final
+foundation batch.
 
 After this, read `docs/specs/` in order: S0 → S0-A → **S0-B** → S0-conformance
 → S1-P → S-V → **S-F** → S1 → S2 → **S-C** → **S3-core** → **S3-core-A** →
@@ -262,13 +263,25 @@ The audited era, each batch with what it *found*:
 
 | 22 (the approvals engine, S3-c) | **Approval becomes a record, not a gate.** 0038 (five tables + the anchor model on `messages` + `organizations.approval_window_hours`, Class B RLS); 0039 + 0040 + 0041 (three triggers, each written because a defect was PROVEN first); `lib/approvals.ts` — the single write path; five approval capabilities on both rosters behind one new cap; six routes (45 → 51 handlers) with **zero new service-role importers**; the per-org auto-advance sweep + reminder ladder (`/api/cron/approval-sweep`, daily 08:00); harness **15 → 20**; the card in the room, the record on both review pages, the printable certificate; and the browser ledger path DELETED (`lib/logActivity.ts` + `/api/activity` + its allowlist entry) | **Seven premise failures, and three defects found by probing rather than reading.** The brief's `is_org_member(organization_id)` does not exist (no-arg). `messages` has no crew INSERT policy to extend — `messages_crew_all` is an ALL policy, so the comment gate became a RESTRICTIVE policy that touches neither existing one. `messages.timecode_ms` was NEVER created, so S3-c §5.1's premise is false and there is one anchor model, not two (S3-b migration 5 must drop its line). Rule Zero named three legacy columns; **six** are live, and `approved_at` — which the brief does not name — is what both approval pages actually gate on. `deadline-check` was a SECOND, unrecorded instance of HANDOFF §8.3 item 4's page-load-cron defect, and it wrote `approval_status='auto_approved'` while `studio/client/review/page.tsx:131` counted that among the APPROVED — the studio's own page was already reporting timeouts as client sign-offs. **The three probe-found defects:** a client could record a decision and the stage would silently never advance (crew-only UPDATE + PostgREST returning no error on zero rows) — which would have had the record claim "no response received" about a client who responded; a decision with a null `actor_id` could never satisfy a user assignee, so the same silent stall one layer down; and a client assignee could **forge who signed off**, naming a colleague as `actor_id` and anything as `actor_name`, because 0038 permits direct assignee inserts and the routes being careful is not a control. Also: the reminder ladder counted ledger EVENTS, and there is one per RECIPIENT — a three-assignee stage would have gone permanently silent while the record still claimed the window was honoured |
 
+| 23 (S3-d, 2026-09-03) | **Membership becomes a ROW, and the crew space gets its chat.** 0043 `room_members` + the helper quartet + a trigger confining self-service to notify/leave; 0044 backfill (printed prediction matched exactly: 11 crew + 9 client, 0 overlap, 20 rows, zero parity gaps both directions); 0045 kind widens to channel/group/dm/broadcast with topic/is_private/archived_at/project_id, dm_key + partial unique index (race-free DM find-or-create, the 0027 shape one level down), `last_message_at` WITH its trigger; 0046 **THE FLIP** — message and room policies move off tenant identity onto `is_room_member()`/`room_can_post()`/`room_history_from()`, sender and org pinned in the INSERT policy; 0047 drops the one-crew-room index (0027 §9.1's promised migration); 0048 printed, GATED on deploy (prefs onto the seat); 0049 person avatars + collaborator display_name. Harness 20 → **28** (21 stays reserved for the retention purge), run RED pre-flip — 25 and 27 genuinely FAILED (a left member kept reading; the org owner could read a DM) — then 28/28 green post-flip. `lib/rooms.ts` (creation with creator-first-seat under RLS, DM dedup, seating with explicit-rejoin semantics, §5.3 seeding + `healDerivableMemberships` self-heal), four `/api/rooms*` routes (zod at every boundary; creation/seating/sends on the USER client — 0046 IS the authorization), group receipts (blue = every other member's watermark covers it), member-scoped `orgUnread`, `pushRoomMessageAlert`, pause/revoke stamps every seat + restore re-derives, Crew › Chat hub (was a phase-4 stub), portal DM chips in the notch, avatar bubble heads. 13-probe persona smoke run: 13/13 | **The pause hole found before it shipped**: under MD-1 the seat reads the room, so cutting claims alone would have left a paused member reading everything with a live session — the cut now stamps seats. **The RLS recursion trap in the bootstrap**: the creator-first-seat policy's subquery runs under the CALLER's RLS, and the creator could not yet SEE the private room they had just created — member_read gained a created_by clause before it shipped. **§5.2's own instruction was wrong against its own gate**: dropping the project-visibility conjunct would have widened a live scoped crew member's access, so the conjunct stays, recorded as a deviation. Earlier the same day (owner rounds): the Film wallpaper restored as redrawn artifacts (the ask was improve, not replace), and five reported defects each traced to a mechanism — stale closures/responses contaminating the per-view cache (and then PERSISTING), a hidden tab forging READ ticks and silencing the away push, media without reserved boxes bouncing the open, unsupported Unicode rendering as invisible emoji, the chips band consuming chat height (now a floating notch) |
+
 ## 7. Current state (verified 2026-08-28 after Batch 8; Batch 9 deltas from the
 code 2026-08-30, with one live read; Batch 10 deltas from the code 2026-08-31)
 
 - **Branch:** `throughline` (main ⊆ throughline, fast-forward). Not renamed —
   S0-B §6 excludes the branch, and renaming it is a remote/CI change, not a
   code one.
-- **Migrations applied: 0000–0041.** 0036 (documents.kind) and 0037 (the
+- **Migrations applied: 0000–0047, plus 0049. 0048 is printed and GATED on
+  the Batch 23 deploy** (it drops `message_room_prefs`, which the RUNNING
+  deploy still reads — the 0036/0037 lesson applied in advance). Verified
+  live 2026-09-03: `room_members` holds the 20 backfilled seats plus the
+  harness fixtures; the four helper functions exist; messages carry
+  member-based policies (`messages_member_read` / `_member_insert` /
+  `_sender_update` + the untouched approval RESTRICTIVE gate); the
+  one-crew-room index is replaced by the General-name index; `message_rooms`
+  carries topic/is_private/archived_at/last_message_at/project_id/dm_key.
+  The superseded line, kept because it is what was true until this batch:
+  **Migrations applied: 0000–0041.** 0036 (documents.kind) and 0037 (the
   migration-12 drops) were applied in Batch 22 after the Batch 21 code
   finally reached a deploy — they had been committed but NEVER PUSHED, which
   is why the "gated" state below persisted; the push was the missing step,
@@ -302,7 +315,13 @@ code 2026-08-30, with one live read; Batch 10 deltas from the code 2026-08-31)
 - **Access token hook:** enabled in production, verified from a live JWT. 0026
   changes its body; step 2 (verify a client's token still carries
   `organization_id`) is the check that matters after applying it.
-- **Harness:** `npm run test:rls` → **20 pass / 0 fail / 0 vacuous / 0 error**
+- **Harness:** `npm run test:rls` → **28 pass / 0 fail / 0 vacuous / 0 error**
+  (22–29 added in Batch 23 from S3-d §7; 21 stays RESERVED for the retention
+  purge assertion; the collab persona joins the roster — an auth user with NO
+  roster row anywhere, whose entire tenancy is one `room_members` seat).
+  Assertions 17 and 24 both write through single-use/pruned fixtures — re-seed
+  between runs. The pre-Batch-23 line:
+  `npm run test:rls` → **20 pass / 0 fail / 0 vacuous / 0 error**
   (16–20 added in Batch 22 item 6 from S3-c §7: internal approvals invisible to
   clients, decision forgery, comment permission, comment visibility, and the
   one that stops a lapse ever reading as approval). All five approval tables
@@ -326,7 +345,10 @@ code 2026-08-30, with one live read; Batch 10 deltas from the code 2026-08-31)
   thread (receipts now derive from watermarks — Batch 21.3). (A sentence
   here was truncated mid-word — "The 0030 policy" — since Batch 14; its
   intent is unrecoverable and it is removed rather than guessed at.)
-- **`tsc --noEmit`:** clean. **Lint: 317** (counted at Batch 22's end; 318 at
+- **`tsc --noEmit`:** clean. **Lint: 313** (counted at Batch 23's end; 315
+  at its start). **Route handlers: 55** — Batch 23 added the four
+  `/api/rooms*` routes, every one zod-validated at the boundary (I-7 holds
+  for all new surfaces). The pre-Batch-23 line: **Lint: 317** (counted at Batch 22's end; 318 at
   its start). **Route handlers: 51** — and the count went DOWN for the first
   time in this project's history, because Batch 22 item 11 deleted
   `/api/activity`. The superseded line: **Lint: 318** — 355 at Batch 15's start, 319
@@ -715,14 +737,35 @@ room, the record on both review pages, the printable certificate.
 
 **Then, in order:**
 
-- **`S3-d` — messaging: rooms, groups, broadcast, collaborators** (migrations
-  0043+). Membership becomes a ROW (`room_members`) instead of being derived
-  from company identity, which is what makes channels, groups, DMs, broadcast
-  and external collaborators expressible at all. Step 5 of its sequence — the
-  message-policy flip — is the only change in the plan that can leak one
-  company's messages to another, and its failure mode is silent over-sharing,
-  so harness assertions 22–29 are written and RED before it runs. Assertion 29
-  is a before/after access diff across all six personas in both directions.
+- **`S3-d` — LANDED (Batch 23, 2026-09-03).** Schema (0043–0047, 0049),
+  harness 22–29 (RED first, then 28/28), the flip, `lib/rooms.ts`, the four
+  `/api/rooms*` routes, the crew Chat hub, portal DMs, bubble heads. What
+  REMAINS of it, in order of value:
+  1. **Push and deploy Batch 23, then apply 0048** (drops
+     `message_room_prefs`; the running deploy still reads it — GATED exactly
+     like 0036/0037 were).
+  2. **Click-test** once deployed: crew creates a channel and a broadcast,
+     seats people, a muted seat cannot post; a client owner opens a DM from
+     the portal notch and the crew hub receives it live; bubble heads render;
+     leaving hides new traffic.
+  3. **Attachments in new-kind rooms** — deliberately OFF: the presign scope
+     requires a project or client, and widening `lib/uploadScope` deserves
+     review, not a side door (Batch 14's judgment, still standing). This is
+     the batch that lifts it.
+  4. **The MD-4 collaborator INVITE path** — the schema, policies and
+     harness assertion 23 are live; what does not exist is the flow that
+     mints the auth account and sends tenant-voiced mail
+     (`sendTenantInvite` audience #4). Until it lands, collaborators can be
+     seated only by hand.
+  5. **Public-channel discovery UI** — the RLS discovery clause exists
+     (`is_private = false` + org member); the hub lists only rooms you sit
+     in. A browse-and-join surface makes public channels mean something.
+  6. **The legacy client/project message routes onto the room endpoint** —
+     one engine, two doors today; recorded drift, not a defect.
+  7. A pure collaborator reads only UNTAGGED messages (the recorded §5.2
+     deviation): fine while collaborators live in channels/groups, wrong the
+     day one is seated in a client room. Revisit when project channels move
+     traffic out of tags.
 - **File version stacking (migration 9)**, with the live artifact viewer
   (S3-c §4.3, script first per its §8.3) on top. `approvals.subject_version_id`
   already exists and is unwritten, waiting for it — minting is the snapshot
