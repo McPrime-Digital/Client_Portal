@@ -22,8 +22,9 @@ import { createClient } from '@/lib/supabase/server'
 // the old value would make the push fail, leave the key dirty, and strand
 // that device on a preference it can never replace.
 const PATTERNS = new Set([
-  'grain', 'filmstrip', 'storyboard', 'slate', 'bokeh', 'vignette', 'dots', 'film', 'none',
-  'aurora', 'waves', 'grid',
+  'slate', 'plaster', 'onyx', 'silk', 'velvet', 'ribbon', 'dots', 'film', 'none',
+  // Retired names stay ACCEPTED on write; lib/chatPrefs maps them on read.
+  'aurora', 'waves', 'grid', 'grain', 'filmstrip', 'storyboard', 'bokeh', 'vignette',
 ])
 const INTENSITIES = new Set(['faint', 'medium', 'bold'])
 const VOLUMES = new Set(['off', 'low', 'medium', 'high'])

@@ -552,116 +552,116 @@ svg .gl-rise, svg .gl-pop { transform-origin: 50% 50%; }
   pointer-events: none;
   opacity: var(--tl-wp-a, 0.75);
 }
-.tl-wp-film::before {
-  background-size: 180px 180px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cg fill='none' stroke='%23445066' stroke-width='1.3' opacity='0.10'%3E%3Cpath d='M14 22h30v20H14z'/%3E%3Cpath d='M14 22l5-8 7 2-5 8zm12-6l7 2-5 8-7-2zm14 4l4 1-5 8'/%3E%3Crect x='96' y='14' width='40' height='18' rx='2'/%3E%3Cpath d='M100 18h4v3h-4zm8 0h4v3h-4zm8 0h4v3h-4zm8 0h4v3h-4zm-24 8h4v3h-4zm8 0h4v3h-4zm8 0h4v3h-4zm8 0h4v3h-4z'/%3E%3Ccircle cx='150' cy='80' r='13'/%3E%3Ccircle cx='150' cy='80' r='3'/%3E%3Ccircle cx='150' cy='71' r='2.5'/%3E%3Ccircle cx='150' cy='89' r='2.5'/%3E%3Ccircle cx='141' cy='80' r='2.5'/%3E%3Ccircle cx='159' cy='80' r='2.5'/%3E%3Cpath d='M30 90h26v18H30zM56 95l10-5v18l-10-5z'/%3E%3Ccircle cx='38' cy='86' r='5'/%3E%3Ccircle cx='50' cy='86' r='5'/%3E%3Cpath d='M96 130l3.5 7 8 1-5.7 5.6 1.3 8-7.1-3.7-7.1 3.7 1.3-8-5.7-5.6 8-1z'/%3E%3Ccircle cx='40' cy='150' r='9'/%3E%3Cpath d='M37 145.5l8 4.5-8 4.5z'/%3E%3Cpath d='M120 55l2 4 4 .6-3 2.8.7 4-3.7-2-3.7 2 .7-4-3-2.8 4-.6z'/%3E%3Cpath d='M75 45c2-3 6-3 8 0M160 130c2-3 6-3 8 0M14 62c2-3 6-3 8 0'/%3E%3C/g%3E%3C/svg%3E");
+/* ── PHOTOGRAPHIC WALLPAPERS ──────────────────────────────────────────────
+   Six textures in public/wallpapers, self-hosted rather than hotlinked: a
+   chat background must not depend on a third party's CDN, and hotlinking
+   would leak every viewer's IP to them on every page load.
+
+   ALL SIX ARE SHOT DARK, which is what makes them premium — and what makes
+   them wrong in a light theme at face value. So light mode INVERTS them:
+   a dark plaster wall becomes a pale one, keeping the grain and the falloff
+   while the text stays legible. One asset, both themes, no second download.
+
+   `background-attachment: local` so the texture belongs to the surface rather
+   than the viewport — Batch 18 already learned that a background painted on
+   the scrolling element scrolls away with it. */
+.tl-chat-bg.tl-wp-slate::before,
+.tl-chat-bg.tl-wp-plaster::before,
+.tl-chat-bg.tl-wp-onyx::before,
+.tl-chat-bg.tl-wp-silk::before,
+.tl-chat-bg.tl-wp-velvet::before,
+.tl-chat-bg.tl-wp-ribbon::before {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  /* Photographs need far less presence than a drawn pattern: at full strength
+     a texture competes with the bubbles sitting on it. */
+  opacity: calc(var(--tl-wp-a, 0.75) * 0.30);
 }
-.dark .tl-wp-film::before {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cg fill='none' stroke='%23d8dce6' stroke-width='1.3' opacity='0.075'%3E%3Cpath d='M14 22h30v20H14z'/%3E%3Cpath d='M14 22l5-8 7 2-5 8zm12-6l7 2-5 8-7-2zm14 4l4 1-5 8'/%3E%3Crect x='96' y='14' width='40' height='18' rx='2'/%3E%3Cpath d='M100 18h4v3h-4zm8 0h4v3h-4zm8 0h4v3h-4zm8 0h4v3h-4zm-24 8h4v3h-4zm8 0h4v3h-4zm8 0h4v3h-4zm8 0h4v3h-4z'/%3E%3Ccircle cx='150' cy='80' r='13'/%3E%3Ccircle cx='150' cy='80' r='3'/%3E%3Ccircle cx='150' cy='71' r='2.5'/%3E%3Ccircle cx='150' cy='89' r='2.5'/%3E%3Ccircle cx='141' cy='80' r='2.5'/%3E%3Ccircle cx='159' cy='80' r='2.5'/%3E%3Cpath d='M30 90h26v18H30zM56 95l10-5v18l-10-5z'/%3E%3Ccircle cx='38' cy='86' r='5'/%3E%3Ccircle cx='50' cy='86' r='5'/%3E%3Cpath d='M96 130l3.5 7 8 1-5.7 5.6 1.3 8-7.1-3.7-7.1 3.7 1.3-8-5.7-5.6 8-1z'/%3E%3Ccircle cx='40' cy='150' r='9'/%3E%3Cpath d='M37 145.5l8 4.5-8 4.5z'/%3E%3Cpath d='M120 55l2 4 4 .6-3 2.8.7 4-3.7-2-3.7 2 .7-4-3-2.8 4-.6z'/%3E%3Cpath d='M75 45c2-3 6-3 8 0M160 130c2-3 6-3 8 0M14 62c2-3 6-3 8 0'/%3E%3C/g%3E%3C/svg%3E");
+:root:not(.dark) .tl-chat-bg.tl-wp-slate::before,
+:root:not(.dark) .tl-chat-bg.tl-wp-plaster::before,
+:root:not(.dark) .tl-chat-bg.tl-wp-onyx::before,
+:root:not(.dark) .tl-chat-bg.tl-wp-silk::before,
+:root:not(.dark) .tl-chat-bg.tl-wp-velvet::before,
+:root:not(.dark) .tl-chat-bg.tl-wp-ribbon::before {
+  filter: invert(1) grayscale(1) contrast(0.82) brightness(1.06);
+  opacity: calc(var(--tl-wp-a, 0.75) * 0.22);
 }
 
-/* ── GRAIN — 35mm emulsion. The default.
-   feTurbulence is the only honest way to draw grain: real stochastic noise
-   rather than a tiled dot that the eye locks onto after ten minutes. The SVG
-   is greyscale, so ONE asset serves both themes — the blend mode does the
-   rest, darkening in light and lifting in dark. */
-.tl-wp-grain::before {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.42'/%3E%3C/svg%3E");
-  background-size: 140px 140px;
-  mix-blend-mode: multiply;
-  opacity: calc(var(--tl-wp-a, 0.75) * 0.5);
-}
-.dark .tl-wp-grain::before {
-  mix-blend-mode: screen;
-  opacity: calc(var(--tl-wp-a, 0.75) * 0.16);
-}
+.tl-wp-slate::before   { background-image: url('/wallpapers/slate.jpg'); }
+.tl-wp-plaster::before { background-image: url('/wallpapers/plaster.jpg'); }
+.tl-wp-onyx::before    { background-image: url('/wallpapers/onyx.jpg'); }
+.tl-wp-silk::before    { background-image: url('/wallpapers/silk.jpg'); }
+.tl-wp-velvet::before  { background-image: url('/wallpapers/velvet.jpg'); }
+.tl-wp-ribbon::before  { background-image: url('/wallpapers/ribbon.jpg'); }
 
-/* ── FILMSTRIP — sprocket perforations down both margins, the frame line
-   between. Pure gradients, so it takes its colour from the theme token and
-   needs no dark-mode twin. The centre is deliberately empty: this is a
-   margin treatment, not a texture the text has to fight. */
-.tl-wp-filmstrip::before {
-  background-image:
-    /* left and right perforation columns */
-    repeating-linear-gradient(
-      to bottom,
-      transparent 0 14px,
-      hsl(var(--foreground) / 0.10) 14px 30px,
-      transparent 30px 44px
-    ),
-    repeating-linear-gradient(
-      to bottom,
-      transparent 0 14px,
-      hsl(var(--foreground) / 0.10) 14px 30px,
-      transparent 30px 44px
-    ),
-    /* the two frame lines */
-    linear-gradient(hsl(var(--foreground) / 0.07), hsl(var(--foreground) / 0.07)),
-    linear-gradient(hsl(var(--foreground) / 0.07), hsl(var(--foreground) / 0.07));
-  background-size: 13px 44px, 13px 44px, 1px 100%, 1px 100%;
-  background-position: 16px 0, calc(100% - 16px) 0, 42px 0, calc(100% - 42px) 0;
-  background-repeat: repeat-y, repeat-y, no-repeat, no-repeat;
-}
+/* ── DOTS — rebuilt. ──────────────────────────────────────────────────────
+   The first version was one 1px dot on a 20px pitch: graph paper. The second
+   added an offset second dot, which was denser but still a flat lattice.
 
-/* ── STORYBOARD — 16:9 frame ruling on a drawing sheet. Replaces the retired
-   `grid`, which was a plain square mesh with nothing to do with the work. */
-.tl-wp-storyboard::before {
-  background-image:
-    linear-gradient(hsl(var(--foreground) / 0.075) 1px, transparent 1px),
-    linear-gradient(90deg, hsl(var(--foreground) / 0.075) 1px, transparent 1px),
-    /* inner safe-area tick, one per frame */
-    radial-gradient(circle at 8px 8px, hsl(var(--foreground) / 0.06) 1px, transparent 1.5px);
-  background-size: 192px 108px, 192px 108px, 192px 108px;
-}
-
-/* ── SLATE — clapperboard diagonals, heavily subdued. The one pattern with
-   any energy; kept to a whisper so it reads as texture, not as stripes. */
-.tl-wp-slate::before {
-  background-image: repeating-linear-gradient(
-    -45deg,
-    hsl(var(--foreground) / 0.055) 0 18px,
-    transparent 18px 36px
-  );
-}
-
-/* ── BOKEH — defocused highlights in the shell's gold plus two quiet
-   accents. The premium wash: a mesh, not a pattern. Token-driven, so the
-   dark theme is the same rule at a lower alpha rather than a second copy. */
-.tl-wp-bokeh::before {
-  background-image:
-    radial-gradient(22% 22% at 18% 24%, hsl(var(--primary) / 0.16), transparent 70%),
-    radial-gradient(14% 14% at 34% 62%, hsl(var(--primary) / 0.11), transparent 70%),
-    radial-gradient(28% 28% at 78% 18%, hsl(var(--primary) / 0.09), transparent 70%),
-    radial-gradient(18% 18% at 88% 72%, hsl(var(--primary) / 0.12), transparent 70%),
-    radial-gradient(12% 12% at 58% 88%, hsl(var(--primary) / 0.10), transparent 70%),
-    radial-gradient(16% 16% at 8% 82%, hsl(var(--primary) / 0.07), transparent 70%);
-}
-.dark .tl-wp-bokeh::before {
-  background-image:
-    radial-gradient(22% 22% at 18% 24%, hsl(var(--primary) / 0.13), transparent 70%),
-    radial-gradient(14% 14% at 34% 62%, hsl(var(--primary) / 0.09), transparent 70%),
-    radial-gradient(28% 28% at 78% 18%, hsl(var(--primary) / 0.07), transparent 70%),
-    radial-gradient(18% 18% at 88% 72%, hsl(var(--primary) / 0.10), transparent 70%),
-    radial-gradient(12% 12% at 58% 88%, hsl(var(--primary) / 0.08), transparent 70%),
-    radial-gradient(16% 16% at 8% 82%, hsl(var(--primary) / 0.06), transparent 70%);
-}
-
-/* ── VIGNETTE — cinematic edge falloff and nothing else. For anyone who
-   wants depth without a repeating motif anywhere near their text. */
-.tl-wp-vignette::before {
-  background-image:
-    radial-gradient(120% 90% at 50% 42%, transparent 42%, hsl(var(--foreground) / 0.07) 100%);
-}
-
-/* ── DOTS — refined. Was a single 1px dot on a 20px pitch, which reads as
-   graph paper. Now a finer primary dot on a tighter pitch with an offset
-   secondary at half strength, so it has depth instead of a flat lattice. */
+   This one is a PRINTED HALFTONE rather than a grid. Three layers on
+   deliberately non-multiple pitches (23 / 37 / 53px) so their alignment never
+   repeats inside a viewport — the eye cannot lock onto a rhythm that has no
+   period. Sizes and opacities descend, which is what gives it depth instead
+   of pattern. */
 .tl-wp-dots::before {
   background-image:
-    radial-gradient(hsl(var(--foreground) / 0.13) 0.9px, transparent 1.1px),
-    radial-gradient(hsl(var(--foreground) / 0.06) 0.9px, transparent 1.1px);
-  background-size: 16px 16px, 16px 16px;
-  background-position: 0 0, 8px 8px;
+    radial-gradient(circle, hsl(var(--foreground) / 0.14) 0.9px, transparent 1.1px),
+    radial-gradient(circle, hsl(var(--foreground) / 0.08) 0.7px, transparent 0.9px),
+    radial-gradient(circle, hsl(var(--foreground) / 0.05) 0.5px, transparent 0.7px);
+  background-size: 23px 23px, 37px 37px, 53px 53px;
+  background-position: 0 0, 11px 7px, 27px 19px;
+}
+
+/* ── FILM — rebuilt. ──────────────────────────────────────────────────────
+   The old one scattered cartoon icons — a clapperboard, a camera, a star —
+   which is a sticker sheet, not a wallpaper, and the single most junior thing
+   in the product.
+
+   This is the actual EDGE OF 35MM STOCK: two perforation rails with correctly
+   proportioned rounded rectangles (the Kodak KS pitch is 4.74mm on a 35mm
+   frame — the ratio here follows it), the frame lines that separate exposures,
+   and an optical soundtrack stripe. Drawn in gradients, so it takes its colour
+   from the theme token and needs no dark-mode twin, and it lives in the
+   MARGINS: the centre where text sits is untouched. */
+.tl-wp-film::before {
+  background-image:
+    /* left rail: perforations */
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0 10px,
+      hsl(var(--foreground) / 0.11) 10px 26px,
+      transparent 26px 38px
+    ),
+    /* right rail: perforations */
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0 10px,
+      hsl(var(--foreground) / 0.11) 10px 26px,
+      transparent 26px 38px
+    ),
+    /* frame lines, one each side, where the exposures divide */
+    linear-gradient(hsl(var(--foreground) / 0.08), hsl(var(--foreground) / 0.08)),
+    linear-gradient(hsl(var(--foreground) / 0.08), hsl(var(--foreground) / 0.08)),
+    /* optical soundtrack — the fine variable-density stripe inboard of the
+       left rail, which is the detail that makes it read as film rather than
+       as a row of rectangles */
+    repeating-linear-gradient(
+      to bottom,
+      hsl(var(--foreground) / 0.05) 0 2px,
+      transparent 2px 5px,
+      hsl(var(--foreground) / 0.07) 5px 8px,
+      transparent 8px 13px
+    );
+  background-size:
+    11px 38px, 11px 38px,
+    1px 100%, 1px 100%,
+    4px 100%;
+  background-position:
+    14px 0, calc(100% - 14px) 0,
+    38px 0, calc(100% - 38px) 0,
+    30px 0;
+  background-repeat: repeat-y, repeat-y, no-repeat, no-repeat, repeat-y;
 }
 
 /* ── STICKER MOTION — what the thing DOES ─────────────────────────────────

@@ -21,29 +21,37 @@ const PATTERN_KEY = 'genreline-wallpaper'
 const INTENSITY_KEY = 'genreline-wallpaper-intensity'
 
 export type WallpaperPattern =
-  | 'grain'       // 35mm emulsion grain — the most neutral, and the default
-  | 'filmstrip'   // sprocket perforations running the margins
-  | 'storyboard'  // faint 16:9 frame ruling, like a storyboard sheet
-  | 'slate'       // clapperboard diagonals, heavily subdued
-  | 'bokeh'       // defocused lens highlights in the shell's gold
-  | 'vignette'    // cinematic edge falloff, no pattern at all
-  | 'dots'        // refined: two-tone, finer pitch
-  | 'film'        // the original icon scatter, kept
+  // Photographic, self-hosted (public/wallpapers, Unsplash License).
+  | 'slate'    // dark slate with a natural vignette
+  | 'plaster'  // soft dark plaster wall
+  | 'onyx'     // near-black painted surface
+  | 'silk'     // glossy black silk
+  | 'velvet'   // dark velvet folds
+  | 'ribbon'   // black sculptural ribbons
+  // Drawn, for anyone who wants texture without a photograph.
+  | 'dots'
+  | 'film'
   | 'none'
 
 export type WallpaperIntensity = 'faint' | 'medium' | 'bold'
 
 export const WALLPAPERS: { value: WallpaperPattern; label: string }[] = [
-  { value: 'grain', label: 'Grain' },
-  { value: 'filmstrip', label: 'Filmstrip' },
-  { value: 'storyboard', label: 'Storyboard' },
   { value: 'slate', label: 'Slate' },
-  { value: 'bokeh', label: 'Bokeh' },
-  { value: 'vignette', label: 'Vignette' },
+  { value: 'plaster', label: 'Plaster' },
+  { value: 'onyx', label: 'Onyx' },
+  { value: 'silk', label: 'Silk' },
+  { value: 'velvet', label: 'Velvet' },
+  { value: 'ribbon', label: 'Ribbon' },
   { value: 'dots', label: 'Dots' },
   { value: 'film', label: 'Film' },
   { value: 'none', label: 'None' },
 ]
+
+/** The photographic ones, which need the theme-aware treatment in globals.css
+ *  (they are all shot dark; light mode inverts them). */
+export const PHOTO_WALLPAPERS = new Set<WallpaperPattern>([
+  'slate', 'plaster', 'onyx', 'silk', 'velvet', 'ribbon',
+])
 
 const VALID = new Set<string>(WALLPAPERS.map((w) => w.value))
 
@@ -54,12 +62,21 @@ const VALID = new Set<string>(WALLPAPERS.map((w) => w.value))
  * the closest honouring of it beats discarding it.
  */
 const RETIRED: Record<string, WallpaperPattern> = {
-  aurora: 'bokeh',
-  waves: 'vignette',
-  grid: 'storyboard',
+  // First generation.
+  aurora: 'silk',
+  waves: 'velvet',
+  grid: 'dots',
+  // Second generation — the drawn set that replaced them. Kept mappable so a
+  // browser holding one of these lands somewhere deliberate rather than being
+  // reset, and so its push is never refused (which would strand that device).
+  grain: 'plaster',
+  filmstrip: 'slate',
+  storyboard: 'dots',
+  bokeh: 'silk',
+  vignette: 'onyx',
 }
 
-export const DEFAULT_WALLPAPER: WallpaperPattern = 'grain'
+export const DEFAULT_WALLPAPER: WallpaperPattern = 'plaster'
 
 export const INTENSITY_ALPHA: Record<WallpaperIntensity, number> = {
   faint: 0.45,
