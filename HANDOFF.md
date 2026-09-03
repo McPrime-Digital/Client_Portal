@@ -715,6 +715,14 @@ room, the record on both review pages, the printable certificate.
 
 **Then, in order:**
 
+- **`S3-d` — messaging: rooms, groups, broadcast, collaborators** (migrations
+  0043+). Membership becomes a ROW (`room_members`) instead of being derived
+  from company identity, which is what makes channels, groups, DMs, broadcast
+  and external collaborators expressible at all. Step 5 of its sequence — the
+  message-policy flip — is the only change in the plan that can leak one
+  company's messages to another, and its failure mode is silent over-sharing,
+  so harness assertions 22–29 are written and RED before it runs. Assertion 29
+  is a before/after access diff across all six personas in both directions.
 - **File version stacking (migration 9)**, with the live artifact viewer
   (S3-c §4.3, script first per its §8.3) on top. `approvals.subject_version_id`
   already exists and is unwritten, waiting for it — minting is the snapshot
