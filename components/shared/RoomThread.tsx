@@ -1206,6 +1206,7 @@ export default function RoomThread({
             composerTag={effectiveTag ? { id: effectiveTag, ...projectMeta[effectiveTag] } : null}
             composerTagOptions={Object.entries(projectMeta).map(([id, m]) => ({ id, ...m }))}
             composerTagLocked={filter.kind === 'project'}
+            singleProject={filter.kind === 'project'}
             onComposerTagChange={setSticky}
             wallpaper={{ pattern: wpPattern, alpha: INTENSITY_ALPHA[wpIntensity] }}
             onForward={(msgs) => setForwardFor(msgs)}
@@ -1664,6 +1665,10 @@ export default function RoomThread({
                   mentionTargets={mentionTargets}
                   mentionCandidates={mentionCandidates}
                   projectMeta={projectMeta}
+                  // A thread panel hangs off ONE root message, so every reply
+                  // shares its project by construction — labelling each one
+                  // would be the same noise the main list just lost.
+                  singleProject
                 />
               </div>
             </div>

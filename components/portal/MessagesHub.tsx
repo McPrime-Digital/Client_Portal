@@ -149,11 +149,17 @@ export default function MessagesHub({
       key={key}
       onClick={onClick}
       className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-all duration-150 flex-shrink-0 active:scale-95"
+      // An active chip wears ITS OWN colour (item 9): each project carries the
+      // colour that already binds its messages, so the chip, the bubble stripe
+      // and the composer tag all agree. ALL is the only gold one — it is the
+      // view over everything, not a project, and gold is the shell's accent.
       style={{
-        backgroundColor: active ? 'hsl(var(--primary))' : 'hsl(var(--card))',
+        backgroundColor: active ? (dotColor ?? 'hsl(var(--primary))') : 'hsl(var(--card))',
         color: active ? 'hsl(var(--primary-foreground))' : 'hsl(var(--foreground))',
-        border: active ? '1px solid hsl(var(--primary))' : '1px solid hsl(var(--border))',
-        boxShadow: active ? '0 0 12px hsl(var(--primary) / 0.25)' : 'none',
+        border: `1px solid ${active ? (dotColor ?? 'hsl(var(--primary))') : 'hsl(var(--border))'}`,
+        boxShadow: active
+          ? `0 0 12px ${dotColor ? `${dotColor}40` : 'hsl(var(--primary) / 0.25)'}`
+          : 'none',
       }}
     >
       {isGeneral && (
@@ -162,7 +168,7 @@ export default function MessagesHub({
           style={{ color: active ? 'hsl(var(--primary-foreground))' : 'hsl(var(--primary))' }}
         />
       )}
-      {dotColor && (
+      {dotColor && !active && (
         <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: dotColor }} />
       )}
       {label}

@@ -518,18 +518,23 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                     (c.f.kind === 'project' &&
                       filter.kind === 'project' &&
                       c.f.projectId === filter.projectId)
+                  // An active chip wears ITS OWN colour (item 9), so the chip,
+                  // the bubble stripe and the composer tag all agree. ALL is
+                  // the only gold one — it is the view over everything rather
+                  // than a project, and gold is the shell's accent.
+                  const tone = c.f.kind === 'project' ? projectColor(c.f.projectId) : null
                   return (
                     <button
                       key={c.key}
                       onClick={() => setFilter(c.f)}
                       className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-all duration-150 flex-shrink-0 active:scale-95"
                       style={{
-                        backgroundColor: isOn ? 'hsl(var(--primary))' : 'hsl(var(--background))',
+                        backgroundColor: isOn ? (tone ?? 'hsl(var(--primary))') : 'hsl(var(--background))',
                         color: isOn ? 'hsl(var(--primary-foreground))' : 'hsl(var(--foreground))',
-                        border: isOn
-                          ? '1px solid hsl(var(--primary))'
-                          : '1px solid hsl(var(--border))',
-                        boxShadow: isOn ? '0 0 12px hsl(var(--primary) / 0.25)' : 'none',
+                        border: `1px solid ${isOn ? (tone ?? 'hsl(var(--primary))') : 'hsl(var(--border))'}`,
+                        boxShadow: isOn
+                          ? `0 0 12px ${tone ? `${tone}40` : 'hsl(var(--primary) / 0.25)'}`
+                          : 'none',
                       }}
                     >
                       {c.general && (
@@ -540,7 +545,7 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                           }}
                         />
                       )}
-                      {c.f.kind === 'project' && (
+                      {c.f.kind === 'project' && !isOn && (
                         <span
                           className="w-1.5 h-1.5 rounded-full flex-shrink-0"
                           style={{ backgroundColor: projectColor(c.f.projectId) }}

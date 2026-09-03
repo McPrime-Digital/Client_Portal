@@ -82,6 +82,13 @@ type Props = {
   composerTag?: { id: string; title: string; color: string } | null
   composerTagOptions?: { id: string; title: string; color: string }[]
   composerTagLocked?: boolean
+  /**
+   * True when the thread IS one project (a project page, or a project chip in
+   * the hub). Inside a project every message belongs to it by definition, so
+   * naming it on each one is noise — the colour already says it. Also hides
+   * the composer's project selector, which has nothing to choose between.
+   */
+  singleProject?: boolean
   onComposerTagChange?: (id: string | null) => void
   /** viewer's wallpaper (Batch 17): pattern class + intensity alpha */
   /** Viewer's wallpaper (Batch 17, set rebuilt). The pattern union lives in
@@ -206,6 +213,7 @@ export default function MessageThread({
   composerTag = null,
   composerTagOptions = [],
   composerTagLocked = false,
+  singleProject = false,
   onComposerTagChange,
   wallpaper = { pattern: DEFAULT_WALLPAPER, alpha: 0.75 },
   onForward,
@@ -226,6 +234,26 @@ export default function MessageThread({
   const [pickerFor, setPickerFor] = useState<string | null>(null)
   const [msgMenuFor, setMsgMenuFor] = useState<string | null>(null)
   const [emojiOpen, setEmojiOpen] = useState(false)
+
+  /**
+   * When to print a project's NAME on a message.
+   *
+   * Never inside a project view — every message there belongs to that project,
+   * so the label is repeated on every row and says nothing. The inset colour
+   * stripe carries it instead.
+   *
+   * In the All view, only at a BOUNDARY: the first message of a run that
+   * belongs to a different project than the one before it. A conversation that
+   * stays in one project therefore labels it once, not on every bubble.
+   */
+  const showProjectTag = useCallback(
+    (msg: Message, prev?: Message) => {
+      if (singleProject) return false
+      if (!msg.project_id || !projectMeta[msg.project_id]) return false
+      return (prev?.project_id ?? null) !== msg.project_id
+    },
+    [singleProject, projectMeta]
+  )
   // Tap anywhere else, or press Escape, and these close. They used to stay
   // open until you hit their trigger again, which on touch reads as stuck.
   useDismissOnOutside(pickerFor !== null, useCallback(() => setPickerFor(null), []))
@@ -776,29 +804,29 @@ export default function MessageThread({
                   {!isMe && !prevSame && (
                     <p className="text-[9px] font-semibold uppercase tracking-wider mb-0.5 ml-1 flex items-center gap-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
                       {msg.sender_name}
-                      {msg.project_id && projectMeta[msg.project_id] && (
+                      {showProjectTag(msg, prevMsg) && (
                         <span
                           className="normal-case tracking-normal font-medium px-1.5 rounded-full text-[9px]"
                           style={{
-                            color: projectMeta[msg.project_id].color,
-                            border: `1px solid ${projectMeta[msg.project_id].color}`,
+                            color: projectMeta[msg.project_id!].color,
+                            border: `1px solid ${projectMeta[msg.project_id!].color}`,
                           }}
                         >
-                          {projectMeta[msg.project_id].title}
+                          {projectMeta[msg.project_id!].title}
                         </span>
                       )}
                     </p>
                   )}
-                  {isMe && !prevSame && msg.project_id && projectMeta[msg.project_id] && (
+                  {isMe && showProjectTag(msg, prevMsg) && (
                     <p className="text-[9px] font-medium mb-1 mr-1 self-end">
                       <span
                         className="px-1.5 rounded-full"
                         style={{
-                          color: projectMeta[msg.project_id].color,
-                          border: `1px solid ${projectMeta[msg.project_id].color}`,
+                          color: projectMeta[msg.project_id!].color,
+                          border: `1px solid ${projectMeta[msg.project_id!].color}`,
                         }}
                       >
-                        {projectMeta[msg.project_id].title}
+                        {projectMeta[msg.project_id!].title}
                       </span>
                     </p>
                   )}
@@ -1196,7 +1224,10 @@ export default function MessageThread({
         {/* Sticky project tag (Batch 17): what the next message is filed under.
             In a project view it is locked to that project; in All it is
             additive — it STAYS until changed. */}
-        {!readOnly && onComposerTagChange && (composerTagOptions.length > 0 || composerTag) && (
+        {/* The project selector exists to choose which project a message in
+            the ALL view belongs to. Inside a project there is nothing to
+            choose, so it is hidden rather than shown disabled. */}
+        {!readOnly && !singleProject && onComposerTagChange && (composerTagOptions.length > 0 || composerTag) && (
           <div className="relative mb-2 flex items-center gap-2">
             <button
               type="button"
