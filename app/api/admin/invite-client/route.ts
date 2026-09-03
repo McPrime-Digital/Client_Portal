@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { ensureClientRoom } from '@/lib/messageRooms'
+import { seedClientRoomAll } from '@/lib/rooms'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { sendTenantInvite } from '@/lib/email/invite'
 import { rosterName } from '@/lib/team'
@@ -145,6 +146,8 @@ export async function POST(request: NextRequest) {
     // first project does. Best-effort — a room also mints on first send.
     try {
       await ensureClientRoom(supabaseAdmin, clientRecord.organization_id, clientRecord.id, user.id)
+      // §5.3 seeding: seats land with the room (active crew + the invitee).
+      await seedClientRoomAll(supabaseAdmin, clientRecord.organization_id, clientRecord.id)
     } catch (e) {
       console.error('[invite-client] room mint failed (first send will retry):', e)
     }

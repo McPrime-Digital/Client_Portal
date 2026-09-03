@@ -73,13 +73,24 @@ export type RoomSides = {
   /** newest last_read_at on each side, from message_read_state */
   maxAdminRead: string | null
   maxClientRead: string | null
+  /**
+   * GROUP receipts (Batch 23 / S3-d §6): present for member-based rooms
+   * (group/dm/channel/broadcast/crew), absent for client rooms. When present,
+   * a message reads as "read" only when EVERY other live member's watermark
+   * covers it — WhatsApp group semantics — instead of the two-side rule.
+   */
+  groupReads?: {
+    memberIds: string[]
+    readsBy: Map<string, string>
+  }
 }
 
 export async function roomSides(
   db: SupabaseClient,
-  opts: { roomId: string; orgId: string; clientId: string | null }
+  opts: { roomId: string; orgId: string; clientId: string | null; kind?: string }
 ): Promise<RoomSides> {
-  const [{ data: oms, error: omErr }, { data: cms, error: cmErr }, { data: reads, error: rdErr }] =
+  const memberBased = !!opts.kind && opts.kind !== 'client'
+  const [{ data: oms, error: omErr }, { data: cms, error: cmErr }, { data: reads, error: rdErr }, seatsRes] =
     await Promise.all([
       db.from('organization_members').select('user_id')
         .eq('organization_id', opts.orgId).not('user_id', 'is', null),
@@ -89,24 +100,41 @@ export async function roomSides(
         : Promise.resolve({ data: [] as { user_id: string }[], error: null }),
       db.from('message_read_state').select('user_id, last_read_at')
         .eq('room_id', opts.roomId),
+      memberBased
+        ? db.from('room_members').select('user_id')
+            .eq('room_id', opts.roomId).is('left_at', null)
+        : Promise.resolve({ data: null, error: null }),
     ])
   if (omErr) throw new Error(`organization_members read failed: ${omErr.message}`)
   if (cmErr) throw new Error(`client_members read failed: ${cmErr.message}`)
   if (rdErr) throw new Error(`message_read_state read failed: ${rdErr.message}`)
+  if (seatsRes.error) throw new Error(`room_members read failed: ${seatsRes.error.message}`)
   const orgUserIds = new Set((oms ?? []).map((r) => r.user_id as string))
-  const clientUserIds = new Set((cms ?? []).map((r) => r.user_id as string))
+  let clientUserIds = new Set((cms ?? []).map((r) => r.user_id as string))
   let maxAdminRead: string | null = null
   let maxClientRead: string | null = null
+  const readsBy = new Map<string, string>()
   for (const r of reads ?? []) {
     const uid = r.user_id as string
     const at = r.last_read_at as string
+    readsBy.set(uid, at)
     if (orgUserIds.has(uid)) {
       if (!maxAdminRead || at > maxAdminRead) maxAdminRead = at
     } else if (clientUserIds.has(uid)) {
       if (!maxClientRead || at > maxClientRead) maxClientRead = at
     }
   }
-  return { orgUserIds, clientUserIds, maxAdminRead, maxClientRead }
+  if (!memberBased) return { orgUserIds, clientUserIds, maxAdminRead, maxClientRead }
+
+  // Member-based room: the seats are the population. Non-crew members
+  // classify client-side for rendering (name + left alignment), and the
+  // receipt rule becomes every-other-member (S3-d §6).
+  const memberIds = (seatsRes.data ?? []).map((r) => r.user_id as string)
+  clientUserIds = new Set(memberIds.filter((id) => !orgUserIds.has(id)))
+  return {
+    orgUserIds, clientUserIds, maxAdminRead, maxClientRead,
+    groupReads: { memberIds, readsBy },
+  }
 }
 
 /**
@@ -134,13 +162,30 @@ export function deriveWire<T extends Record<string, any>>(rows: T[], sides: Room
         : senderId && sides.clientUserIds.has(senderId)
           ? 'client'
           : 'admin'
-    const otherMax = side === 'admin' ? sides.maxClientRead : sides.maxAdminRead
+    let readAt: string | null
+    if (sides.groupReads) {
+      // Group rule (S3-d §6): blue only when EVERY other live member's
+      // watermark covers this message; the tick's timestamp is the LAST of
+      // them (the moment the room finished reading it).
+      const others = sides.groupReads.memberIds.filter((id) => id !== senderId)
+      let latest: string | null = null
+      let all = others.length > 0
+      for (const id of others) {
+        const wm = sides.groupReads.readsBy.get(id)
+        if (!wm || wm < (m.created_at as string)) { all = false; break }
+        if (!latest || wm > latest) latest = wm
+      }
+      readAt = all ? latest : null
+    } else {
+      const otherMax = side === 'admin' ? sides.maxClientRead : sides.maxAdminRead
+      readAt = otherMax && otherMax >= (m.created_at as string) ? otherMax : null
+    }
     const att = Array.isArray(m.message_attachments) ? m.message_attachments[0] : null
     const f = att ? (Array.isArray(att.files) ? att.files[0] : att.files) : null
     return {
       ...m,
       sender_role: side,
-      read_at: otherMax && otherMax >= (m.created_at as string) ? otherMax : null,
+      read_at: readAt,
       attachment_url: f ? `${f.bucket}::${f.file_path}` : null,
       attachment_file_id: att?.file_id ?? null,
     }
@@ -236,17 +281,28 @@ export async function clientUnread(
   return { total, byProject, general, roomId: room.id }
 }
 
-/** Unread for a studio user across every room of their org. */
+/** Unread for a studio user across every room of their org THAT THEY SIT IN.
+ *  Member-scoped since the 0046 flip: the org owner is no longer entitled to
+ *  a DM's contents (harness assertion 27), so their badge must not count it
+ *  either — a count of rows you cannot open is a lie with a number on it. */
 export async function orgUnread(
   db: SupabaseClient,
   opts: { userId: string; orgId: string }
 ): Promise<OrgUnread> {
-  const { data: rooms, error: roomErr } = await db
-    .from('message_rooms')
-    .select('id, client_id')
-    .eq('organization_id', opts.orgId)
-    .is('deleted_at', null)
+  const [{ data: allRooms, error: roomErr }, { data: seats, error: seatErr }] = await Promise.all([
+    db.from('message_rooms')
+      .select('id, client_id')
+      .eq('organization_id', opts.orgId)
+      .is('deleted_at', null),
+    db.from('room_members')
+      .select('room_id')
+      .eq('user_id', opts.userId)
+      .is('left_at', null),
+  ])
   if (roomErr) throw new Error(`message_rooms read failed: ${roomErr.message}`)
+  if (seatErr) throw new Error(`room_members read failed: ${seatErr.message}`)
+  const mine = new Set((seats ?? []).map((s) => s.room_id as string))
+  const rooms = (allRooms ?? []).filter((r) => mine.has(r.id as string))
   if (!rooms?.length) return { total: 0, byProject: {}, generalByClient: {}, byClient: {} }
 
   const roomIds = rooms.map((r) => r.id)

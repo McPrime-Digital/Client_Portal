@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { stampLeftAllSeats, restoreDerivableSeats } from '@/lib/rooms'
 
 /**
  * Keeping a member's JWT claims in step with their roster status.
@@ -57,6 +58,16 @@ export async function cutMemberAccess(userId: string | null | undefined): Promis
   const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
     app_metadata: { role: null, org_role: null, client_id: null },
   })
+  // Since 0046 the SEAT, not the claim, reads a room (MD-1) — so the cut
+  // must reach room_members or a paused member keeps reading with a live
+  // session. Every seat, every kind: a revoked member's surviving group
+  // seat would be assertion 6's hole reopened one table over. Restore
+  // brings the derivable ones back; curated seats need a manager.
+  try {
+    await stampLeftAllSeats(supabaseAdmin, userId)
+  } catch (e) {
+    return error ? error.message : (e instanceof Error ? e.message : 'seat cut failed')
+  }
   return error ? error.message : null
 }
 
@@ -69,6 +80,7 @@ export async function restoreOrgAccess(
   const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
     app_metadata: { role: 'admin', org_role: orgRole ?? 'member' },
   })
+  try { await restoreDerivableSeats(supabaseAdmin, userId) } catch { /* heal covers on next hub load */ }
   return error ? error.message : null
 }
 
@@ -82,5 +94,6 @@ export async function restoreClientAccess(
   const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
     app_metadata: { role: 'client', client_id: clientId, ...(orgId ? { organization_id: orgId } : {}) },
   })
+  try { await restoreDerivableSeats(supabaseAdmin, userId) } catch { /* heal covers on next hub load */ }
   return error ? error.message : null
 }

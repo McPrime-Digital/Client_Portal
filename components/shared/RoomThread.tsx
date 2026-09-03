@@ -64,8 +64,16 @@ export type ExternalRow = { row: Message; n: number; op?: 'insert' | 'update' }
 
 type Props = {
   role: 'admin' | 'client'
-  /** the room's company */
+  /** the room's company — or, in room mode, the room id (topic/cache key) */
   clientId: string
+  /**
+   * ROOM MODE (Batch 23, S3-d): when set, this engine speaks to
+   * /api/rooms/[id]/messages instead of the client/project routes — same
+   * renderer, same realtime shape, over any room kind (channel, group, DM,
+   * broadcast, crew). Callers pass clientId = room.id so the topic and the
+   * cache stay correctly namespaced without a second code path.
+   */
+  room?: { id: string; kind: string; label: string } | null
   /** badge-ping target: the tenant this conversation belongs to */
   orgId?: string | null
   filter: RoomFilter
@@ -113,6 +121,7 @@ function matchesFilter(filter: RoomFilter, projectId: string | null): boolean {
 export default function RoomThread({
   role,
   clientId,
+  room = null,
   orgId,
   filter,
   currentName,
@@ -164,7 +173,7 @@ export default function RoomThread({
   const [roomLevel, setRoomLevel] = useState<'all' | 'mentions' | 'muted'>('all')
   const [soundOn, setSoundOn] = useState(() => messageSoundEnabled())
   const [focusOn, setFocusOn] = useState(() => focusModeEnabled())
-  const [people, setPeople] = useState<{ name: string; role: string; side: 'client' | 'crew' }[]>([])
+  const [people, setPeople] = useState<{ name: string; role: string; side: 'client' | 'crew' | 'external' }[]>([])
   // Forward + bulk select (Batch 18)
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -288,6 +297,9 @@ export default function RoomThread({
    *  media itself rather than in the composer (item 5). */
   const [uploads, setUploads] = useState<Record<string, { pct: number; bytes: number; failed?: boolean }>>({})
   const [ownUserId, setOwnUserId] = useState<string | null>(null)
+  /** Bubble-head resolution (room mode): sender id → name + avatar, served
+   *  by the room messages endpoint alongside each page. */
+  const [senders, setSenders] = useState<Record<string, { name: string; avatarUrl: string | null }>>({})
 
   // Publish WHICH view this tab is reading, so the other side sees "In All" or
   // "In AMP" rather than a bare "Online" (item 6). Cleared on unmount so a
@@ -322,8 +334,16 @@ export default function RoomThread({
     })
   }, [])
 
+  const roomMode = !!room
+  const roomBase = room ? `/api/rooms/${room.id}/messages` : null
+  const roomIdProp = room?.id ?? null
+  useEffect(() => {
+    if (roomIdProp) roomIdRef.current = roomIdProp
+  }, [roomIdProp])
+
   // ── URLs / payload mapping per role + filter ─────────────────────────────
   const listUrl = useCallback(() => {
+    if (roomBase) return `${roomBase}?`
     const base = role === 'admin' ? '/api/admin/messages' : '/api/portal/messages'
     const p = new URLSearchParams()
     if (filter.kind === 'project') p.set('project_id', filter.projectId)
@@ -332,7 +352,7 @@ export default function RoomThread({
       if (role === 'admin') p.set('client_id', clientId)
     }
     return `${base}?${p.toString()}`
-  }, [role, clientId, filterKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [role, clientId, filterKey, roomBase]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const patchBody = useCallback(
     (mode?: 'delivered') => {
@@ -348,11 +368,11 @@ export default function RoomThread({
   )
 
   const markRead = useCallback(() => {
-    const base = role === 'admin' ? '/api/admin/messages' : '/api/portal/messages'
+    const base = roomBase ?? (role === 'admin' ? '/api/admin/messages' : '/api/portal/messages')
     fetch(base, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patchBody()),
+      body: JSON.stringify(roomBase ? {} : patchBody()),
     })
       .then(() => {
         channelRef.current?.send({
@@ -364,7 +384,7 @@ export default function RoomThread({
         })
       })
       .catch(() => {})
-  }, [role, patchBody, filter])
+  }, [role, patchBody, filter, roomBase])
 
   // ── Load (bounded latest page; item 2 adds the cursor) ───────────────────
   // Union by id, ordered (created_at, id) — pages and live rows interleave
@@ -408,6 +428,7 @@ export default function RoomThread({
         })
       }
       if (json.roomId) roomIdRef.current = json.roomId
+      if (json.senders) setSenders((prev) => ({ ...prev, ...json.senders }))
       for (const r of rows) seenIdsRef.current.add(r.id)
     } catch {
       if (filterKeyRef.current === issuedFor) setMessages([])
@@ -477,6 +498,18 @@ export default function RoomThread({
   }, [messages, pageCursor, hasMore, cacheKey, loading])
 
   useEffect(() => {
+    if (roomBase) {
+      // Room mode: the candidates are the room's PEOPLE (MD-4's visibility
+      // rule — you see who shares the room with you), same endpoint as the
+      // People panel.
+      fetch(`${roomBase}?members=1`)
+        .then((r) => r.json())
+        .then((json) => {
+          if (json.users) setMentionCandidates({ users: json.users, projects: [] })
+        })
+        .catch(() => {})
+      return
+    }
     const base = role === 'admin' ? '/api/admin/messages' : '/api/portal/messages'
     const p = new URLSearchParams({ mention_candidates: '1' })
     if (role === 'admin') p.set('client_id', clientId)
@@ -486,7 +519,7 @@ export default function RoomThread({
         if (json.users) setMentionCandidates({ users: json.users, projects: json.projects ?? [] })
       })
       .catch(() => {})
-  }, [role, clientId])
+  }, [role, clientId, roomBase])
 
   const refetch = useCallback(async () => {
     const issuedFor = filterKeyRef.current
@@ -537,14 +570,14 @@ export default function RoomThread({
       typeof document !== 'undefined' && document.visibilityState === 'visible'
     if (visible) markRead()
     else {
-      const base = role === 'admin' ? '/api/admin/messages' : '/api/portal/messages'
+      const base = roomBase ?? (role === 'admin' ? '/api/admin/messages' : '/api/portal/messages')
       fetch(base, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patchBody('delivered')),
+        body: JSON.stringify(roomBase ? { mode: 'delivered' } : patchBody('delivered')),
       }).catch(() => {})
     }
-  }, [role, patchBody, markRead])
+  }, [role, patchBody, markRead, roomBase])
 
   /** The right sound for where the reader actually is: reading this thread —
    *  a quiet nudge; this tab hidden — the real summons. */
@@ -850,14 +883,17 @@ export default function RoomThread({
         const me = ownIdRef.current
         const roomId = roomIdRef.current
         if (me && roomId) {
-          // The USER client under Class C RLS — this row is yours alone.
+          // The level lives on your SEAT (room_members.notify — Batch 23,
+          // S3-d §4.1). The USER client under the member-read policy: this
+          // row is yours to see because the room is.
           const { data } = await createClient()
-            .from('message_room_prefs')
-            .select('level')
+            .from('room_members')
+            .select('notify')
             .eq('room_id', roomId)
             .eq('user_id', me)
+            .is('left_at', null)
             .maybeSingle()
-          setRoomLevel((data?.level as 'all' | 'mentions' | 'muted') ?? 'all')
+          setRoomLevel((data?.notify as 'all' | 'mentions' | 'muted') ?? 'all')
         }
         return
       }
@@ -865,7 +901,16 @@ export default function RoomThread({
         // EXISTING roster operations surfaced in place (item 6b) — no new
         // permission logic; the canonical managers stay the write surface.
         try {
-          if (role === 'client') {
+          if (roomBase) {
+            // Room mode: the room's SEATS are the people (MD-1).
+            const res = await fetch(`${roomBase}?members=1`)
+            const json = await res.json()
+            setPeople(
+              ((json.users ?? []) as { name: string; role: string; side: 'crew' | 'client' | 'external' }[]).map((u) => ({
+                name: u.name, role: u.role, side: u.side,
+              }))
+            )
+          } else if (role === 'client') {
             const res = await fetch('/api/portal/team')
             const json = await res.json()
             setPeople(
@@ -913,7 +958,7 @@ export default function RoomThread({
         setPanelRows(rows)
       }
     },
-    [listUrl]
+    [listUrl, roomBase, role, clientId]
   )
 
   const lastPanelCmd = useRef(0)
@@ -945,9 +990,13 @@ export default function RoomThread({
     const roomId = roomIdRef.current
     if (!me || !roomId) return
     setRoomLevel(level)
+    // Your seat's notify column — the 0043 self-update policy plus its
+    // trigger admit exactly this write and nothing else.
     await createClient()
-      .from('message_room_prefs')
-      .upsert({ room_id: roomId, user_id: me, level }, { onConflict: 'room_id,user_id' })
+      .from('room_members')
+      .update({ notify: level })
+      .eq('room_id', roomId)
+      .eq('user_id', me)
   }, [])
 
   const toggleSelect = useCallback((id: string) => {
@@ -1129,24 +1178,35 @@ export default function RoomThread({
     let inserted: Message | null = null
     try {
       const res = await fetch(
-        role === 'admin' ? '/api/admin/project-actions' : '/api/portal/actions',
+        roomBase ?? (role === 'admin' ? '/api/admin/project-actions' : '/api/portal/actions'),
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'send_message',
-            ...(effectiveTag
-              ? { project_id: effectiveTag }
-              : role === 'admin'
-                ? { client_id: clientId }
-                : {}),
-            body,
-            reply_to_id: replyToId || null,
-            attachment_url: attachmentUrl || null,
-            attachment_name: attachmentName || null,
-            attachment_file_id: attachmentFileId || null,
-            thread_root_id: threadRootId || null,
-          }),
+          body: JSON.stringify(
+            roomBase
+              ? {
+                  body,
+                  reply_to_id: replyToId || null,
+                  attachment_url: attachmentUrl || null,
+                  attachment_name: attachmentName || null,
+                  attachment_file_id: attachmentFileId || null,
+                  thread_root_id: threadRootId || null,
+                }
+              : {
+                  action: 'send_message',
+                  ...(effectiveTag
+                    ? { project_id: effectiveTag }
+                    : role === 'admin'
+                      ? { client_id: clientId }
+                      : {}),
+                  body,
+                  reply_to_id: replyToId || null,
+                  attachment_url: attachmentUrl || null,
+                  attachment_name: attachmentName || null,
+                  attachment_file_id: attachmentFileId || null,
+                  thread_root_id: threadRootId || null,
+                }
+          ),
         }
       )
       const json = await res.json()
@@ -1504,6 +1564,8 @@ export default function RoomThread({
             mentionTargets={mentionTargets}
             mentionCandidates={mentionCandidates}
             projectMeta={projectMeta}
+            senderAvatars={senders}
+            showAvatarHeads={roomMode && room?.kind !== 'dm'}
           />
           {/* Bulk-selection action bar (Batch 18) */}
           {selectionMode && (
@@ -1731,18 +1793,20 @@ export default function RoomThread({
                         <div className="flex-1 min-w-0">
                           <p className="text-sm truncate" style={{ color: 'hsl(var(--foreground))' }}>{p.name}</p>
                           <p className="text-[10px] uppercase tracking-wide" style={{ color: 'hsl(var(--text-faint))' }}>
-                            {p.side === 'crew' ? 'Studio' : 'Company'} · {p.role}
+                            {p.side === 'crew' ? 'Studio' : p.side === 'external' ? 'Collaborator' : 'Company'} · {p.role}
                           </p>
                         </div>
                       </div>
                     ))}
-                    <a
-                      href={role === 'client' ? '/team' : `/studio/client/companies/${clientId}`}
-                      className="block text-center text-xs font-semibold py-2.5 rounded-xl border mt-2 transition-colors hover:border-[hsl(var(--primary))]"
-                      style={{ color: 'hsl(var(--primary))', borderColor: 'hsl(var(--border))' }}
-                    >
-                      Manage team →
-                    </a>
+                    {!roomMode && (
+                      <a
+                        href={role === 'client' ? '/team' : `/studio/client/companies/${clientId}`}
+                        className="block text-center text-xs font-semibold py-2.5 rounded-xl border mt-2 transition-colors hover:border-[hsl(var(--primary))]"
+                        style={{ color: 'hsl(var(--primary))', borderColor: 'hsl(var(--border))' }}
+                      >
+                        Manage team →
+                      </a>
+                    )}
                   </div>
                 )}
                 {(panel === 'pins' || panel === 'saves') && panelRows.length === 0 && (

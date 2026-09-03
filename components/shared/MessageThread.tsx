@@ -115,6 +115,14 @@ type Props = {
   onToggleSelect?: (id: string) => void
   /** project colour-bonding (Batch 16): tagged bubbles carry their project's colour */
   projectMeta?: Record<string, { title: string; color: string }>
+  /**
+   * Bubble heads (Batch 23 — the owner's ask): circular sender avatars on
+   * received messages in group-shaped rooms. The map resolves a sender to
+   * their image; a sender without one gets their initial on their stable
+   * colour. Bottom-aligned once per run, WhatsApp-group style.
+   */
+  senderAvatars?: Record<string, { name: string; avatarUrl: string | null }>
+  showAvatarHeads?: boolean
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -250,6 +258,8 @@ export default function MessageThread({
   selectedIds,
   onToggleSelect,
   projectMeta = {},
+  senderAvatars = {},
+  showAvatarHeads = false,
 }: Props) {
   const [newMessage, setNewMessage] = useState('')
   const [replyTo, setReplyTo] = useState<Message | null>(null)
@@ -838,7 +848,35 @@ export default function MessageThread({
                 </div>
               )}
 
-              <div className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+              <div className={`flex ${isMe ? 'justify-end' : 'justify-start'} ${showAvatarHeads && !isMe ? 'items-end gap-1.5' : ''}`}>
+                {/* Bubble head (Batch 23): once per run, bottom-aligned — the
+                    spacer keeps grouped bubbles on one left edge. */}
+                {showAvatarHeads && !isMe && (
+                  <div className="w-7 flex-shrink-0 pb-4">
+                    {!nextSame && (
+                      senderAvatars[msg.sender_id ?? '']?.avatarUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={senderAvatars[msg.sender_id ?? '']!.avatarUrl!}
+                          alt={msg.sender_name ?? ''}
+                          className="w-7 h-7 rounded-full object-cover"
+                          style={{ border: '1px solid hsl(var(--border))' }}
+                        />
+                      ) : (
+                        <span
+                          className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold"
+                          style={{
+                            backgroundColor: `${senderColor(msg.sender_id)}22`,
+                            color: senderColor(msg.sender_id),
+                            border: `1px solid ${senderColor(msg.sender_id)}55`,
+                          }}
+                        >
+                          {(msg.sender_name || '?').slice(0, 1).toUpperCase()}
+                        </span>
+                      )
+                    )}
+                  </div>
+                )}
                 <div
                   className={`group max-w-[78%] md:max-w-[66%] min-w-[110px] flex flex-col relative ${selectionMode ? 'cursor-pointer' : ''}`}
                   onClick={selectionMode ? () => onToggleSelect?.(msg.id) : undefined}

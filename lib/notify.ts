@@ -314,11 +314,14 @@ export async function pushMessageAlert(opts: {
     // cannot be filtered per person yet — recorded, not hidden.
     const prefByUser = new Map<string, string>()
     if (opts.roomId) {
+      // The level lives on the SEAT since Batch 23 (room_members.notify —
+      // S3-d §4.1); message_room_prefs is retired by migration 0048.
       const { data: prefs } = await supabaseAdmin
-        .from('message_room_prefs')
-        .select('user_id, level')
+        .from('room_members')
+        .select('user_id, notify')
         .eq('room_id', opts.roomId)
-      for (const p of prefs ?? []) prefByUser.set(p.user_id, p.level)
+        .is('left_at', null)
+      for (const p of prefs ?? []) prefByUser.set(p.user_id, p.notify)
     }
     const mentioned = new Set(opts.mentionedUserIds ?? [])
     const allowedByPrefs = (userId: string | null | undefined) => {
@@ -349,6 +352,78 @@ export async function pushMessageAlert(opts: {
       if ((state.prefs['messages'] ?? {}).push === false) return
       if (opts.recipient === 'admin') await sendPushToAdmins(state.orgId, payload)
       else if (allowedByPrefs(state.userId)) await sendPushToUser(state.userId, payload)
+    }))
+  } catch {
+    // never block the triggering send
+  }
+}
+
+/**
+ * Room-shaped message push — Batch 23 (S3-d). The recipients are the ROOM's
+ * live seats minus the sender: channels, groups, DMs, broadcast and the crew
+ * room all fan out the same way, because membership is the one authority
+ * (MD-1). pushMessageAlert above stays for the client-room routes, whose
+ * recipient is still "the other side of the house".
+ *
+ * Away-ness: client members carry a per-person heartbeat
+ * (client_members.last_seen_at, 0025); the crew side still has only the
+ * org-level admin heartbeat, so every crew recipient shares it — recorded,
+ * not hidden (the same limitation pushMessageAlert notes). A collaborator
+ * has no heartbeat anywhere and is treated as away: push is their only door.
+ */
+export async function pushRoomMessageAlert(opts: {
+  roomId: string
+  orgId: string
+  senderId: string
+  senderName: string
+  preview: string
+  mentionedUserIds?: string[]
+  crewSender: boolean
+}): Promise<void> {
+  try {
+    const { data: seats } = await supabaseAdmin
+      .from('room_members')
+      .select('user_id, notify')
+      .eq('room_id', opts.roomId)
+      .is('left_at', null)
+      .neq('user_id', opts.senderId)
+    if (!seats?.length) return
+
+    const mentioned = new Set(opts.mentionedUserIds ?? [])
+    const targets = seats.filter((s) =>
+      s.notify !== 'muted' && (s.notify !== 'mentions' || mentioned.has(s.user_id as string))
+    )
+    if (targets.length === 0) return
+
+    const ids = targets.map((s) => s.user_id as string)
+    const [{ data: cms }, { data: oms }, settings] = await Promise.all([
+      supabaseAdmin.from('client_members')
+        .select('user_id, last_seen_at')
+        .eq('organization_id', opts.orgId).in('user_id', ids),
+      supabaseAdmin.from('organization_members')
+        .select('user_id')
+        .eq('organization_id', opts.orgId).in('user_id', ids),
+      getBusinessSettings(opts.orgId),
+    ])
+    const clientSeen = new Map((cms ?? []).map((r) => [r.user_id as string, r.last_seen_at as string | null]))
+    const crewIds = new Set((oms ?? []).map((r) => r.user_id as string))
+    const adminSeen = settings?.admin_last_seen_at as string | null | undefined
+
+    const brand = await tenantBrand(opts.orgId)
+    const payload = {
+      title: `New message from ${opts.senderName}`,
+      body: opts.preview || undefined,
+      url: deepLink('client', 'messages', null), // origin-relative; each side's
+      icon: brand.logoUrl ?? undefined,          // SW opens its own hub route
+      tag: 'messages',
+    }
+    const crewPayload = { ...payload, url: deepLink('admin', 'messages', null) }
+
+    await Promise.all(targets.map(async (s) => {
+      const uid = s.user_id as string
+      const away = crewIds.has(uid) ? awayFrom(adminSeen) : awayFrom(clientSeen.get(uid))
+      if (!away) return
+      await sendPushToUser(uid, crewIds.has(uid) ? crewPayload : payload)
     }))
   } catch {
     // never block the triggering send

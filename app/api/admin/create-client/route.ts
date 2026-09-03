@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { sendTenantInvite } from '@/lib/email/invite'
 import { ensureClientRoom } from '@/lib/messageRooms'
+import { seedClientRoomAll } from '@/lib/rooms'
 
 // ONE message for every "this address is taken" outcome, whether the address
 // belongs to this tenant's client, to another tenant's, or to an auth user we
@@ -251,6 +252,9 @@ export async function POST(req: NextRequest) {
     // message their studio. Best-effort — a room also mints on first send.
     try {
       await ensureClientRoom(supabaseAdmin, client.organization_id, client.id, user.id)
+      // §5.3 seeding: the room's seats land with the room — active crew plus
+      // the new owner — so day-one realtime works before any hub self-heal.
+      await seedClientRoomAll(supabaseAdmin, client.organization_id, client.id)
     } catch (e) {
       console.error('[create-client] room mint failed (first send will retry):', e)
     }

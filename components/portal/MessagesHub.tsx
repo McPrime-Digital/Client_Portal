@@ -40,6 +40,14 @@ type Props = {
   canSend?: boolean
 }
 
+type DmRoom = {
+  id: string
+  label: string
+  unread: number
+  membership: { canPost: boolean }
+  members: { userId: string; name: string; avatarUrl: string | null }[]
+}
+
 export default function MessagesHub({
   clientId,
   clientName,
@@ -54,6 +62,51 @@ export default function MessagesHub({
   const supabase = createClient()
   const [filter, setFilter] = useState<RoomFilter>({ kind: 'all' })
   const [chipUnread, setChipUnread] = useState(initialUnread)
+  // DMs with the studio (Batch 23, S3-d): a client owner/approver may open a
+  // direct line to the studio's owners/admins. They render as chips in the
+  // notch beside the project views, and swap the engine into room mode.
+  const [dmRooms, setDmRooms] = useState<DmRoom[]>([])
+  const [dmPeople, setDmPeople] = useState<{ id: string; name: string; avatarUrl: string | null; sub: string }[]>([])
+  const [activeDm, setActiveDm] = useState<DmRoom | null>(null)
+  const [dmPickerOpen, setDmPickerOpen] = useState(false)
+  useDismissOnOutside(dmPickerOpen, useCallback(() => setDmPickerOpen(false), []))
+  const loadDms = useCallback(async () => {
+    try {
+      const res = await fetch('/api/rooms')
+      const json = await res.json()
+      if (res.ok && json.rooms) {
+        setDmRooms((json.rooms as (DmRoom & { kind: string })[]).filter((r) => r.kind === 'dm'))
+      }
+    } catch { /* retried on next mount */ }
+  }, [])
+  useEffect(() => {
+    // Both setters land after a network await, never in this effect's own
+    // pass — the rule cannot see through the async boundary.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadDms()
+    fetch('/api/rooms?people=1')
+      .then((r) => r.json())
+      .then((json) => { if (json.people) setDmPeople(json.people) })
+      .catch(() => {})
+  }, [loadDms])
+  const startDm = useCallback(async (withUserId: string) => {
+    setDmPickerOpen(false)
+    try {
+      const res = await fetch('/api/rooms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'dm', with_user_id: withUserId }),
+      })
+      const json = await res.json()
+      if (!res.ok) return
+      await loadDms()
+      const person = dmPeople.find((p) => p.id === withUserId)
+      setActiveDm({
+        id: json.room.id, label: person?.name ?? 'Direct message',
+        unread: 0, membership: { canPost: true }, members: [],
+      })
+    } catch { /* the picker can be tapped again */ }
+  }, [dmPeople, loadDms])
   const [externalRow, setExternalRow] = useState<ExternalRow | null>(null)
   const [adminActivity, setAdminActivity] = useState<'typing' | 'recording' | null>(null)
   const [soundOn, setSoundOn] = useState(() => messageSoundEnabled())
@@ -143,6 +196,7 @@ export default function MessagesHub({
   // Opening a view clears its chip — the read PATCH inside RoomThread does
   // the durable half (the watermark); this is the instant local half.
   const selectFilter = useCallback((f: RoomFilter) => {
+    setActiveDm(null)
     setFilter(f)
     setChipUnread((prev) => {
       if (f.kind === 'all') return { general: 0, byProject: {} }
@@ -361,33 +415,109 @@ export default function MessagesHub({
               WebkitBackdropFilter: 'blur(10px)',
             }}
           >
-            {chip('all', 'All', filter.kind === 'all', 0, () => selectFilter({ kind: 'all' }))}
+            {chip('all', 'All', !activeDm && filter.kind === 'all', 0, () => selectFilter({ kind: 'all' }))}
             {projects.map((p) =>
               chip(
                 p.id,
                 p.title,
-                filter.kind === 'project' && filter.projectId === p.id,
+                !activeDm && filter.kind === 'project' && filter.projectId === p.id,
                 chipUnread.byProject[p.id] ?? 0,
                 () => selectFilter({ kind: 'project', projectId: p.id }),
                 false,
                 projectColor(p.id)
               )
             )}
+            {dmRooms.map((dm) =>
+              chip(
+                dm.id,
+                `✉ ${dm.label}`,
+                activeDm?.id === dm.id,
+                dm.unread,
+                () => {
+                  setActiveDm(dm)
+                  setDmRooms((prev) => prev.map((r) => (r.id === dm.id ? { ...r, unread: 0 } : r)))
+                }
+              )
+            )}
+            {dmPeople.length > 0 && (
+              <div className="relative flex-shrink-0" data-tl-keep-open>
+                <button
+                  onClick={() => setDmPickerOpen((v) => !v)}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-all duration-150 active:scale-95"
+                  style={{
+                    backgroundColor: 'transparent',
+                    color: 'hsl(var(--primary))',
+                    border: '1px dashed hsl(var(--primary) / 0.5)',
+                  }}
+                  title="Message the studio directly"
+                >
+                  + Direct
+                </button>
+                {dmPickerOpen && (
+                  <div
+                    className="absolute top-8 left-1/2 -translate-x-1/2 z-50 w-56 rounded-xl overflow-hidden shadow-2xl"
+                    style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
+                  >
+                    <p className="px-3 pt-2.5 pb-1 text-[9px] font-semibold uppercase tracking-widest"
+                      style={{ color: 'hsl(var(--text-faint))' }}>
+                      Message the studio
+                    </p>
+                    {dmPeople.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => void startDm(p.id)}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors hover:bg-[hsl(var(--primary)/0.08)]"
+                        style={{ color: 'hsl(var(--foreground))' }}
+                      >
+                        <span className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0"
+                          style={{ backgroundColor: 'hsl(var(--primary) / 0.12)', color: 'hsl(var(--primary))' }}>
+                          {p.name.slice(0, 1).toUpperCase()}
+                        </span>
+                        <span className="flex-1 min-w-0">
+                          <span className="block truncate">{p.name}</span>
+                          <span className="block text-[9px] uppercase tracking-wide" style={{ color: 'hsl(var(--text-faint))' }}>
+                            {p.sub}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
-        <RoomThread
-          role="client"
-          clientId={clientId}
-          orgId={orgId}
-          filter={filter}
-          currentName={clientName}
-          otherName={studioName}
-          canSend={canSend}
-          externalRow={externalRow}
-          onTypingChange={setAdminActivity}
-          panelCommand={panelCommand}
-          showMenuButton={false}
-        />
+        {activeDm ? (
+          <RoomThread
+            key={activeDm.id}
+            role="client"
+            clientId={activeDm.id}
+            room={{ id: activeDm.id, kind: 'dm', label: activeDm.label }}
+            orgId={orgId}
+            filter={{ kind: 'all' }}
+            currentName={clientName}
+            otherName={activeDm.label}
+            canSend={activeDm.membership.canPost}
+            allowAttachments={false}
+            selfFallback
+            panelCommand={panelCommand}
+            showMenuButton={false}
+          />
+        ) : (
+          <RoomThread
+            role="client"
+            clientId={clientId}
+            orgId={orgId}
+            filter={filter}
+            currentName={clientName}
+            otherName={studioName}
+            canSend={canSend}
+            externalRow={externalRow}
+            onTypingChange={setAdminActivity}
+            panelCommand={panelCommand}
+            showMenuButton={false}
+          />
+        )}
       </div>
     </div>
   )

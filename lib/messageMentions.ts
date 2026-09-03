@@ -145,12 +145,14 @@ export async function notifyMentions(
 
   let muted = new Set<string>()
   if (opts.roomId) {
+    // The level lives on the SEAT since Batch 23 (room_members.notify);
+    // message_room_prefs is retired by migration 0048.
     const { data: prefs } = await db
-      .from('message_room_prefs')
-      .select('user_id, level')
+      .from('room_members')
+      .select('user_id, notify')
       .eq('room_id', opts.roomId)
       .in('user_id', targets.map((t) => t.id))
-    muted = new Set((prefs ?? []).filter((p) => p.level === 'muted').map((p) => p.user_id))
+    muted = new Set((prefs ?? []).filter((p) => p.notify === 'muted').map((p) => p.user_id))
   }
 
   await Promise.all(
