@@ -28,7 +28,7 @@ import {
   playTestChime,
   primeAudio,
 } from '@/lib/soundClient'
-import { usePresenceStore, isClientOnline } from '@/lib/stores/presence-store'
+import { usePresenceStore, isClientOnline, presenceWhere } from '@/lib/stores/presence-store'
 import { acquireHub, releaseHub } from '@/lib/realtimeBus'
 
 export type HubRoom = {
@@ -96,6 +96,12 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
   }, [activeClientId, filter])
 
   const active = rooms.find((r) => r.clientId === activeClientId) ?? null
+  /** Where the client side is right now — "in All", "in AMP", or "Online"
+   *  when they are signed in but not in this room (item 3). */
+  const whereClient = presenceWhere(
+    online, 'client', active?.clientId,
+    (pid) => active?.projects.find((p) => p.id === pid)?.title
+  )
 
   useEffect(() => {
     primeAudio()
@@ -472,8 +478,11 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                       ? 'recording audio…'
                       : clientActivity === 'typing'
                         ? 'typing…'
-                        : isClientOnline(online, active.clientId)
-                          ? `${active.name} · Online`
+                        : whereClient
+                          // WHICH view they are reading, not just that they
+                          // are here (item 3). "in AMP" is actionable before
+                          // you type; "Online" is not.
+                          ? `${active.name} · ${whereClient}`
                           : `${active.name} · Away`}
                   </p>
                 </div>
@@ -517,14 +526,18 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                 </div>
               </div>
 
-              {/* Filter chips: views over the ONE room */}
-              <div
-                className="flex items-center gap-1.5 px-3.5 py-1.5 border-b overflow-x-auto scrollbar-thin flex-shrink-0"
-                style={{
-                  backgroundColor: 'hsl(var(--card) / 0.6)',
-                  borderColor: 'hsl(var(--border))',
-                }}
-              >
+              {/* Filter chips: views over the ONE room.
+                  CENTRED and sized to CONTENT (item 4) — a full-bleed band
+                  with an edge-to-edge border read as page chrome rather than
+                  as tabs over one conversation. */}
+              <div className="flex justify-center px-3 py-1.5 flex-shrink-0">
+                <div
+                  className="inline-flex items-center gap-1.5 px-1.5 py-1 rounded-full max-w-full overflow-x-auto scrollbar-thin"
+                  style={{
+                    backgroundColor: 'hsl(var(--card) / 0.75)',
+                    border: '1px solid hsl(var(--border))',
+                  }}
+                >
                 {[
                   { key: 'all', label: 'All', count: 0, f: { kind: 'all' } as RoomFilter, general: false },
                   ...active.projects.map((p) => ({
@@ -588,6 +601,7 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                     </button>
                   )
                 })}
+                </div>
               </div>
 
               <div className="flex-1 min-h-0">

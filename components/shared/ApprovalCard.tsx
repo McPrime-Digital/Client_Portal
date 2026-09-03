@@ -68,6 +68,17 @@ const STATUS_TONE: Record<Detail['approval']['status'], string> = {
   withdrawn: 'var(--muted-foreground)',
 }
 
+/**
+ * Translucent variant of a colour that may be `hsl(H S% L%)` (a project tone)
+ * or `hsl(var(--token))` (the status fallback). Appending a hex alpha to
+ * either produces invalid CSS and silently drops the whole declaration —
+ * which is the kind of thing that looks like "the border just isn't showing".
+ */
+function alpha(c: string, a: number): string {
+  const m = c.match(/^hsl\((.*)\)$/)
+  return m ? `hsl(${m[1]} / ${a})` : c
+}
+
 function remaining(deadline: string | null): { label: string; urgent: boolean } | null {
   if (!deadline) return null
   const ms = Date.parse(deadline) - Date.now()
@@ -83,6 +94,8 @@ export default function ApprovalCard({
   side,
   syncKey = 0,
   onChanged,
+  projectTitle,
+  projectColor: projectTone,
 }: {
   approvalId: string
   /** Which API to read and write through. The two are separate routes with
@@ -91,6 +104,11 @@ export default function ApprovalCard({
   /** Bumped by RoomThread when the room's existing topic reports a change. */
   syncKey?: number
   onChanged?: () => void
+  /** The project this card belongs to. Shown on the card and used for its
+   *  accent, so an approval reads as part of its project the same way every
+   *  other message in the thread does. */
+  projectTitle?: string | null
+  projectColor?: string | null
 }) {
   const [detail, setDetail] = useState<Detail | null>(null)
   const [busy, setBusy] = useState(false)
@@ -172,12 +190,22 @@ export default function ApprovalCard({
   const { approval, stages } = detail
   const active = stages.find((s) => s.status === 'active') ?? null
   const clock = remaining(active?.deadline_at ?? null)
+  // THE CARD WEARS ITS PROJECT'S COLOUR, like every other message in the
+  // thread — an approval is part of the work, not a separate system. The
+  // OUTCOME colours the status strip and the decision buttons instead, which
+  // is where a colour actually needs to mean approved / rejected / lapsed.
   const tone = STATUS_TONE[approval.status]
+  const accent = projectTone ?? `hsl(${tone})`
 
   return (
     <div
       className="my-2 w-full max-w-xl overflow-hidden rounded-2xl border bg-card"
-      style={{ borderColor: `hsl(${tone} / 0.35)` }}
+      style={{
+        borderColor: alpha(accent, 0.34),
+        // The project's colour binds down the edge, matching the inset stripe
+        // every tagged message in this thread already carries.
+        boxShadow: `inset 3px 0 0 ${accent}`,
+      }}
     >
       <div
         className="flex items-center gap-2 px-4 py-2.5"
@@ -187,9 +215,19 @@ export default function ApprovalCard({
         <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: `hsl(${tone})` }}>
           {STATUS_LABEL[approval.status]}
         </span>
+        {/* The project, on the RIGHT — the card says which work it is about
+            without the reader having to open it. */}
+        {projectTitle && (
+          <span
+            className="ml-auto text-[10px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap"
+            style={{ color: accent, border: `1px solid ${alpha(accent, 0.4)}`, backgroundColor: alpha(accent, 0.1) }}
+          >
+            {projectTitle}
+          </span>
+        )}
         {clock && approval.status === 'open' && (
           <span
-            className="ml-auto flex items-center gap-1 text-[11px] font-medium"
+            className="flex items-center gap-1 text-[11px] font-medium"
             style={{ color: clock.urgent ? 'hsl(var(--destructive))' : 'hsl(var(--muted-foreground))' }}
           >
             <Clock size={11} />
@@ -293,7 +331,14 @@ export default function ApprovalCard({
                 disabled={busy}
                 onClick={() => void decide(active.id, 'approved')}
                 className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-semibold disabled:opacity-50"
-                style={{ backgroundColor: 'hsl(var(--primary) / 0.12)', color: 'hsl(var(--primary))' }}
+                // GREEN, not the shell's gold. Approve is the one control on
+                // this card whose colour has to be unambiguous at a glance,
+                // and gold is the accent every neutral control already uses.
+                style={{
+                  backgroundColor: 'hsl(var(--status-green, 145 55% 42%) / 0.14)',
+                  color: 'hsl(var(--status-green, 145 55% 42%))',
+                  border: '1px solid hsl(var(--status-green, 145 55% 42%) / 0.35)',
+                }}
               >
                 <Check size={12} /> Approve
               </button>

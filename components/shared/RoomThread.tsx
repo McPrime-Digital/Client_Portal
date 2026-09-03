@@ -102,8 +102,11 @@ type Props = {
 function matchesFilter(filter: RoomFilter, projectId: string | null): boolean {
   if (filter.kind === 'all') return true
   if (filter.kind === 'general') return projectId == null
-  // A project view is the room filtered to its tag PLUS untagged (S-F §2.2).
-  return projectId == null || projectId === filter.projectId
+  // ONLY this project's messages. It used to be "its tag PLUS untagged", so
+  // every project thread also carried the room's general traffic — a project
+  // was not a thread, it was All with a highlight. Untagged belongs to All,
+  // which is the view over everything: cards, files, media, all projects.
+  return projectId === filter.projectId
 }
 
 export default function RoomThread({
@@ -411,6 +414,8 @@ export default function RoomThread({
       if (cached.roomId) roomIdRef.current = cached.roomId
       for (const r of cached.rows) seenIdsRef.current.add(r.id)
     } else if (filter.kind !== 'all' && allCached) {
+      // Seeding a project view from the All superset uses the SAME predicate,
+      // so a seeded view can never show more than a fetched one.
       const seeded = allCached.rows.filter((m) => matchesFilter(filter, m.project_id ?? null))
       setMessages(seeded)
       for (const r of seeded) seenIdsRef.current.add(r.id)
@@ -1340,10 +1345,12 @@ export default function RoomThread({
       {(
         <>
           <MessageThread
-            renderApproval={(approvalId) => (
+            renderApproval={(approvalId, msg) => (
               <ApprovalCard
                 approvalId={approvalId}
                 side={role === 'admin' ? 'studio' : 'portal'}
+                projectTitle={msg.project_id ? projectMeta[msg.project_id]?.title : null}
+                projectColor={msg.project_id ? projectMeta[msg.project_id]?.color : null}
                 syncKey={approvalSync}
                 onChanged={() => {
                   // Tell the room on the topic it ALREADY has. A decision is

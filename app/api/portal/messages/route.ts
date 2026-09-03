@@ -73,7 +73,10 @@ export async function GET(req: NextRequest) {
   // Batch 15 item 1: three views, ONE code path over one room —
   //   scope=room     → every message in the company's room ("All")
   //   scope=general  → untagged only (the General thread)
-  //   project_id     → that project's tag PLUS untagged (S-F §2.2: the
+  //   project_id     → ONLY that project's tag (see the note below; it used
+  //                    to include untagged, which made every project thread a
+  //                    copy of All)
+  //   [superseded]   → that project's tag PLUS untagged (S-F §2.2: the
   //                    project page is the room filtered, not a second store)
   const roomScope = scope === 'room'
   const { data: room } = await supabaseAdmin
@@ -137,7 +140,7 @@ export async function GET(req: NextRequest) {
       .textSearch('body_tsv', q.trim(), { type: 'websearch' })
       .order('created_at', { ascending: false })
       .limit(30)
-    if (projectId) searchQ = searchQ.or(`project_id.eq.${projectId},project_id.is.null`)
+    if (projectId) searchQ = searchQ.eq('project_id', projectId)
     else if (general) searchQ = searchQ.is('project_id', null)
     if (access?.historyFrom) searchQ = searchQ.gte('created_at', access.historyFrom)
     const { data: hits, error: qErr } = await searchQ
@@ -197,7 +200,7 @@ export async function GET(req: NextRequest) {
     .order('id', { ascending: false })
     .limit(limit + 1)
   if (cursor) msgQ = msgQ.or(beforePredicate(cursor))
-  if (projectId) msgQ = msgQ.or(`project_id.eq.${projectId},project_id.is.null`)
+  if (projectId) msgQ = msgQ.eq('project_id', projectId)
   else if (general) msgQ = msgQ.is('project_id', null)
   if (access?.historyFrom) msgQ = msgQ.gte('created_at', access.historyFrom)
   type PageRow = Record<string, unknown> & {
@@ -235,8 +238,8 @@ export async function GET(req: NextRequest) {
       .order('id', { ascending: true })
       .limit(half)
     if (projectId) {
-      olderQ = olderQ.or(`project_id.eq.${projectId},project_id.is.null`)
-      newerQ = newerQ.or(`project_id.eq.${projectId},project_id.is.null`)
+      olderQ = olderQ.eq('project_id', projectId)
+      newerQ = newerQ.eq('project_id', projectId)
     } else if (general) {
       olderQ = olderQ.is('project_id', null)
       newerQ = newerQ.is('project_id', null)
@@ -410,7 +413,7 @@ export async function PATCH(req: NextRequest) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const deliveredScope = (q: any) => {
     let s = q.neq('sender_id', user.id)
-    if (project_id) s = s.eq('room_id', room?.id ?? '00000000-0000-0000-0000-000000000000').or(`project_id.eq.${project_id},project_id.is.null`)
+    if (project_id) s = s.eq('room_id', room?.id ?? '00000000-0000-0000-0000-000000000000').eq('project_id', project_id)
     else if (roomScope) s = s.eq('room_id', room?.id ?? '00000000-0000-0000-0000-000000000000')
     else s = s.eq('room_id', room?.id ?? '00000000-0000-0000-0000-000000000000').is('project_id', null)
     return s

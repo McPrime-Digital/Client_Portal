@@ -110,7 +110,7 @@ export async function GET(req: NextRequest) {
       .textSearch('body_tsv', q.trim(), { type: 'websearch' })
       .order('created_at', { ascending: false })
       .limit(30)
-    if (tagId) searchQ = searchQ.or(`project_id.eq.${tagId},project_id.is.null`)
+    if (tagId) searchQ = searchQ.eq('project_id', tagId)
     else if (scope === 'general') searchQ = searchQ.is('project_id', null)
     const { data: hits, error: qErr } = await searchQ
     if (qErr) return NextResponse.json({ error: qErr.message }, { status: 500 })
@@ -169,7 +169,7 @@ export async function GET(req: NextRequest) {
     .order('id', { ascending: false })
     .limit(limit + 1)
   if (cursor) msgQ = msgQ.or(beforePredicate(cursor))
-  if (tagId) msgQ = msgQ.or(`project_id.eq.${tagId},project_id.is.null`)
+  if (tagId) msgQ = msgQ.eq('project_id', tagId)
   else if (scope === 'general') msgQ = msgQ.is('project_id', null)
 
   type PageRow = Record<string, unknown> & {
@@ -207,8 +207,8 @@ export async function GET(req: NextRequest) {
       .order('id', { ascending: true })
       .limit(half)
     if (tagId) {
-      olderQ = olderQ.or(`project_id.eq.${tagId},project_id.is.null`)
-      newerQ = newerQ.or(`project_id.eq.${tagId},project_id.is.null`)
+      olderQ = olderQ.eq('project_id', tagId)
+      newerQ = newerQ.eq('project_id', tagId)
     } else if (scope === 'general') {
       olderQ = olderQ.is('project_id', null)
       newerQ = newerQ.is('project_id', null)
@@ -380,7 +380,7 @@ export async function PATCH(req: NextRequest) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const deliveredScope = (q: any) => {
     let s = q.eq('organization_id', orgId).neq('sender_id', user.id)
-    if (project_id) s = s.eq('room_id', roomId).or(`project_id.eq.${project_id},project_id.is.null`)
+    if (project_id) s = s.eq('room_id', roomId).eq('project_id', project_id)
     else if (roomScope) s = s.eq('room_id', roomId)
     else s = s.eq('room_id', roomId).is('project_id', null)
     return s

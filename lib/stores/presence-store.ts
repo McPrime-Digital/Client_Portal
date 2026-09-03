@@ -33,3 +33,37 @@ export function isClientOnline(online: PresenceEntry[], clientId: string | null 
   if (!clientId) return false
   return online.some((e) => e.role === 'client' && e.clientId === clientId)
 }
+
+/**
+ * WHERE the other side is, not just whether they are here.
+ *
+ * "Online" answers the wrong question in a product where one room has several
+ * views. Before you type, what you want to know is whether they are reading
+ * THIS conversation:
+ *
+ *   in this room's All view        → "in All"
+ *   in a project view of this room → "in <project>"
+ *   signed in, but on overview,
+ *     invoices, anywhere else      → "Online"
+ *
+ * Returns null when nobody from that side is present, so the caller keeps its
+ * existing "Away" wording rather than this file inventing a second vocabulary.
+ */
+export function presenceWhere(
+  online: PresenceEntry[],
+  side: 'admin' | 'client',
+  clientId: string | null | undefined,
+  projectTitle?: (projectId: string) => string | undefined
+): string | null {
+  const them = online.filter((e) =>
+    e.role === side && (side === 'admin' || (!!clientId && e.clientId === clientId))
+  )
+  if (them.length === 0) return null
+  // Prefer whoever is actually IN this room — one person reading the thread is
+  // more useful than three signed in elsewhere.
+  const inRoom = them.find((e) => e.view && e.view.kind !== 'none' && e.view.clientId === clientId)
+  if (!inRoom || !inRoom.view || inRoom.view.kind === 'none') return 'Online'
+  if (inRoom.view.kind === 'all') return 'in All'
+  const title = projectTitle?.(inRoom.view.projectId)
+  return title ? `in ${title}` : 'in a project'
+}

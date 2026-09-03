@@ -21,7 +21,7 @@ import {
   playTestChime,
   primeAudio,
 } from '@/lib/soundClient'
-import { usePresenceStore, isAdminOnline } from '@/lib/stores/presence-store'
+import { usePresenceStore, isAdminOnline, presenceWhere } from '@/lib/stores/presence-store'
 import { acquireHub, releaseHub } from '@/lib/realtimeBus'
 import { projectColor } from '@/lib/projectColor'
 
@@ -79,6 +79,12 @@ export default function MessagesHub({
 
   const online = usePresenceStore((s) => s.online)
   const adminOnline = isAdminOnline(online)
+  /** Where the STUDIO is right now — "in All", "in AMP", or "Online" when
+   *  they are signed in but not reading this room (item 3). */
+  const whereAdmin = presenceWhere(
+    online, 'admin', clientId,
+    (pid) => projects.find((p) => p.id === pid)?.title
+  )
   const ownIdRef = useRef<string | null>(null)
   const filterRef = useRef(filter)
   useEffect(() => { filterRef.current = filter }, [filter])
@@ -263,8 +269,9 @@ export default function MessagesHub({
               ? 'recording audio…'
               : adminActivity === 'typing'
                 ? 'typing…'
-                : adminOnline
-                  ? 'Online'
+                : whereAdmin
+                  // WHICH view they are reading, not just that they are here.
+                  ? whereAdmin
                   : 'Away'}
           </p>
         </div>
@@ -333,11 +340,16 @@ export default function MessagesHub({
         </div>
       </div>
 
-      {/* ── Filter chips: views over one room ── */}
-      <div
-        className="flex items-center gap-1.5 px-3.5 py-1.5 border border-b-0 border-t-0 overflow-x-auto scrollbar-thin"
-        style={{ backgroundColor: 'hsl(var(--card) / 0.6)', borderColor: 'hsl(var(--border))' }}
-      >
+      {/* ── Filter chips: views over one room ──
+          CENTRED and sized to CONTENT (item 4). It used to be a full-bleed
+          band with a border running the whole width, which read as a piece of
+          page chrome rather than a small set of tabs over one conversation.
+          The rail scrolls horizontally only when the projects outgrow it. */}
+      <div className="flex justify-center px-3 py-1.5">
+        <div
+          className="inline-flex items-center gap-1.5 px-1.5 py-1 rounded-full max-w-full overflow-x-auto scrollbar-thin"
+          style={{ backgroundColor: 'hsl(var(--card) / 0.75)', border: '1px solid hsl(var(--border))' }}
+        >
         {chip('all', 'All', filter.kind === 'all', 0, () => selectFilter({ kind: 'all' }))}
         {projects.map((p) =>
           chip(
@@ -350,6 +362,7 @@ export default function MessagesHub({
             projectColor(p.id)
           )
         )}
+        </div>
       </div>
 
       {/* ── The one conversation engine ── */}
