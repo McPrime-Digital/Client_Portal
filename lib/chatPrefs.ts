@@ -5,14 +5,11 @@
  * viewer's own; server-side room prefs stay about notifications.
  *
  * ── THE WALLPAPER SET ───────────────────────────────────────────────────────
- * RETIRED: `aurora`, `waves`, `grid`. They read as generic web decoration
- * rather than as a tool a production studio works in all day.
- *
- * Everything here is drawn in CSS or inline SVG — no image files, no HTTP
- * request, no asset weight, sharp on any display, and each one derives its
- * colour from the theme tokens so light and dark are one rule rather than two
- * exports that drift. A chat background has to sit UNDER text for hours; that
- * rules out photography regardless of where it came from.
+ * Six photographic textures (public/wallpapers, self-hosted, Unsplash License)
+ * plus three drawn patterns. FILM is the production-artifact scatter — the
+ * owner's explicit pick, restored after one round replaced it wholesale when
+ * the ask was to improve the artwork inside it. STRIP is the 35mm stock-edge
+ * margin treatment that briefly wore the Film name.
  */
 
 import { pushPref } from '@/lib/prefsSync'
@@ -30,7 +27,8 @@ export type WallpaperPattern =
   | 'ribbon'   // black sculptural ribbons
   // Drawn, for anyone who wants texture without a photograph.
   | 'dots'
-  | 'film'
+  | 'film'     // the production-artifact scatter — the owner's pick, redrawn
+  | 'strip'    // the edge of 35mm stock: perforation rails in the margins
   | 'none'
 
 export type WallpaperIntensity = 'faint' | 'medium' | 'bold'
@@ -44,6 +42,7 @@ export const WALLPAPERS: { value: WallpaperPattern; label: string }[] = [
   { value: 'ribbon', label: 'Ribbon' },
   { value: 'dots', label: 'Dots' },
   { value: 'film', label: 'Film' },
+  { value: 'strip', label: 'Filmstrip' },
   { value: 'none', label: 'None' },
 ]
 
@@ -70,7 +69,7 @@ const RETIRED: Record<string, WallpaperPattern> = {
   // browser holding one of these lands somewhere deliberate rather than being
   // reset, and so its push is never refused (which would strand that device).
   grain: 'plaster',
-  filmstrip: 'slate',
+  filmstrip: 'strip',
   storyboard: 'dots',
   bokeh: 'silk',
   vignette: 'onyx',
