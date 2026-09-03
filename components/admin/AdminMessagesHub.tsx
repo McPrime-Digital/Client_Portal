@@ -12,6 +12,7 @@
  * never by "something happened".
  */
 
+import { useDismissOnOutside } from '@/lib/hooks/useDismissOnOutside'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Volume2, VolumeX, MessageSquare, ChevronLeft, MoreVertical } from 'lucide-react'
@@ -69,6 +70,9 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
   const activityTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const [soundOn, setSoundOn] = useState(() => messageSoundEnabled())
   const [roomMenuOpen, setRoomMenuOpen] = useState(false)
+  // Tap anywhere else, or Escape, closes it (shared hook — the same behaviour
+  // both portals get, from one implementation).
+  useDismissOnOutside(roomMenuOpen, useCallback(() => setRoomMenuOpen(false), []))
   const [panelCommand, setPanelCommand] = useState<{ which: 'pins' | 'saves' | 'settings' | 'people' | 'search'; n: number } | null>(null)
   const [mobileView, setMobileView] = useState<'list' | 'thread'>('list')
 
@@ -452,7 +456,7 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                   </p>
                 </div>
                 {/* THE room menu — extreme right (Batch 16) */}
-                <div className="relative flex-shrink-0">
+                <div className="relative flex-shrink-0" data-tl-keep-open>
                   <button
                     type="button"
                     onClick={() => setRoomMenuOpen((v) => !v)}

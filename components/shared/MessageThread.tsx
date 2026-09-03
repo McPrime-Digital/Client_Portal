@@ -1,5 +1,6 @@
 'use client'
 
+import { useDismissOnOutside } from '@/lib/hooks/useDismissOnOutside'
 import { DEFAULT_WALLPAPER, type WallpaperPattern } from '@/lib/chatPrefs'
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
 import {
@@ -225,6 +226,11 @@ export default function MessageThread({
   const [pickerFor, setPickerFor] = useState<string | null>(null)
   const [msgMenuFor, setMsgMenuFor] = useState<string | null>(null)
   const [emojiOpen, setEmojiOpen] = useState(false)
+  // Tap anywhere else, or press Escape, and these close. They used to stay
+  // open until you hit their trigger again, which on touch reads as stuck.
+  useDismissOnOutside(pickerFor !== null, useCallback(() => setPickerFor(null), []))
+  useDismissOnOutside(msgMenuFor !== null, useCallback(() => setMsgMenuFor(null), []))
+  useDismissOnOutside(emojiOpen, useCallback(() => setEmojiOpen(false), []))
   const [pickerTab, setPickerTab] = useState<'emoji' | 'stickers'>('emoji')
   const [tagMenuOpen, setTagMenuOpen] = useState(false)
   // '@' autocomplete (item 5): people + projects from the roster prop.
@@ -642,6 +648,7 @@ export default function MessageThread({
                   {/* Horizontal action bar (Batch 16): floats over the group
                       on hover — react · quote · thread · more. */}
                   <div
+                    data-tl-keep-open
                     className={`absolute -top-4 ${isMe ? 'right-0' : 'left-0'} z-20 ${selectionMode ? 'hidden' : 'opacity-0 group-hover:opacity-100'} transition-opacity duration-150 flex items-center rounded-full shadow-lg`}
                     style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
                   >
@@ -680,6 +687,7 @@ export default function MessageThread({
                   </div>
                   {pickerFor === msg.id && (
                     <div
+                      data-tl-keep-open
                       className={`absolute -top-14 ${isMe ? 'right-0' : 'left-0'} z-30 flex gap-1 p-1.5 rounded-xl shadow-xl`}
                       style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
                     >
@@ -696,6 +704,7 @@ export default function MessageThread({
                   )}
                   {msgMenuFor === msg.id && (
                     <div
+                      data-tl-keep-open
                       className={`absolute top-5 ${isMe ? 'right-0' : 'left-0'} z-30 w-44 rounded-xl overflow-hidden shadow-2xl`}
                       style={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
                     >
@@ -1343,8 +1352,10 @@ export default function MessageThread({
             </div>
           )}
 
-          {/* Emoji picker (Batch 16) */}
-          <div className="relative">
+          {/* Emoji picker (Batch 16). data-tl-keep-open covers the trigger AND
+              the panel: the outside-tap listener runs in the capture phase, so
+              an unmarked trigger would close then immediately re-open. */}
+          <div className="relative" data-tl-keep-open>
             <button
               type="button"
               onClick={() => setEmojiOpen((v) => !v)}

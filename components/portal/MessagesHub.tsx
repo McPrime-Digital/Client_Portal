@@ -7,6 +7,7 @@
  * project pages use (RoomThread), never a second query shape.
  */
 
+import { useDismissOnOutside } from '@/lib/hooks/useDismissOnOutside'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Volume2, VolumeX, MessageSquare, MoreVertical } from 'lucide-react'
@@ -56,6 +57,9 @@ export default function MessagesHub({
   const [adminActivity, setAdminActivity] = useState<'typing' | 'recording' | null>(null)
   const [soundOn, setSoundOn] = useState(() => messageSoundEnabled())
   const [roomMenuOpen, setRoomMenuOpen] = useState(false)
+  // Tap anywhere else, or Escape, closes it (shared hook — the same behaviour
+  // both portals get, from one implementation).
+  useDismissOnOutside(roomMenuOpen, useCallback(() => setRoomMenuOpen(false), []))
   const [panelCommand, setPanelCommand] = useState<{ which: 'pins' | 'saves' | 'settings' | 'people' | 'search'; n: number } | null>(null)
 
   const online = usePresenceStore((s) => s.online)
@@ -269,7 +273,7 @@ export default function MessagesHub({
           {soundOn ? <Volume2 size={15} /> : <VolumeX size={15} />}
         </button>
         {/* THE room menu — extreme right of the top bar (Batch 16) */}
-        <div className="relative">
+        <div className="relative" data-tl-keep-open>
           <button
             type="button"
             onClick={() => setRoomMenuOpen((v) => !v)}

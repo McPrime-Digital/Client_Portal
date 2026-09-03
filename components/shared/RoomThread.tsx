@@ -15,6 +15,7 @@
  * `room:<clientId>` for room-level views; events `message`, `typing`, `sync`.
  */
 
+import { useDismissOnOutside } from '@/lib/hooks/useDismissOnOutside'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import MessageThread from '@/components/shared/MessageThread'
@@ -136,6 +137,11 @@ export default function RoomThread({
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set())
   const [panel, setPanel] = useState<'pins' | 'saves' | 'settings' | 'people' | 'search' | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  // The room ⋯ menu closes on a tap anywhere else or on Escape. The side
+  // PANELS (pins, saves, settings, people, search) deliberately do NOT — a
+  // settings drawer that vanished on any stray tap would be worse than a
+  // sticky one, and they carry an explicit close.
+  useDismissOnOutside(menuOpen, useCallback(() => setMenuOpen(false), []))
   const [searchQ, setSearchQ] = useState('')
   const [searching, setSearching] = useState(false)
   const [panelRows, setPanelRows] = useState<Message[]>([])
@@ -1302,7 +1308,7 @@ export default function RoomThread({
 
           {/* The room menu — ONE control, extreme right (Batch 16) */}
           {showMenuButton && (
-            <div className="absolute top-2 right-2 z-20">
+            <div className="absolute top-2 right-2 z-20" data-tl-keep-open>
               <button
                 onClick={() => setMenuOpen((v) => !v)}
                 className="p-1.5 rounded-lg transition-colors"
