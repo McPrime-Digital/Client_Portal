@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { logActivity } from '@/lib/logActivity'
 import { uploadFileToR2 } from '@/lib/uploadClient'
 import { phaseColor } from '@/lib/projectProgress'
 import FileViewer, { type ViewerFile } from '@/components/shared/FileViewer'
@@ -366,13 +365,10 @@ export default function TaskBoard({
     setUpdating(task.id)
     setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, status: nextStatus, completed_at: isCompleting ? new Date().toISOString() : null } : t)))
     try {
+      // The ledger row is written by the server handler now (Batch 22 item
+      // 11) — it is a side effect of `toggle_task`, not a second request the
+      // browser fires afterwards.
       await taskAction({ action: 'toggle_task', task_id: task.id, status: nextStatus })
-      if (isCompleting) {
-        logActivity({
-          projectId: task.project_id, actorId: 'admin', actorName: 'Admin', actorRole: 'admin',
-          eventType: 'task_completed', title: `Task completed: “${task.title}”`, meta: { task_id: task.id },
-        }).catch(() => {})
-      }
     } catch {
       setTasks((prev) => prev.map((t) => (t.id === task.id ? task : t)))
     } finally {
@@ -498,10 +494,6 @@ export default function TaskBoard({
       })
       if (data) {
         setTasks((prev) => [...prev, data])
-        logActivity({
-          projectId, actorId: 'admin', actorName: 'Admin', actorRole: 'admin',
-          eventType: 'task_created', title: `Task created: “${data.title}”`, meta: { task_id: data.id },
-        }).catch(() => {})
       }
     } catch {
       /* no insert on failure */
@@ -558,12 +550,6 @@ export default function TaskBoard({
     setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, status, completed_at: isCompleting ? new Date().toISOString() : null } : t)))
     try {
       await taskAction({ action: 'toggle_task', task_id: task.id, status })
-      if (isCompleting) {
-        logActivity({
-          projectId: task.project_id, actorId: 'admin', actorName: 'Admin', actorRole: 'admin',
-          eventType: 'task_completed', title: `Task completed: “${task.title}”`, meta: { task_id: task.id },
-        }).catch(() => {})
-      }
     } catch {
       setTasks((prev) => prev.map((t) => (t.id === task.id ? task : t)))
     } finally {

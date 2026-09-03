@@ -1,15 +1,74 @@
 import 'server-only'
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import type { ActivityParams } from '@/lib/logActivity'
+
+/**
+ * The closed set of ledger event types, and the writer's parameter shape.
+ *
+ * These moved here from the deleted browser module in Batch 22 item 11. They
+ * are SERVER-ONLY now, which is the point: the ledger is written as a side
+ * effect of the action it records, so nothing in the browser needs to name an
+ * event type. A surface that wants a new one adds it here, next to the writer
+ * that will emit it.
+ */
+export const EVENT_TYPES = [
+  'project_created',
+  'project_status_changed',
+  'file_uploaded',
+  'file_deleted',
+  'message_sent',
+  'task_completed',
+  'task_created',
+  'invoice_created',
+  'invoice_paid',
+  'client_created',
+  'note_added',
+  // Approvals & Records ledger events.
+  'approval_requested',
+  'task_approved',
+  'changes_requested',
+  'task_auto_approved',
+  // The approvals ENGINE's events (Batch 22, S3-c). Distinct from the four
+  // task-shaped ones above, which the legacy tasks path writes and which stay
+  // until those columns drop. `approval_auto_advanced` is deliberately not
+  // named "approved" anything (AP-2): a lapse and a decision must never share
+  // a value, in this vocabulary or in the schema.
+  'approval_created',
+  'approval_decided',
+  'approval_auto_advanced',
+  'approval_withdrawn',
+  'approval_reminded',
+] as const
+
+export type EventType = (typeof EVENT_TYPES)[number]
+
+export type ActivityParams = {
+  projectId?: string | null
+  clientId?: string | null
+  /** Tenant stamp (T-5). Server-resolved from the verified target row. */
+  organizationId?: string | null
+  /** NULL only where there genuinely is no actor — an auto-advance on silence
+   *  (S3-c AP-2). `activity_log.actor_id` and `actor_role` are both nullable;
+   *  `actor_name` is NOT NULL, so a lapse still names itself ('System'). */
+  actorId: string | null
+  actorName: string
+  actorRole: 'admin' | 'client' | null
+  eventType: EventType
+  title: string
+  body?: string | null
+  meta?: Record<string, any>
+}
 
 /**
  * Service-role activity writers. Server-only by construction — `server-only`
  * turns any accidental client import into a build error rather than a silent
  * leak of the admin client into the browser chunk graph.
  *
- * The browser-safe `logActivity()` (which POSTs to /api/activity) stays in
- * `@/lib/logActivity`.
+ * THERE IS NO BROWSER PATH ANY MORE (Batch 22 item 11, S3-core §5). The
+ * browser module and the /api/activity endpoint are deleted: a ledger row is
+ * written as a side effect of the action it records, inside the same server
+ * handler. An endpoint that can be called directly is a surface defended
+ * forever; a side effect cannot be called at all.
  */
 
 /**

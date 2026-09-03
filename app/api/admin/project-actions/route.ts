@@ -8,6 +8,7 @@ import { createNotification, clientIdForProject, pushMessageAlert } from '@/lib/
 import { messagePreview } from '@/lib/messagePreview'
 import { recordActivity } from '@/lib/logActivity.server'
 import { ensureApprovalForTaskGate } from '@/lib/approvals'
+import { rosterName } from '@/lib/team'
 import { captureError } from '@/lib/errors'
 import { seedDefaultTasks, buildPhaseTaskRows, safeCategory } from '@/lib/defaultTasks'
 import { ensureClientRoom, ensureCrewRoom } from '@/lib/messageRooms'
@@ -535,6 +536,22 @@ export async function POST(req: NextRequest) {
           // A visible gate created directly in review is an approval send.
           if (initialStatus === 'review') await recordGateSent(data, user.id, studioName, false, userOrgId(user))
         }
+        // LEDGER, SERVER-SIDE (Batch 22 item 11) — moved from TaskBoard:501.
+        // Written for EVERY task, not only client-visible ones: the ledger is
+        // the record of what happened, and its readers filter it. The old
+        // browser call had the same reach and it is not narrowed here.
+        await recordActivity({
+          projectId: project_id,
+          clientId: await clientIdForProject(project_id),
+          organizationId: userOrgId(user),
+          actorId: user.id,
+          actorName: (await rosterName(user)) ?? studioName,
+          actorRole: 'admin',
+          eventType: 'task_created',
+          title: `Task created: “${data.title}”`,
+          body: null,
+          meta: { task_id: data.id },
+        })
         return NextResponse.json({ task: data })
       }
 
@@ -581,6 +598,27 @@ export async function POST(req: NextRequest) {
               body: data.title ?? null,
             })
           }
+        }
+        // LEDGER, SERVER-SIDE (Batch 22 item 11, S3-core §5). This was three
+        // fire-and-forget logActivity() calls in TaskBoard that POSTed to
+        // /api/activity after the action had already landed. It is now a side
+        // effect of the action itself: no endpoint to defend, no way for the
+        // row to be missing because a browser navigated away mid-request, and
+        // the actor comes from the roster rather than the literal 'Admin' the
+        // client used to send.
+        if (status === 'completed') {
+          await recordActivity({
+            projectId: data.project_id,
+            clientId: await clientIdForProject(data.project_id),
+            organizationId: userOrgId(user),
+            actorId: user.id,
+            actorName: (await rosterName(user)) ?? studioName,
+            actorRole: 'admin',
+            eventType: 'task_completed',
+            title: `Task completed: “${data.title}”`,
+            body: null,
+            meta: { task_id: data.id },
+          })
         }
         return NextResponse.json({ task: data })
       }
