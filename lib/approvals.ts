@@ -3,6 +3,7 @@ import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { recordActivity } from '@/lib/logActivity.server'
 import { decodeCursor, encodeCursor, beforePredicate, type KeysetCursor } from '@/lib/keyset'
+import { ensureClientRoom, ensureCrewRoom } from '@/lib/messageRooms'
 
 /**
  * The approvals engine — Batch 22 item 2 (S3-c).
@@ -311,6 +312,37 @@ export async function createApproval(
         stage_count: insertedStages.length,
       },
     })
+
+    // ── THE CARD (S3-c §3.1) ────────────────────────────────────────────
+    // "A message can be an approval gate. The conversation and the
+    // contractual record are the same object." So opening an approval POSTS
+    // ONE, here, in the engine — not in whichever call site remembers to.
+    //
+    // This was the gap that made item 7 not work end to end: the card
+    // component and the renderer both existed, and nothing ever wrote a
+    // message carrying approval_id, so a production gate opened an approval
+    // whose card never appeared. Putting it in the engine means every path —
+    // the task bridge, the routes, anything built later — gets one.
+    //
+    // Inside the try DELIBERATELY: if the card cannot be posted the approval
+    // is rolled back. An approval the client never sees is the defect being
+    // fixed, and recreating it silently is worse than a failed create the
+    // studio can retry.
+    const room = clientId
+      ? await ensureClientRoom(db, orgId, clientId, actorId)
+      : await ensureCrewRoom(db, orgId, actorId)
+    const { error: cardErr } = await db.from('messages').insert({
+      room_id: room.id,
+      organization_id: orgId, // stamped, never defaulted (T-5)
+      project_id: projectId,
+      sender_id: actorId,
+      sender_name: actorName,
+      body: `Approval requested · “${approval.title}”`,
+      // What makes it a card rather than a bubble. RoomThread renders
+      // ApprovalCard for any message carrying this.
+      approval_id: approval.id,
+    })
+    if (cardErr) throw new Error(`approval card insert failed: ${cardErr.message}`)
 
     return { approval, stages: insertedStages as StageRow[] }
   } catch (e) {
@@ -879,6 +911,15 @@ export async function ensureApprovalForTaskGate(
     .eq('subject_kind', 'task')
     .eq('subject_id', taskId)
     .eq('organization_id', orgId)
+    // THE COUNTERPARTY IS PART OF THE IDENTITY. Without this, a client gate
+    // would reuse an INTERNAL approval (client_id null) that happens to be
+    // open against the same task — silently turning the studio's own review
+    // into the client's sign-off, and inheriting its card, its assignees and
+    // its window. That is S3-core-A A-4's failure (a null counterparty
+    // converting the meaning of a record) reached from the other direction.
+    // Found by probe: the harness's internal fixture was reused for a client
+    // gate on the same task.
+    .eq('client_id', clientId)
     .is('deleted_at', null)
     .in('status', ['open', 'changes_requested'])
     .order('created_at', { ascending: false })
