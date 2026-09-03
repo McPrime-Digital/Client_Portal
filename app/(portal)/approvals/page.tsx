@@ -1,3 +1,4 @@
+import ApprovalRecord from '@/components/shared/ApprovalRecord'
 import { clientCan } from '@/lib/permissions'
 import { portalClientId, portalAccess } from '@/lib/team'
 import Link from 'next/link'
@@ -133,6 +134,14 @@ export default async function ClientApprovalsPage() {
           Deliverables waiting on your sign-off, across all your projects. Open one to approve it or request changes.
         </p>
       </div>
+
+      {/* THE RECORD (Batch 22 item 9, S3-c §3.2) — every review, decision,
+          reminder and lapse, timestamped and attributed. It renders ABOVE the
+          legacy task queue rather than replacing it: with the approvals engine
+          newly live, swapping this page's query wholesale would have emptied a
+          surface that currently shows real pending gates. Rule Zero. The task
+          queue below drops when its columns do. */}
+      <ApprovalRecord side="portal" />
 
       <div className="mb-8 grid grid-cols-3 gap-3">
         {[

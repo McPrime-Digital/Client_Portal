@@ -672,9 +672,25 @@ export type DecisionRow = {
   decided_at: string
 }
 
+/** A ledger row about this approval — reminders and lapses, which are facts
+ *  about the review that no decision row records (S3-c §2.4). */
+export type ApprovalEvent = {
+  id: string
+  event_type: string
+  title: string
+  body: string | null
+  actor_name: string
+  created_at: string
+  meta: Record<string, unknown> | null
+}
+
 export type ApprovalDetail = {
   approval: ApprovalRow
   stages: (StageRow & { assignees: AssigneeRow[]; decisions: DecisionRow[] })[]
+  /** The reminder ladder and the lapse, in order. Empty rather than absent
+   *  when the reader cannot see activity_log — a thinner record, never an
+   *  error, and never a reason to hide the rest. */
+  events: ApprovalEvent[]
 }
 
 export type ListApprovalsParams = {
@@ -754,7 +770,18 @@ export async function readApproval(
     .from('approval_stages').select(STAGE_COLUMNS).eq('approval_id', approvalId).order('seq')
   const stages = (stageData ?? []) as unknown as StageRow[]
   const stageIds = stages.map((s) => s.id)
-  if (stageIds.length === 0) return { approval, stages: [] }
+
+  // Reminders and the lapse. Bounded (I-1) — a review with more than 200
+  // ledger events is pathological, and the cap is stated rather than implied.
+  const { data: eventData } = await db
+    .from('activity_log')
+    .select('id, event_type, title, body, actor_name, created_at, meta')
+    .eq('meta->>approval_id', approvalId)
+    .order('created_at', { ascending: true })
+    .limit(200)
+  const events = (eventData ?? []) as unknown as ApprovalEvent[]
+
+  if (stageIds.length === 0) return { approval, stages: [], events }
 
   const [{ data: assigneeData }, { data: decisionData }] = await Promise.all([
     db.from('approval_assignees')
@@ -768,6 +795,7 @@ export async function readApproval(
 
   return {
     approval,
+    events,
     stages: stages.map((s) => ({
       ...s,
       assignees: assignees.filter((a) => a.stage_id === s.id),
