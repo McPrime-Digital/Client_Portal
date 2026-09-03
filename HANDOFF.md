@@ -5,10 +5,9 @@ did not: the open list was kept outside the repo, drifted from the code with
 nothing able to contradict it, and four live defects fell off it entirely
 (recovered by Batch 6 item 0). Everything below was verified against the code
 and the live database on 2026-08-28 — nothing is quoted from memory of what a
-batch was supposed to do. Last corrected after **Batch 23** (S3-d — membership
-becomes a row; channels, groups, DMs, broadcast; the crew Chat hub — 2026-09-03,
-with fresh live reads and a 13-probe RLS smoke run); Batch 8 was the final
-foundation batch.
+batch was supposed to do. Last corrected after **Batch 24** (space separation, resumable uploads,
+permanent deletion — 2026-09-03, with a 10-probe live R2 smoke run); Batch 8
+was the final foundation batch.
 
 After this, read `docs/specs/` in order: S0 → S0-A → **S0-B** → S0-conformance
 → S1-P → S-V → **S-F** → S1 → S2 → **S-C** → **S3-core** → **S3-core-A** →
@@ -265,6 +264,8 @@ The audited era, each batch with what it *found*:
 
 | 23 (S3-d, 2026-09-03) | **Membership becomes a ROW, and the crew space gets its chat.** 0043 `room_members` + the helper quartet + a trigger confining self-service to notify/leave; 0044 backfill (printed prediction matched exactly: 11 crew + 9 client, 0 overlap, 20 rows, zero parity gaps both directions); 0045 kind widens to channel/group/dm/broadcast with topic/is_private/archived_at/project_id, dm_key + partial unique index (race-free DM find-or-create, the 0027 shape one level down), `last_message_at` WITH its trigger; 0046 **THE FLIP** — message and room policies move off tenant identity onto `is_room_member()`/`room_can_post()`/`room_history_from()`, sender and org pinned in the INSERT policy; 0047 drops the one-crew-room index (0027 §9.1's promised migration); 0048 printed, GATED on deploy (prefs onto the seat); 0049 person avatars + collaborator display_name. Harness 20 → **28** (21 stays reserved for the retention purge), run RED pre-flip — 25 and 27 genuinely FAILED (a left member kept reading; the org owner could read a DM) — then 28/28 green post-flip. `lib/rooms.ts` (creation with creator-first-seat under RLS, DM dedup, seating with explicit-rejoin semantics, §5.3 seeding + `healDerivableMemberships` self-heal), four `/api/rooms*` routes (zod at every boundary; creation/seating/sends on the USER client — 0046 IS the authorization), group receipts (blue = every other member's watermark covers it), member-scoped `orgUnread`, `pushRoomMessageAlert`, pause/revoke stamps every seat + restore re-derives, Crew › Chat hub (was a phase-4 stub), portal DM chips in the notch, avatar bubble heads. 13-probe persona smoke run: 13/13 | **The pause hole found before it shipped**: under MD-1 the seat reads the room, so cutting claims alone would have left a paused member reading everything with a live session — the cut now stamps seats. **The RLS recursion trap in the bootstrap**: the creator-first-seat policy's subquery runs under the CALLER's RLS, and the creator could not yet SEE the private room they had just created — member_read gained a created_by clause before it shipped. **§5.2's own instruction was wrong against its own gate**: dropping the project-visibility conjunct would have widened a live scoped crew member's access, so the conjunct stays, recorded as a deviation. Earlier the same day (owner rounds): the Film wallpaper restored as redrawn artifacts (the ask was improve, not replace), and five reported defects each traced to a mechanism — stale closures/responses contaminating the per-view cache (and then PERSISTING), a hidden tab forging READ ticks and silencing the away push, media without reserved boxes bouncing the open, unsupported Unicode rendering as invisible emoji, the chips band consuming chat height (now a floating notch) |
 
+| 24 (owner-directed, 2026-09-03) | **The spaces separate, and files stop being one-way.** SPACE SCOPING: the crew hub filtered `kind !== 'client'`, so a DM or channel with a client company's person landed on the studio's INTERNAL floor — the COMPANY COLUMN is the boundary now, everywhere. Crew · Chat = rooms with no company (directory: crew + seated collaborators). Client · Messages = rooms WITH a company, as chips beside the project chips, with a `+` scoped to that company. Portal = DMs and groups only, owner-initiated (tightened from owner-or-approver; RLS still admits an approver, so the route is the narrower gate and says so). A DM is stamped with the counterparty's company at creation, so routing is a column lookup. UPLOADS: real multipart above 8 MB (`/api/files/multipart` + four `lib/r2` helpers) — pause, resume, cancel, with the server aborting so abandoned parts are not billed. DELETION: `lib/fileDelete` — detach, row, then blob; `/api/files/[id]` widened from admin-only to "any admin of the file's own org, or its uploader"; a deleted chat message destroys its attachment NOW. Plus: the hover action bar stops eating neighbouring clicks, delete-during-upload cancels, pending captions are editable, Audio joins the attach menu, Save to device, attachments work in the new room kinds (`resolveUploadScope` grows a ROOM scope gated on membership), thread/search/pins pre-sign like the main list, and projects mint their chat on creation | **Four bugs whose cause was not where the symptom was.** (1) "Files cannot be deleted permanently" was true because the route was `isAdmin`-only — and while fixing it, that same route turned out to have NO TENANT PREDICATE, so an admin of studio B could delete studio A's file by id. (2) "The actions hide behind rather than in front" was `opacity-0`, which hides an element and keeps it CLICKABLE — the invisible bar at `-top-4` was swallowing the neighbouring message's clicks. (3) "I deleted a file that was still loading and it didn't work" — the delete route was being called with a `temp-` id, which 404s. (4) The obvious multipart design would have read ETags off each PUT response, which a cross-origin XHR cannot do unless the bucket's CORS names `ExposeHeaders` — a fourth silent CORS dependency of exactly the Batch 17 kind; completion asks R2 what it stored instead. Also found: `create-project` never stamped `organization_id`, so a second studio's project (and now its chat room) would have been minted in tenant zero |
+
 ## 7. Current state (verified 2026-08-28 after Batch 8; Batch 9 deltas from the
 code 2026-08-30, with one live read; Batch 10 deltas from the code 2026-08-31)
 
@@ -345,10 +346,11 @@ code 2026-08-30, with one live read; Batch 10 deltas from the code 2026-08-31)
   thread (receipts now derive from watermarks — Batch 21.3). (A sentence
   here was truncated mid-word — "The 0030 policy" — since Batch 14; its
   intent is unrecoverable and it is removed rather than guessed at.)
-- **`tsc --noEmit`:** clean. **Lint: 313** (counted at Batch 23's end; 315
-  at its start). **Route handlers: 55** — Batch 23 added the four
-  `/api/rooms*` routes, every one zod-validated at the boundary (I-7 holds
-  for all new surfaces). The pre-Batch-23 line: **Lint: 317** (counted at Batch 22's end; 318 at
+- **`tsc --noEmit`:** clean. **Lint: 313** (unchanged across Batch 24).
+  **Route handlers: 56** — Batch 24 added `/api/files/multipart`, zod-validated
+  like the four `/api/rooms*` routes Batch 23 added (I-7 holds for all new
+  surfaces). The pre-Batch-24 line: **Lint: 313** (counted at Batch 23's end; 315
+  at its start). **Route handlers: 55**. The pre-Batch-23 line: **Lint: 317** (counted at Batch 22's end; 318 at
   its start). **Route handlers: 51** — and the count went DOWN for the first
   time in this project's history, because Batch 22 item 11 deleted
   `/api/activity`. The superseded line: **Lint: 318** — 355 at Batch 15's start, 319
@@ -741,17 +743,16 @@ room, the record on both review pages, the printable certificate.
   harness 22–29 (RED first, then 28/28), the flip, `lib/rooms.ts`, the four
   `/api/rooms*` routes, the crew Chat hub, portal DMs, bubble heads. What
   REMAINS of it, in order of value:
-  1. **Push and deploy Batch 23, then apply 0048** (drops
-     `message_room_prefs`; the running deploy still reads it — GATED exactly
-     like 0036/0037 were).
-  2. **Click-test** once deployed: crew creates a channel and a broadcast,
-     seats people, a muted seat cannot post; a client owner opens a DM from
-     the portal notch and the crew hub receives it live; bubble heads render;
-     leaving hides new traffic.
-  3. **Attachments in new-kind rooms** — deliberately OFF: the presign scope
-     requires a project or client, and widening `lib/uploadScope` deserves
-     review, not a side door (Batch 14's judgment, still standing). This is
-     the batch that lifts it.
+  1. **DONE (Batch 23 deployed; 0048 applied 2026-09-03).**
+     `message_room_prefs` is dropped; the level lives on the seat.
+  2. **Click-test DONE by the owner**, which produced the Batch 24
+     corrections. Owed now: a fresh pass over Batch 24 — pause/resume a large
+     upload, cancel mid-flight, delete a file and confirm it is gone from R2,
+     Save to device, an Audio send, and the space boundaries (no client
+     contacts in Crew · Chat; the `+` in Client · Messages).
+  3. **DONE (Batch 24)** — attachments work in the new room kinds via a ROOM
+     upload scope gated on membership, which is also the only scope an
+     external collaborator could ever satisfy.
   4. **The MD-4 collaborator INVITE path** — the schema, policies and
      harness assertion 23 are live; what does not exist is the flow that
      mints the auth account and sends tenant-voiced mail

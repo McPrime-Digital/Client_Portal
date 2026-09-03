@@ -264,13 +264,42 @@ presigned PUT URL — the bytes never pass through a serverless function, so the
 request-body size limit (this is what makes uploads work on Vercel, which hard-caps function
 bodies at ~4.5MB).
 
-Flow (`lib/uploadClient.ts` → two route handlers):
-1. `POST /api/files/presign` — auth + authorize for the project, mint a collision-safe key
-   `<clientId>/<projectId>/<rand>` and return a presigned PUT URL. The key is always
-   server-generated; scope resolution is shared with commit via `lib/uploadScope.ts`.
+Flow (`lib/uploadClient.ts` → three route handlers). **Two paths, one call site**
+(Batch 24) — `uploadFileToR2` picks by size:
+
+**Under 8 MB — one presigned PUT:**
+1. `POST /api/files/presign` — auth + authorize, mint a collision-safe key and return a
+   presigned PUT URL. The key is always server-generated; scope resolution is shared with
+   commit and multipart via `lib/uploadScope.ts`.
 2. Browser `PUT`s the file to R2 (Content-Type must match what was presigned).
 3. `POST /api/files/commit` — re-authorize, verify the key prefix, insert the `files` row with
    `bucket: 'r2'`, and meter `storage.bytes`.
+
+**8 MB and over — multipart, and therefore PAUSABLE:** `POST /api/files/multipart` with
+`{create|sign|complete|abort}`, then the same commit. `uploadFileToR2` returns an
+`UploadHandle` (`pause`/`resume`/`cancel`/`canPause`) so the bubble carrying the file can
+drive it; cancel aborts server-side, because abandoned parts are billed until they are.
+**Completion never trusts browser ETags** — a cross-origin XHR can only read a header the
+bucket's CORS names in `ExposeHeaders`, and ours does not, so the server calls `ListParts`
+and completes with what R2 actually holds. A part PUT must send **no** `Content-Type`
+header (the part URLs are signed without one). A short part list ABORTS rather than
+completing: a truncated object that reports success is the worst outcome available.
+
+**Three scopes** (`lib/uploadScope.ts`): project (`<clientId>/<projectId>`), client
+(`<clientId>/_general`), and — since Batch 24 — **room**
+(`<clientId>/_room/<roomId>`, or `_org/<orgId>/_room/<roomId>` for internal rooms), where a
+live `room_members` seat is the authorization. The room scope is what makes attachments work
+in channels/groups/DMs, and is the only scope an external collaborator can satisfy.
+
+**Deletion is permanent and goes through one path** — `lib/fileDelete.ts`: detach references
+(`message_attachments`, invoice receipt links), delete the `files` row, then destroy the R2
+object. **Row before blob**, deliberately: the reverse leaves a row pointing at bytes that no
+longer exist — a file that lists, previews broken, and can never be cleaned up because the
+delete already "succeeded". `/api/files/[id]` DELETE is open to any admin of the file's own
+organization (it had no tenant predicate before Batch 24) or to the person who uploaded it.
+Deleting a chat message destroys its attachment immediately rather than waiting for the
+migration-11 purge: a scrubbed body is unreadable, but a signed URL already handed out keeps
+working.
 
 Chat attachments use the same path: `handleAttachmentUpload` in each messaging component calls
 `uploadFileToR2({ category: 'message' })`, so a `files` row **is** created and the file lands
