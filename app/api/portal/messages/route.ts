@@ -2,7 +2,7 @@ import { portalClientId, portalAccess } from '@/lib/team'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { advanceWatermark, roomSides, deriveWire } from '@/lib/messageRead'
+import { advanceWatermark, roomSides, deriveWire, signAttachments } from '@/lib/messageRead'
 import { decodeCursor, encodeCursor, beforePredicate } from '@/lib/keyset'
 import { resolveMentionTargets } from '@/lib/messageMentions'
 
@@ -291,6 +291,12 @@ export async function GET(req: NextRequest) {
       ? { ...m, body: '', attachment_url: null, attachment_name: null, attachment_file_id: null }
       : m
   )
+  // PRE-SIGN the page's attachments (item 7). Without this the browser had to
+  // exchange each `bucket::path` reference for a signed URL AFTER the list had
+  // painted — one round trip per attachment, arriving as a visible second wave
+  // of images and video filling in. Signing is a local HMAC for R2, so a page
+  // costs effectively nothing, and the thread opens complete.
+  const signedRows = await signAttachments(supabaseAdmin, scrubbed)
 
   // Pins (item 4): ids ride every page; ?pins=full returns the panel rows.
   if (req.nextUrl.searchParams.get('pins') === 'full') {
@@ -326,7 +332,7 @@ export async function GET(req: NextRequest) {
   const pinnedIds = (pinIdRows ?? []).map((p) => p.message_id as string)
 
   // Reply meta per root on this page — count + last reply time (item 3).
-  const rootIds = scrubbed.map((m) => m.id as string)
+  const rootIds = signedRows.map((m) => m.id as string)
   const replyMeta: Record<string, { count: number; lastAt: string }> = {}
   if (rootIds.length > 0) {
     const { data: replyRows } = await supabaseAdmin
@@ -346,7 +352,7 @@ export async function GET(req: NextRequest) {
 
   // Mention targets resolved for THIS viewer (item 5): scoped members see
   // restricted chips, not names, for things outside their scope.
-  const pageMentions = scrubbed.flatMap((m) => (m.mentions as { kind: string; target_id: string }[] | undefined) ?? [])
+  const pageMentions = signedRows.flatMap((m) => (m.mentions as { kind: string; target_id: string }[] | undefined) ?? [])
   const mentionTargets = pageMentions.length
     ? await resolveMentionTargets(supabaseAdmin, pageMentions, {
         role: 'client',
@@ -357,7 +363,7 @@ export async function GET(req: NextRequest) {
       })
     : null
 
-  return NextResponse.json({ messages: scrubbed, roomId: room.id, nextCursor, hasMore: !!hasMore, replyMeta, pinnedIds, mentionTargets })
+  return NextResponse.json({ messages: signedRows, roomId: room.id, nextCursor, hasMore: !!hasMore, replyMeta, pinnedIds, mentionTargets })
 }
 
 // Mark a thread read (advances THIS user's room watermark) or delivered.

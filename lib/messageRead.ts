@@ -1,4 +1,5 @@
 import 'server-only'
+import { getSignedDownloadUrl } from '@/lib/r2'
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -340,4 +341,58 @@ export async function advanceWatermark(
     { onConflict: 'room_id,user_id' }
   )
   if (upErr) throw new Error(`watermark write failed: ${upErr.message}`)
+}
+
+/**
+ * Pre-sign every attachment on a page of wire rows.
+ *
+ * WHY THIS EXISTS. `deriveWire` puts `attachment_url` on the wire as a
+ * `bucket::path` REFERENCE, which the browser then had to exchange for a
+ * signed URL through `/api/{portal,admin}/messages/attachment` — one extra
+ * round trip PER ATTACHMENT, fired after the list had already painted. So a
+ * thread opened, the bubbles appeared, and then the images and video filled in
+ * afterwards. That second wave is what makes a chat feel like it is still
+ * loading when it has in fact finished.
+ *
+ * Signing here costs nothing worth measuring: R2 presigning is a local HMAC,
+ * not a network call, and a page is 50 messages of which few carry files. The
+ * per-attachment route stays for the lazy paths (thread panels, search
+ * results, the pins list) — this removes the second wave from the ONE surface
+ * where it was visible.
+ *
+ * Deduplicated by file id, so ten messages quoting one file sign it once.
+ */
+export async function signAttachments<T extends Record<string, any>>(
+  db: SupabaseClient,
+  rows: T[]
+): Promise<T[]> {
+  const fileIds = [...new Set(
+    rows.map((m) => m.attachment_file_id as string | null).filter((v): v is string => !!v)
+  )]
+  if (fileIds.length === 0) return rows
+
+  const { data: files } = await db
+    .from('files').select('id, bucket, file_path').in('id', fileIds)
+  if (!files?.length) return rows
+
+  const signed = new Map<string, string>()
+  await Promise.all(
+    (files as { id: string; bucket: string; file_path: string }[]).map(async (f) => {
+      try {
+        const url = f.bucket === 'r2'
+          ? await getSignedDownloadUrl(f.file_path, 3600, { disposition: 'inline' })
+          : (await db.storage.from(f.bucket).createSignedUrl(f.file_path, 3600)).data?.signedUrl
+        if (url) signed.set(f.id, url)
+      } catch {
+        // One unsignable file must not cost the whole page its media; the
+        // client falls back to the per-attachment route for this one.
+      }
+    })
+  )
+
+  return rows.map((m) => {
+    const id = m.attachment_file_id as string | null
+    const url = id ? signed.get(id) : undefined
+    return url ? { ...m, attachment_signed_url: url } : m
+  })
 }

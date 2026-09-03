@@ -534,10 +534,35 @@ export default function MessageThread({
     }
   }, [resolvedUrls])
 
-  // Resolve all attachment URLs on mount/messages change
+  /**
+   * Attachment URLs (item 7).
+   *
+   * The list endpoint now PRE-SIGNS every attachment on the page, so the
+   * common case costs no request at all — the media is renderable the instant
+   * the bubble is. Those arrive as `attachment_signed_url` and are seeded
+   * straight into the map SYNCHRONOUSLY during render, not in an effect,
+   * because an effect would paint one frame of empty media first and that
+   * single frame is the flicker this item is about.
+   *
+   * Anything the server could not sign — a lazy surface like the pins panel,
+   * or a file whose signing failed — still falls back to the per-attachment
+   * route below. The second wave is gone from the thread; it is not gone from
+   * the codebase, because those surfaces still need it.
+   */
+  const preSigned: Record<string, string> = {}
+  for (const msg of messages) {
+    const url = (msg as { attachment_signed_url?: string | null }).attachment_signed_url
+    if (msg.attachment_url && url) preSigned[msg.attachment_url] = url
+  }
+  const urlFor = (raw: string | null | undefined): string | null =>
+    raw ? (preSigned[raw] ?? resolvedUrls[raw] ?? null) : null
+
   useEffect(() => {
     messages.forEach(msg => {
-      if (msg.attachment_url && !resolvedUrls[msg.attachment_url]) {
+      const already =
+        (msg as { attachment_signed_url?: string | null }).attachment_signed_url ||
+        (msg.attachment_url && resolvedUrls[msg.attachment_url])
+      if (msg.attachment_url && !already) {
         resolveUrl(msg.attachment_url, (msg as { attachment_file_id?: string | null }).attachment_file_id)
       }
     })
@@ -616,7 +641,7 @@ export default function MessageThread({
             new Date(nextMsg.created_at).toDateString() === new Date(msg.created_at).toDateString() &&
             new Date(nextMsg.created_at).getTime() - new Date(msg.created_at).getTime() < GROUP_MS
           const repliedMsg = msg.reply_to_id ? messages.find(m => m.id === msg.reply_to_id) : null
-          const resolvedAttachUrl = msg.attachment_url ? resolvedUrls[msg.attachment_url] : null
+          const resolvedAttachUrl = urlFor(msg.attachment_url)
           const attachName = msg.attachment_name || ''
           const attKind = attachmentKind(attachName)
           const isImg = attKind === 'image'
@@ -1181,7 +1206,7 @@ export default function MessageThread({
         {/* Attachment Preview Bar — shows a real thumbnail of what's staged */}
         {attachment && (() => {
           const kind = attachmentKind(attachment.name)
-          const previewUrl = resolvedUrls[attachment.url]
+          const previewUrl = urlFor(attachment.url)
           const isMedia = kind === 'image' || kind === 'video'
           return (
             <div className="flex items-center justify-between mb-3 px-3 py-2.5 rounded-xl border" style={{ backgroundColor: 'hsl(var(--primary) / 0.05)', borderColor: 'hsl(var(--primary) / 0.2)' }}>

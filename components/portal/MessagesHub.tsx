@@ -7,6 +7,7 @@
  * project pages use (RoomThread), never a second query shape.
  */
 
+import { prefetchThreads, cacheKeyFor, filterKeyFor, threadListUrl } from '@/lib/threadCache'
 import { useDismissOnOutside } from '@/lib/hooks/useDismissOnOutside'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -57,6 +58,20 @@ export default function MessagesHub({
   const [adminActivity, setAdminActivity] = useState<'typing' | 'recording' | null>(null)
   const [soundOn, setSoundOn] = useState(() => messageSoundEnabled())
   const [roomMenuOpen, setRoomMenuOpen] = useState(false)
+
+  // WARM EVERY CHIP BEFORE IT IS TAPPED (item 7). The cache already made a
+  // revisit instant; this makes the FIRST open instant too, which is most of
+  // them. Runs at idle, once per view per page load, capped in threadCache —
+  // it is a head start, not a poll.
+  useEffect(() => {
+    prefetchThreads([
+      { kind: 'all' as const },
+      ...projects.map((p) => ({ kind: 'project' as const, projectId: p.id })),
+    ].map((f) => ({
+      key: cacheKeyFor('client', clientId, filterKeyFor(f)),
+      url: threadListUrl('client', clientId, f),
+    })))
+  }, [clientId, projects])
   // Tap anywhere else, or Escape, closes it (shared hook — the same behaviour
   // both portals get, from one implementation).
   useDismissOnOutside(roomMenuOpen, useCallback(() => setRoomMenuOpen(false), []))

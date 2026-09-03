@@ -94,6 +94,10 @@ export type Message = {
   attachment_url?: string | null
   attachment_name: string | null
   attachment_file_id?: string | null
+  /** Signed, ready-to-render URL supplied BY THE LIST ENDPOINT (item 7), so
+   *  media paints with its bubble instead of arriving as a second wave. Absent
+   *  on lazy surfaces, which still resolve through the attachment route. */
+  attachment_signed_url?: string | null
   reactions?: { user_id: string; emoji: string }[]
   /** Retired (migration 12); only optimistic local rows still carry it. */
   is_deleted?: boolean

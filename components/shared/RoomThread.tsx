@@ -15,6 +15,7 @@
  * `room:<clientId>` for room-level views; events `message`, `typing`, `sync`.
  */
 
+import { readThread, writeThread, cacheKeyFor } from '@/lib/threadCache'
 import { useDismissOnOutside } from '@/lib/hooks/useDismissOnOutside'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -92,10 +93,9 @@ type Props = {
 // filter switches AND remounts, so a tap renders at 0ms from memory while
 // the network refresh reconciles silently. A first-ever project view seeds
 // from the All cache by local filtering — All is a superset.
-const threadCache = new Map<
-  string,
-  { rows: Message[]; cursor: string | null; hasMore: boolean; roomId: string | null }
->()
+// Extracted to lib/threadCache so the HUB can warm it before you tap — the
+// cache made a revisit instant, but a first open still waited, and most taps
+// in a working day are first opens (item 7).
 
 function matchesFilter(filter: RoomFilter, projectId: string | null): boolean {
   if (filter.kind === 'all') return true
@@ -355,11 +355,11 @@ export default function RoomThread({
     }
   }, [pageCursor, loadingOlder, listUrl, mergeRows])
 
-  const cacheKey = `${role}:${clientId}:${filterKey}`
+  const cacheKey = cacheKeyFor(role, clientId, filterKey)
   useEffect(() => {
     // 0ms render: this view's cache, or a local filter of the All superset.
-    const cached = threadCache.get(cacheKey)
-    const allCached = threadCache.get(`${role}:${clientId}:all`)
+    const cached = readThread(cacheKey)
+    const allCached = readThread(cacheKeyFor(role, clientId, 'all'))
     if (cached) {
       setMessages(cached.rows)
       setPageCursor(cached.cursor)
@@ -380,7 +380,7 @@ export default function RoomThread({
   // Keep the cache current so the NEXT tap is instant too.
   useEffect(() => {
     if (messages.length === 0 && loading) return
-    threadCache.set(cacheKey, {
+    writeThread(cacheKey, {
       rows: messages.filter((m) => !m.id.startsWith('temp-')),
       cursor: pageCursor,
       hasMore,

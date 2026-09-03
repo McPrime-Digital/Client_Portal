@@ -12,6 +12,7 @@
  * never by "something happened".
  */
 
+import { prefetchThreads, cacheKeyFor, filterKeyFor, threadListUrl } from '@/lib/threadCache'
 import { useDismissOnOutside } from '@/lib/hooks/useDismissOnOutside'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -60,7 +61,15 @@ function timeAgo(date: string) {
 export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms }: Props) {
   const supabase = createClient()
   const [rooms, setRooms] = useState(initialRooms)
-  const [activeClientId, setActiveClientId] = useState<string | null>(null)
+  // Seeded from the ROOM LIST rather than set by an effect: the studio should
+  // land in the busiest room on the first paint, not on a second render after
+  // one. This was `useState(null)` plus an effect that immediately called
+  // setState — a cascading render, and the react-hooks rule was right about
+  // it (it only surfaced once an unrelated effect stopped the analyser
+  // bailing out of this file).
+  const [activeClientId, setActiveClientId] = useState<string | null>(
+    () => initialRooms[0]?.clientId ?? null
+  )
   const [filter, setFilter] = useState<RoomFilter>({ kind: 'all' })
   const [externalRow, setExternalRow] = useState<ExternalRow | null>(null)
   const [clientActivity, setClientActivity] = useState<'typing' | 'recording' | null>(null)
@@ -97,12 +106,6 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
     return () => releaseHub()
   }, [])
 
-  // Desktop: open the busiest room so the studio lands in the work.
-  useEffect(() => {
-    if (!activeClientId && rooms.length > 0) setActiveClientId(rooms[0].clientId)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   // ── Movement: ONLY on a genuinely new latest message ─────────────────────
   const applyActivity = useCallback(
     (clientId: string, latest: Message, opts: { bumpUnread: boolean }) => {
@@ -136,6 +139,25 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
   useEffect(() => {
     roomToClient.current = new Map(rooms.map((r) => [r.roomId, r.clientId]))
   }, [rooms])
+
+  // WARM THE ROOMS BEFORE THEY ARE TAPPED (item 7). The studio side lists
+  // client COMPANIES, so the All view of each is what a first tap opens —
+  // those get warmed first, then the ACTIVE company's project chips. Capped in
+  // threadCache: a studio with forty companies must not fire forty requests on
+  // hub load, and past a dozen the user's own tap beats the stampede anyway.
+  useEffect(() => {
+    const jobs = [
+      ...rooms.map((r) => ({ clientId: r.clientId, f: { kind: 'all' as const } })),
+      ...(active?.projects ?? []).map((p) => ({
+        clientId: active!.clientId,
+        f: { kind: 'project' as const, projectId: p.id },
+      })),
+    ]
+    prefetchThreads(jobs.map(({ clientId, f }) => ({
+      key: cacheKeyFor('admin', clientId, filterKeyFor(f)),
+      url: threadListUrl('admin', clientId, f),
+    })))
+  }, [rooms, active])
 
   useEffect(() => {
     const ch = supabase
