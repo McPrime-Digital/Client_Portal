@@ -46,19 +46,29 @@ import { ensureClientRoom, ensureCrewRoom } from '@/lib/messageRooms'
  * `approval_decisions` INSERT policy is what stops a forged decision. Only the
  * auto-advance sweep (item 5) has no session, and it is already allowlisted.
  *
- * ── ATOMICITY, AND THE GAP THAT IS HONEST RATHER THAN HIDDEN ────────────────
- * The brief asks for stages, assignees and the ledger row to be created "in
- * the same transaction". supabase-js has no client-side transactions — each
- * call is its own statement. The repo answers this two ways: an RPC where
- * atomicity is load-bearing (`charge_credits`, `add_credits` — money), and
- * COMPENSATING CLEANUP everywhere else (`create-client` deletes the company
- * row if a later insert fails). This module follows the second, because a
- * half-built approval is recoverable and costs nobody money: if stages or
- * assignees fail, the approval row is deleted (the 0038 cascade takes its
- * children) and the error is thrown. The residual window is a crash between
- * insert and cleanup, which would leave an approval with no stages — visible
- * as `status='open'` with zero stages, and the shape to look for if one ever
- * appears. Upgrading to an RPC is a migration, not a rewrite of this file.
+ * ── ATOMICITY ───────────────────────────────────────────────────────────────
+ * supabase-js has no client-side transactions, so this was first written as
+ * sequential inserts with COMPENSATING CLEANUP (the `create-client:230`
+ * precedent): on any failure, delete the approval and let 0038's cascade take
+ * its children. That handles an ERROR. It does not handle a CRASH between the
+ * insert and the cleanup — a lambda freeze, a deploy, a dropped connection —
+ * and the state that leaves is the bad kind of broken: an approval with no
+ * stages has no deadline, the item-5 sweep skips it (it predicates on active
+ * stages), nobody can decide on it, and it sits on the review page looking
+ * live forever. Invisible, not loud.
+ *
+ * So the approval, its stages and its assignees now land in ONE transaction
+ * via `create_approval_with_stages` (0042). SECURITY INVOKER, deliberately —
+ * unlike the 0039/0040/0041 triggers, which exist because a caller
+ * legitimately lacked a privilege, this one buys ATOMICITY ONLY and 0038's
+ * policies still decide who may create.
+ *
+ * The ledger row and the card are STILL compensated rather than atomic, and
+ * that boundary is deliberate: a missing card is visible on the review page
+ * and a missing ledger row changes no behaviour, whereas a missing stage was
+ * not visible at all. Moving the card would also mean reimplementing
+ * `lib/messageRooms.ts`'s unique-index race handling in SQL — a second copy
+ * of something already correct.
  */
 
 // ── vocabulary (must match 0038's CHECK constraints exactly) ────────────────
@@ -243,59 +253,56 @@ export async function createApproval(
     windowHours = (org as { approval_window_hours?: number } | null)?.approval_window_hours ?? 120
   }
 
-  const { data: approvalData, error: approvalErr } = await db
-    .from('approvals')
-    .insert({
-      organization_id: orgId, // stamped, never defaulted (T-5)
-      subject_kind: subjectKind,
-      subject_id: subjectId,
-      project_id: projectId,
-      client_id: clientId,
-      title: title.trim(),
-      status: 'open',
-      review_window_hours: reviewWindowHours,
-      contract_id: contractId,
-      subject_version_id: subjectVersionId,
-      created_by: actorId,
-    })
-    .select(APPROVAL_COLUMNS)
-    .single()
-  if (approvalErr || !approvalData) {
-    throw new Error(`createApproval: insert failed: ${approvalErr?.message ?? 'no row returned'}`)
-  }
-  const approval = approvalData as unknown as ApprovalRow
-
-  // Everything past this point compensates on failure — see the header.
-  try {
-    const stageRows = stages.map((s, i) => ({
-      approval_id: approval.id,
-      seq: i + 1,
+  // ── ATOMIC (0042) ───────────────────────────────────────────────────────
+  // The approval, its stages and its assignees land in ONE transaction. This
+  // used to be three sequential inserts with compensating cleanup, which
+  // handled an ERROR but not a CRASH between the insert and the cleanup — and
+  // the state that left behind was the bad kind of broken: an approval with
+  // no stages has no deadline, the sweep skips it, nobody can decide on it,
+  // and it sits on the review page looking live forever.
+  //
+  // SECURITY INVOKER, so 0038's policies still decide who may create — the
+  // RPC buys atomicity, not privilege.
+  const { data: newId, error: rpcErr } = await db.rpc('create_approval_with_stages', {
+    p_org: orgId,
+    p_subject_kind: subjectKind,
+    p_subject_id: subjectId,
+    p_title: title.trim(),
+    p_client_id: clientId,
+    p_project_id: projectId,
+    p_review_window_hours: reviewWindowHours,
+    p_contract_id: contractId,
+    p_subject_version_id: subjectVersionId,
+    p_created_by: actorId,
+    p_window_hours: windowHours,
+    p_stages: stages.map((s) => ({
       name: s.name,
       mode: s.mode ?? 'sequential',
-      // Only the first stage is on the clock. Later stages get their deadline
-      // when they are activated, not now — a stage that has not started has
-      // not consumed any of the client's window.
-      status: i === 0 ? 'active' : 'pending',
-      deadline_at: i === 0 ? hoursFromNow(windowHours) : null,
-    }))
-
-    const { data: insertedStages, error: stageErr } = await db
-      .from('approval_stages').insert(stageRows).select(STAGE_COLUMNS).order('seq')
-    if (stageErr || !insertedStages) {
-      throw new Error(`stage insert failed: ${stageErr?.message ?? 'no rows returned'}`)
-    }
-
-    const assigneeRows = (insertedStages as StageRow[]).flatMap((row, i) =>
-      stages[i].assignees.map((a) => ({
-        stage_id: row.id,
+      assignees: s.assignees.map((a) => ({
         user_id: a.userId ?? null,
         client_id: a.clientId ?? null,
         role: a.role ?? null,
         required: a.required ?? true,
-      }))
-    )
-    const { error: assigneeErr } = await db.from('approval_assignees').insert(assigneeRows)
-    if (assigneeErr) throw new Error(`assignee insert failed: ${assigneeErr.message}`)
+      })),
+    })),
+  })
+  if (rpcErr || !newId) {
+    throw new Error(`createApproval: insert failed: ${rpcErr?.message ?? 'no id returned'}`)
+  }
+
+  const { data: approvalData } = await db
+    .from('approvals').select(APPROVAL_COLUMNS).eq('id', newId as string).single()
+  const approval = approvalData as unknown as ApprovalRow
+
+  const { data: insertedStages } = await db
+    .from('approval_stages').select(STAGE_COLUMNS).eq('approval_id', approval.id).order('seq')
+
+  // The ledger row and the card are still compensated rather than atomic, and
+  // that is deliberate (0042's header says why): a missing card is VISIBLE on
+  // the review page and a missing ledger row changes no behaviour, whereas a
+  // missing stage was invisible. Room resolution also has race handling in
+  // lib/messageRooms.ts that would have to be rewritten in SQL to move it.
+  try {
 
     await recordActivity({
       projectId, clientId, organizationId: orgId,
@@ -309,7 +316,7 @@ export async function createApproval(
         subject_id: subjectId,
         review_window_hours: windowHours,
         window_source: reviewWindowHours == null ? 'organization_default' : 'per_approval',
-        stage_count: insertedStages.length,
+        stage_count: (insertedStages ?? []).length,
       },
     })
 
@@ -344,7 +351,7 @@ export async function createApproval(
     })
     if (cardErr) throw new Error(`approval card insert failed: ${cardErr.message}`)
 
-    return { approval, stages: insertedStages as StageRow[] }
+    return { approval, stages: (insertedStages ?? []) as unknown as StageRow[] }
   } catch (e) {
     // Compensate: the 0038 cascade removes stages and assignees with the row.
     await db.from('approvals').delete().eq('id', approval.id)
