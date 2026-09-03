@@ -14,3 +14,24 @@ export function projectColor(projectId: string): string {
   // could collide, which defeats the entire point of colour-bonding).
   return `hsl(${h % 360} 62% 55%)`
 }
+
+/**
+ * Deterministic PERSON colour — team chat.
+ *
+ * Same reasoning as projectColor: a pure function of the id, no column and no
+ * config. Once a company or a crew has more than one member, a thread is only
+ * scannable if each person is visually distinct at a glance — a name in 9px
+ * uppercase is not enough when you are catching up on forty messages.
+ *
+ * Deliberately offset from the project hue space and pulled to a lower
+ * saturation: a person's mark must never be mistaken for a project's colour
+ * binding, which carries different meaning on the same screen.
+ */
+export function senderColor(senderId: string | null | undefined): string {
+  if (!senderId) return 'hsl(0 0% 55%)'
+  let h = 0
+  for (let i = 0; i < senderId.length; i++) {
+    h = (h * 37 + senderId.charCodeAt(i)) >>> 0
+  }
+  return `hsl(${(h % 360)} 44% 58%)`
+}

@@ -256,6 +256,7 @@ export default function RoomThread({
   /** Per-optimistic-message upload progress, for the ring drawn over the
    *  media itself rather than in the composer (item 5). */
   const [uploads, setUploads] = useState<Record<string, { pct: number; bytes: number; failed?: boolean }>>({})
+  const [ownUserId, setOwnUserId] = useState<string | null>(null)
 
   // Publish WHICH view this tab is reading, so the other side sees "In All" or
   // "In AMP" rather than a bare "Online" (item 6). Cleared on unmount so a
@@ -273,6 +274,11 @@ export default function RoomThread({
     primeAudio()
     createClient().auth.getUser().then(async ({ data }) => {
       ownIdRef.current = data.user?.id ?? null
+      // STATE as well as the ref: the ref is what callbacks read, but a ref
+      // change does not re-render, so a renderer depending on it would have
+      // stayed on the pre-auth value forever. Team chat needs the person, so
+      // the person has to reach the render.
+      setOwnUserId(data.user?.id ?? null)
       if (!data.user) return
       // Saves are read with the USER client under RLS — the policy is
       // user_id = auth.uid(), so this cannot see anyone else's by construction.
@@ -1378,7 +1384,7 @@ export default function RoomThread({
             loadingOlder={loadingOlder}
             replyMeta={replyMeta}
             onOpenThread={openThread}
-            ownUserId={ownIdRef.current}
+            ownUserId={ownUserId}
             onToggleReaction={toggleReaction}
             onTogglePin={togglePin}
             onToggleSave={toggleSave}
@@ -1855,6 +1861,7 @@ export default function RoomThread({
                   mentionTargets={mentionTargets}
                   mentionCandidates={mentionCandidates}
                   projectMeta={projectMeta}
+                  ownUserId={ownUserId}
                   // A thread panel hangs off ONE root message, so every reply
                   // shares its project by construction — labelling each one
                   // would be the same noise the main list just lost.

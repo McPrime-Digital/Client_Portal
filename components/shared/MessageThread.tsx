@@ -1,5 +1,6 @@
 'use client'
 
+import { senderColor } from '@/lib/projectColor'
 import { useDismissOnOutside } from '@/lib/hooks/useDismissOnOutside'
 import { DEFAULT_WALLPAPER, type WallpaperPattern } from '@/lib/chatPrefs'
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
@@ -676,7 +677,26 @@ export default function MessageThread({
         )}
 
         {messages.filter(m => !m.is_deleted && !m.deleted_at).map((msg, index, filtered) => {
-          const isMe = msg.sender_role === currentRole
+          /**
+           * WHO SENT THIS — the person, not the side (team chat).
+           *
+           * This was `msg.sender_role === currentRole`, which asks "is this
+           * from MY SIDE OF THE HOUSE". In a company or a crew with more than
+           * one member that is the wrong question: a teammate's message
+           * rendered as YOUR OWN — right-aligned, gold, no name — so a
+           * two-person client company could not tell who had said anything.
+           * The roster, the scoping and `sender_name` were all already there;
+           * only the renderer treated a company as one person.
+           *
+           * Falls back to the side when `ownUserId` is not known (a raw
+           * realtime payload before the session resolves), which is the old
+           * behaviour and never worse than it.
+           */
+          const isMe = ownUserId ? msg.sender_id === ownUserId : msg.sender_role === currentRole
+          /** A teammate: my side of the house, but not me. Their messages sit
+           *  on the left like anyone else's and carry a name, but are tinted
+           *  so "my team" and "the other party" stay distinguishable. */
+          const isTeammate = !isMe && msg.sender_role === currentRole
           const prevMsg = filtered[index - 1]
           const nextMsg = filtered[index + 1]
           const showDate = !prevMsg || new Date(msg.created_at).toDateString() !== new Date(prevMsg.created_at).toDateString()
@@ -878,7 +898,22 @@ export default function MessageThread({
                   )}
                   {!isMe && !prevSame && (
                     <p className="text-[9px] font-semibold uppercase tracking-wider mb-0.5 ml-1 flex items-center gap-1.5" style={{ color: 'hsl(var(--muted-foreground))' }}>
+                      {/* A stable per-person colour, so a group thread is
+                          scannable by who rather than only by name. */}
+                      <span
+                        className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-bold flex-shrink-0"
+                        style={{
+                          backgroundColor: `${senderColor(msg.sender_id)}22`,
+                          color: senderColor(msg.sender_id),
+                          border: `1px solid ${senderColor(msg.sender_id)}55`,
+                        }}
+                      >
+                        {(msg.sender_name || '?').slice(0, 1).toUpperCase()}
+                      </span>
                       {msg.sender_name}
+                      {isTeammate && (
+                        <span className="normal-case tracking-normal font-medium opacity-70">· your team</span>
+                      )}
                       {showProjectTag(msg, prevMsg) && (
                         <span
                           className="normal-case tracking-normal font-medium px-1.5 rounded-full text-[9px]"
