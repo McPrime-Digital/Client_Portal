@@ -73,6 +73,8 @@ And it changes behaviour on revocation. Under the widened index, revoking a deni
 
 **Cost.** One index swap. It is cheapest before grants accumulate; the migration's item 0 confirms the live row count on both grant tables before it runs, and reports rather than assumes.
 
+**And the assertion.** Harness assertion 31 is reachable today — it was phrased against the ROLE BASELINE, which is R-3's own Producer/rates example and is constructible under the narrow index. So it is not vacuous, and it should not be rewritten. What the widening adds is a SECOND constructible case: an explicit grant and an explicit deny on the same capability, held at once, which is the state R-3 was written for and the tables have never been able to hold. Batch 26 adds an assertion for it alongside 31, with the grant alone as its positive control. Without that, the widening ships with nothing proving the behaviour it exists to enable — lesson 9 one step later in time, and the step where it is easiest to miss, because the existing assertion passes either way.
+
 ---
 
 ## A-4 — the stored vocabulary is coarse; §4 is the vocabulary of questions
