@@ -56,7 +56,7 @@ export function statusCutsAccess(status: string | null | undefined): boolean {
 export async function cutMemberAccess(userId: string | null | undefined): Promise<string | null> {
   if (!userId) return null
   const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
-    app_metadata: { role: null, org_role: null, client_id: null },
+    app_metadata: { role: null, client_id: null },
   })
   // Since 0046 the SEAT, not the claim, reads a room (MD-1) — so the cut
   // must reach room_members or a paused member keeps reading with a live
@@ -71,14 +71,19 @@ export async function cutMemberAccess(userId: string | null | undefined): Promis
   return error ? error.message : null
 }
 
-/** Reinstate a crew member: studio access plus their stored org role. */
+/** Reinstate a crew member's studio access.
+ *
+ *  Takes no role argument since Batch 24 item 1b step 2. It used to accept one
+ *  in order to re-stamp `org_role`, a claim nothing ever read — and a role
+ *  copied into a token is a role as it was hours ago (S-R R-2). The roster row
+ *  it was copied FROM is what every capability check reads, so restoring the
+ *  routing value is the whole job. */
 export async function restoreOrgAccess(
   userId: string | null | undefined,
-  orgRole: string | null | undefined,
 ): Promise<string | null> {
   if (!userId) return null
   const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
-    app_metadata: { role: 'admin', org_role: orgRole ?? 'member' },
+    app_metadata: { role: 'admin' },
   })
   try { await restoreDerivableSeats(supabaseAdmin, userId) } catch { /* heal covers on next hub load */ }
   return error ? error.message : null

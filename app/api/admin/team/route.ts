@@ -117,8 +117,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  // crew members are studio users: role 'admin' opens the studio; the
-  // membership row's role governs what they may actually do.
+  // THE CLAIM IS ROUTING, AND ONLY ROUTING (S-R R-2, Batch 24 item 1b step 2).
+  // `role: 'admin'` is the two-valued crew/client axis of lib/auth/role.ts:26 —
+  // it is what opens /studio in proxy.ts and what 61 call sites read as "this is
+  // a crew session, not a client one". It stays, and it stays 'admin' for every
+  // crew member whatever their roster role, because that is what it means.
+  //
+  // What is GONE is `org_role`. It was a copy of the roster role written into
+  // app_metadata by six call sites and read by NONE — the audit's q4 grep found
+  // zero readers. A capability copied into a token is a capability as it was at
+  // token issue, and the token survives until logout; the roster row it was
+  // copied from is what every gate now reads (step 1). So the copy could only
+  // ever be stale, misleading, or both, and its absence is what makes
+  // "nothing authorizes on the claim" true rather than intended.
   //
   // A failed claim stamp must surface (I-10) — reporting success while the
   // invitee cannot enter the studio sends an admin looking for a bug in the
@@ -126,7 +137,7 @@ export async function POST(req: NextRequest) {
   // email has already gone out, and re-inviting or resending re-stamps the
   // claim. Reporting it is what makes that recoverable.
   const { error: claimError } = await supabaseAdmin.auth.admin.updateUserById(invite.user.id, {
-    app_metadata: { role: 'admin', organization_id: userOrgId(user), org_role: memberRole },
+    app_metadata: { role: 'admin', organization_id: userOrgId(user) },
   })
   if (claimError) {
     return NextResponse.json(
@@ -194,13 +205,12 @@ export async function PATCH(req: NextRequest) {
       // lib/memberAccess.ts for why that window cannot be closed here.
       claimError = await cutMemberAccess(target.user_id)
     } else if (status === 'active') {
-      claimError = await restoreOrgAccess(target.user_id, role ?? target.role)
-    } else if (role !== undefined) {
-      const { error: e } = await supabaseAdmin.auth.admin.updateUserById(target.user_id, {
-        app_metadata: { org_role: role },
-      })
-      claimError = e ? e.message : null
+      claimError = await restoreOrgAccess(target.user_id)
     }
+    // A role change no longer touches the claim at all. It used to re-stamp
+    // `org_role` here, which is the maintenance a stale copy demands — and the
+    // copy had no readers. The roster UPDATE above IS the role change, and
+    // every gate reads the roster on the next request (step 1).
     if (claimError) {
       return NextResponse.json(
         { error: `Roster updated, but the member's access claims could not be changed: ${claimError}` },

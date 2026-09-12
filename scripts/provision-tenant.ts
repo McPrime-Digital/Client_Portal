@@ -307,11 +307,11 @@ async function main() {
     record(`\n-- ═══ 5 · claims (LAST) ═══`)
     record(
       `-- auth.admin.updateUserById(<owner>, { app_metadata: {\n` +
-      `--     role: 'admin', organization_id: '${orgId}', org_role: 'owner' } })`,
+      `--     role: 'admin', organization_id: '${orgId}' } })`,
     )
     if (APPLY) {
       const { error } = await admin.auth.admin.updateUserById(ownerId, {
-        app_metadata: { role: 'admin', organization_id: orgId, org_role: 'owner' },
+        app_metadata: { role: 'admin', organization_id: orgId },
       })
       if (error) throw new Error(`claims for ${ownerEmail}: ${error.message}`)
       console.log(`  ✓ claims                 role=admin org=${orgId}`)
@@ -334,7 +334,7 @@ async function main() {
     console.log(`  settings       business_settings row (business_name = "${name}")`)
     console.log(`  budget         org_budgets row, hard_stop = true`)
     console.log(`  owner          ${ownerName} <${ownerEmail}>  role=owner status=active`)
-    console.log(`  claims         role=admin, organization_id=${orgId}, org_role=owner`)
+    console.log(`  claims         role=admin, organization_id=${orgId} (routing only)`)
     if (generatedPassword) {
       console.log(`\n  ONE-TIME PASSWORD for ${ownerEmail}:  ${generatedPassword}`)
       console.log(`  Shown once, stored nowhere. Have them sign in and change it immediately.`)
