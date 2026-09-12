@@ -36,9 +36,26 @@ export type ClientRole = 'owner' | 'approver' | 'member' | 'viewer'
  *  rows is an ordinary answer here, not an error to be inferred from. The org
  *  predicate is explicit per I-9 and is the seam S1 §2 needs for multi-org (v2)
  *  — verified 2026-08-28 that every admin's claim org matches their roster row,
- *  so it narrows nothing today. */
+ *  so it narrows nothing today.
+ *
+ *  THE CLAIM IS NOT CONSULTED (S-R R-2, Batch 24 item 1b step 1). There used to
+ *  be an `if (!isAdmin(user)) return []` here, and it made `app_metadata.role`
+ *  the gate on the whole capability chain: nothing resolved a capability for
+ *  anyone whose claim did not say 'admin'. Since app/api/admin/team/route.ts
+ *  stamps that value on EVERY crew invite at every roster role, the claim
+ *  admitted everyone and then the roster narrowed them — so the claim was doing
+ *  authorization work while looking like routing.
+ *
+ *  A claim also survives until logout, which is the substantive reason: a role
+ *  read from a token is a role as it was hours ago. The roster is read per
+ *  request, which is what makes revocation immediate here for the same reason
+ *  it already is in is_org_member().
+ *
+ *  A user with no active organization_members row still gets [] — that is what
+ *  refuses every client, and it is now a fact about the roster rather than a
+ *  fact about a token. Costs one indexed lookup on user_id for a client who
+ *  reaches a crew surface, on a request that is about to be refused anyway. */
 export async function orgRolesOf(user: User): Promise<OrgRole[]> {
-  if (!isAdmin(user)) return []
   const { data } = await supabaseAdmin
     .from('organization_members')
     .select('role, roles, status')
