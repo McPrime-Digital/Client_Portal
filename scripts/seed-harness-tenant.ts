@@ -292,16 +292,27 @@ async function main() {
   ])
 
   // 5 · rosters
+  //
+  // `member` MEANS OPPOSITE THINGS IN THE NEXT TWO BLOCKS, four lines apart.
+  // On organization_members it is the alias S-R §3.1 RETIRES, so the crew
+  // personas are 'crew' (migration 0050). On client_members it is a LIVE S-R §8
+  // role, so the C1 teammate stays 'member'. A sweep across both tables would
+  // silently delete a role the spec keeps — and this file is where such a sweep
+  // would look most obviously correct.
+  //
+  // These values must match 0050, or `npm run seed:harness` silently reverts the
+  // migration on the next run — and the harness documents a re-seed between runs
+  // (assertions 17 and 24 are single-use), so "silently" would mean "always".
   record(`\n-- ═══ crew roster ═══`)
   await seedRows(admin, 'organization_members', [
     { id: OM_OWNER_ID, organization_id: HARNESS_ORG_ID, user_id: userIds.owner,
       name: 'Harness Owner', email: PERSONAS.owner.email, role: 'owner', status: 'active',
       scope_mode: 'all', accepted_at: at(0) },
     { id: OM_CREW_ID, organization_id: HARNESS_ORG_ID, user_id: userIds.crew,
-      name: 'Harness Crew', email: PERSONAS.crew.email, role: 'member', status: 'active',
+      name: 'Harness Crew', email: PERSONAS.crew.email, role: 'crew', status: 'active',
       scope_mode: 'selected', accepted_at: at(0) },
     { id: OM_REVOKED_ID, organization_id: HARNESS_ORG_ID, user_id: userIds.revoked,
-      name: 'Harness Revoked', email: PERSONAS.revoked.email, role: 'member', status: 'revoked',
+      name: 'Harness Revoked', email: PERSONAS.revoked.email, role: 'crew', status: 'revoked',
       scope_mode: 'all' },
   ])
 

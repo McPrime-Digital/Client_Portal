@@ -40,8 +40,23 @@ export async function POST(req: NextRequest) {
 
   const { name, email, role, roles: extraRoles } = await req.json().catch(() => ({}))
   const cleanEmail = String(email ?? '').trim().toLowerCase()
-  const VALID = ['admin', 'producer', 'finance', 'editor', 'member']
-  const memberRole = VALID.includes(role) ? role : 'member'
+  // S-R §3.1's assignable roles plus the two deprecated aliases, which stay
+  // ACCEPTED so the existing team UI (which still sends 'member') keeps working
+  // until item 8 replaces the picker with ORG_ROLES_ASSIGNABLE. 'owner' is
+  // deliberately not invitable — an owner is made by provision-tenant or by an
+  // existing owner via PATCH, never by an invite form.
+  //
+  // These two new values are safe to accept ONLY because migration 0050 widened
+  // organization_members_role_check in the same commit. sendTenantInvite runs
+  // BEFORE the roster insert, so accepting a value the CHECK refuses would
+  // deliver the invite email and then 23514 the insert — the person gets a
+  // working link to an account with no roster row. That is HANDOFF's Batch 12.2
+  // defect (a 23505 firing after the email) and the reason the ordering is
+  // stated here rather than assumed.
+  const VALID = ['admin', 'producer', 'coordinator', 'finance', 'crew', 'editor', 'member']
+  // Default is 'crew', not 'member': 'member' is the deprecated alias S-R §3.1
+  // retires, and a default is the surest way to keep a retired name alive.
+  const memberRole = VALID.includes(role) ? role : 'crew'
   const additional = Array.isArray(extraRoles) ? extraRoles.filter((r) => VALID.includes(r) && r !== memberRole) : []
   if (!cleanEmail || !name?.trim()) return NextResponse.json({ error: 'Name and email are required.' }, { status: 400 })
 
@@ -156,7 +171,13 @@ export async function PATCH(req: NextRequest) {
   const gate = await requireManager()
   if ('error' in gate) return gate.error
   const { memberId, role, roles: extraRoles, status, extraCaps, title } = await req.json().catch(() => ({}))
-  const VALID = ['owner', 'admin', 'producer', 'finance', 'editor', 'member']
+  // PATCH's list, which differs from POST's by ONE value and must: an existing
+  // owner may promote someone to 'owner', an invite form may not create one.
+  // Widened with 'coordinator' and 'crew' alongside the 0050 CHECK — a second
+  // list two hundred lines from the first is exactly how one of them gets
+  // missed, so both are changed in this commit and this comment says why there
+  // are two. (Found by grepping the identifier after changing POST's.)
+  const VALID = ['owner', 'admin', 'producer', 'coordinator', 'finance', 'crew', 'editor', 'member']
   if (!memberId || (role !== undefined && !VALID.includes(role))) {
     return NextResponse.json({ error: 'Invalid role.' }, { status: 400 })
   }

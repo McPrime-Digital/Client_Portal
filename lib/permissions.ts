@@ -81,12 +81,28 @@ export function clientNavAllowed(
 // additional roles; their capabilities are the UNION of everything they hold.
 //   owner/admin  run the org (settings, team, money, everything)
 //   producer     runs production and the client relationship
+//   coordinator  scheduling, tasks, files, client messaging — no money, no roster
 //   finance      invoices, billing, cost control — nothing else extra
-//   editor       the workspace craft seats (script, storyboard, AI tools)
-//   member       baseline: project work + workspace
+//   crew         the craft floor: project work + the Suite
 // The finer per-feature matrix (finishing, generation, budgets…) deepens as
 // those features ship — these gates are the enforcement spine.
-export type OrgRole = 'owner' | 'admin' | 'producer' | 'finance' | 'editor' | 'member'
+//
+// S-R §3.1's SIX, plus two deprecated aliases. `coordinator` is additive — it is
+// the role most production companies hire first after a producer, and today
+// those people have to be made admins. `crew` is the new name for what `member`
+// and `editor` both describe; all three resolve the same baseline, and `editor`
+// and `member` stay here because migration 0050 keeps them in the DB CHECK
+// (Gabby's roles[] holds 'editor' live).
+//
+// THESE TWO VALUES MUST NOT OUTRUN THE MAP. `ORG_CAPS[r]?.includes(cap)` returns
+// false for a role it has never heard of — silently — so a role the database
+// admits and this file does not is a person who signs in to an empty studio with
+// no error. That is why 'coordinator' and 'crew' land here in the SAME commit
+// that widens the CHECK and adds them to the invite route's VALID list, rather
+// than waiting for item 3's type unification.
+export type OrgRole =
+  | 'owner' | 'admin' | 'producer' | 'coordinator' | 'finance' | 'crew'
+  | 'editor' | 'member'
 
 export type OrgCap =
   | 'org_settings'    // business settings, billing, plans
@@ -112,7 +128,14 @@ const ORG_CAPS: Record<OrgRole, OrgCap[]> = {
   owner: ['org_settings', 'manage_team', 'manage_clients', 'client_money', 'run_projects', 'workspace', 'cost_control', 'approval_policy'],
   admin: ['org_settings', 'manage_team', 'manage_clients', 'client_money', 'run_projects', 'workspace', 'cost_control', 'approval_policy'],
   producer: ['manage_clients', 'run_projects', 'workspace', 'cost_control', 'approval_policy'],
+  // No money and no roster (S-R §3.1), and no Suite: §8's sketch gives a
+  // coordinator "schedule, tasks, files and client messaging", which is
+  // run_projects, and puts the craft floor elsewhere. A coordinator who needs a
+  // Suite seat gets it as an individual grant, which is what grants are for.
+  coordinator: ['run_projects'],
   finance: ['client_money', 'cost_control'],
+  crew: ['run_projects', 'workspace'],
+  // Deprecated aliases for `crew`, kept because the DB CHECK keeps them.
   editor: ['run_projects', 'workspace'],
   member: ['run_projects', 'workspace'],
 }
@@ -121,10 +144,20 @@ export const ORG_ROLE_HELP: Record<OrgRole, string> = {
   owner: 'Everything, including billing and ownership',
   admin: 'Manage team, clients, settings, and money',
   producer: 'Run projects and the client relationship',
+  coordinator: 'Schedule, tasks, files, and client messaging',
   finance: 'Invoices, billing, and cost control',
+  crew: 'Work inside projects and the Suite',
   editor: 'Suite craft — script, storyboard, AI tools',
   member: 'Work inside projects and the Suite',
 }
+
+/** The roles a human may be given today. `editor` and `member` are admitted by
+ *  the DB CHECK and resolved by ORG_CAPS, but they are not offered: S-R §3.1
+ *  retires both, and offering a deprecated name is how it stops being one.
+ *  Item 8's role picker reads this, never the full OrgRole union. */
+export const ORG_ROLES_ASSIGNABLE: OrgRole[] = [
+  'admin', 'producer', 'coordinator', 'finance', 'crew',
+]
 
 /** Union-of-roles capability check, plus per-member grants on top. */
 export function orgCan(
