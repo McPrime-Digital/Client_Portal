@@ -66,6 +66,28 @@ ${arms}
 $fn$;`
 }
 
+/** `valid_org_cap(text)` / `valid_client_cap(text)`, generated from the coarse
+ *  vocabularies. Migration 0054's G-2 trigger uses them so a grant row can only
+ *  ever hold a DECLARED capability: a typo'd grant would otherwise be stored
+ *  happily, resolve to nothing, and read as "the grant did not work". It is also
+ *  how platform.* is refused — those keys are OWNER_ONLY and ungrantable (G-2),
+ *  and they are deliberately absent from both lists. */
+export function validCapSql(): string {
+  const org = ORG_CAPS_ALL.map(lit).join(', ')
+  const cli = CLIENT_CAPS_ALL.map(lit).join(', ')
+  return `create or replace function public.valid_org_cap(p_cap text)
+returns boolean language sql immutable set search_path = public as $fn$
+  -- GENERATED from lib/capabilities.ts ORG_CAPS_ALL. npm run check:caps diffs it.
+  select p_cap = any (array[${org}]::text[])
+$fn$;
+
+create or replace function public.valid_client_cap(p_cap text)
+returns boolean language sql immutable set search_path = public as $fn$
+  -- GENERATED from lib/capabilities.ts CLIENT_CAPS_ALL.
+  select p_cap = any (array[${cli}]::text[])
+$fn$;`
+}
+
 async function query(sql: string): Promise<Record<string, unknown>[]> {
   const env: Record<string, string> = {}
   for (const raw of readFileSync('.env.local', 'utf8').split('\n')) {
@@ -114,6 +136,22 @@ async function check(): Promise<number> {
     } else {
       console.log(`  ✓ ${fn}(unknown) → {} (denies)`)
     }
+  }
+
+  // The generated validity functions must agree with the declared vocabularies,
+  // in BOTH directions: every declared cap accepted, and a plausible-looking
+  // undeclared one (a platform.* key, which G-2 makes ungrantable) refused.
+  for (const [fn, list, decoy] of [
+    ['valid_org_cap', ORG_CAPS_ALL, 'platform.billing'],
+    ['valid_client_cap', CLIENT_CAPS_ALL, 'portal.everything'],
+  ] as const) {
+    for (const cap of list) {
+      const rows = await query(`select public.${fn}(${lit(cap)}) as ok;`)
+      if (rows[0]?.ok !== true) { console.error(`✗ ${fn}(${cap}) should accept`); bad++ }
+    }
+    const rows = await query(`select public.${fn}(${lit(decoy)}) as ok;`)
+    if (rows[0]?.ok !== false) { console.error(`✗ ${fn}(${decoy}) should REFUSE`); bad++ }
+    else console.log(`  ✓ ${fn}: ${list.length} accepted, ${decoy} refused`)
   }
 
   // Every cap a baseline names must be a declared coarse cap. A typo in a
@@ -265,6 +303,8 @@ async function main() {
     console.log(orgBaselineSql())
     console.log()
     console.log(clientBaselineSql())
+    console.log()
+    console.log(validCapSql())
     return
   }
   console.log('1/3 · live role_baseline()/client_role_baseline() vs lib/capabilities.ts …')
