@@ -5,9 +5,10 @@ did not: the open list was kept outside the repo, drifted from the code with
 nothing able to contradict it, and four live defects fell off it entirely
 (recovered by Batch 6 item 0). Everything below was verified against the code
 and the live database on 2026-08-28 — nothing is quoted from memory of what a
-batch was supposed to do. Last corrected after **Batch 24** (space separation, resumable uploads,
-permanent deletion — 2026-09-03, with a 10-probe live R2 smoke run); Batch 8
-was the final foundation batch.
+batch was supposed to do. Last corrected after **Batch 25** (the capability
+layer: money and people gated at the row, migrations 0050–0054, harness 28 → 35
+— 2026-09-12, with every rule proven as a real persona on the anon key);
+Batch 8 was the final foundation batch.
 
 After this, read `docs/specs/` in order: S0 → S0-A → **S0-B** → S0-conformance
 → S1-P → S-V → **S-F** → S1 → S2 → **S-C** → **S3-core** → **S3-core-A** →
@@ -24,12 +25,17 @@ artifacts) **supersedes `S3-core` §2 (the approvals tables), `S3-core` §9.2
 and `S-F` §3.3 where they disagree** — approval is a record, not a gate:
 silence auto-advances and is never written as approval — and is sequenced
 after `S3-core` migrations 1–7 as migration 8 onward. `S-R` (roles,
-capabilities and surfaces) is **settled** and governs the authorization layer
-AD-001 names and never built: the four axes (seat class, company role,
-project role, individual grants and denials), the capability namespace,
-delegation limits, live propagation, and how a dashboard composes from a
-capability set. It **supersedes `S1` §5.1 and `S2` §5**, and it **amends
-`S0` AD-001 at its §9**. `S-F`, `S-C`
+capabilities and surfaces) is **settled**, and Batch 25 BUILT its
+money-and-people half: the four axes (seat class, company role, project role,
+individual grants and denials), the capability namespace, delegation limits, live
+propagation, and how a dashboard composes from a capability set. It
+**supersedes `S1` §5.1 and `S2` §5**, and it **amends `S0` AD-001 at its §9** —
+an amendment now live as 12 policies (0053). **Read it with `S-R-A` in hand once
+that exists:** three of S-R's statements are false against the code and one of
+its design decisions was superseded during the build, all four listed in §9.
+Seat class, project roles and the scoping default are NOT built — that is the
+next batch, and until it lands a crew member still reads every project in the
+tenant. `S-F`, `S-C`
 (communications and sender identity), `S3-core`, `S3-b` and `S3-c` are
 **draft for approval** — the five specs in the stack that are not settled.
 `CLAUDE.md` holds the working mechanics (commands, clients, route groups,
@@ -120,13 +126,34 @@ paying"** (S-V §13).
   by RLS, so correct RLS must exist regardless — app-layer-only would pay
   RLS's full cost and collect none of its protection. Done through migration
   0021: the database is now the tenancy boundary, proven by the harness.
-  **AMENDED by `S-R` §9 (2026-09-12).** The split holds everywhere except a
-  named subset — `invoices`, `org_credits`, `org_budgets`, `credit_ledger`,
-  `usage_events` and both rosters with their grant tables — where RLS carries a
-  capability predicate via `public.has_cap()` as well as a tenancy one. The
-  reason is that AD-001 itself puts the USER client on those paths, so a check
-  in a route handler is not what stands between a crew member and the company's
-  books; PostgREST is. HANDOFF §12 lesson 6, paid for once already in Batch 22.
+  **AMENDED by `S-R` §9 and BUILT in Batch 25 (0053).** 12 policies now carry a
+  `public.has_cap()` predicate ANDed onto their tenancy one, on nine tables:
+  `invoices` (money.invoices) · `org_credits`, `org_budgets`, `credit_ledger`,
+  `usage_events` (money.costs) · both rosters, both `*_member_projects` and both
+  `*_cap_grants` (people.manage). Nothing was substituted — every tenancy
+  predicate stands, because S-R §0 forbids loosening tenancy to add capability.
+  Proven live as personas, in both directions: a roster `crew` member went from
+  reading the company's invoices, credits, budgets, ledger and usage to reading
+  none of them, while a `money.costs` GRANT on that same member kept the cost
+  family readable and revoking the grant closed it again. Self-read was verified
+  intact at every step — since Batch 25 item 3 `resolveCaps()` reads the caller's
+  own roster row on the USER client, so gating self-read would make the
+  capability layer unable to resolve the capability that would ungate it.
+  **`has_cap()` is SECURITY DEFINER and that is load-bearing, not stylistic:**
+  the policies on `organization_members` call it and it reads
+  `organization_members`.
+  **The honest scope, recorded because it is easy to overstate.** All 23 of the
+  application's money paths run on the SERVICE ROLE, so 0053 changed no
+  application behaviour — it closed the PostgREST door, which is the door the
+  item-0 probe actually walked. The ROUTE gates (item 5) are what affect the app.
+  For money, in this batch, R-5 inverts: the route is not merely the message, it
+  is the only control the application sees, and the policy is the only control
+  PostgREST sees. Neither is decorative.
+  **`is_admin()` has ZERO database consumers** — no policy and no function body,
+  since 0021 replaced all ~40. So `app_metadata.role` grants nothing in the
+  database and is purely the application's crew/client routing axis. `S2` §3's
+  "used by ~40 existing policies" and `scripts/harness-constants.ts`'s comment
+  justifying the personas' `'admin'` claim are both STALE and corrected in place.
 - **AD-002(-R) — one US region; `organizations.region` exists** (0018) so a
   second region is a deployment, not a rewrite. Film has its own residency
   regime (TPN audits, studio content-security riders).
@@ -264,7 +291,7 @@ The audited era, each batch with what it *found*:
 | 12.1 | Shell overhaul, both portals: liquid-glass squircle chrome (`--glow` token + glass utilities in `globals.css`), Geist + Schibsted Grotesk, `/studio` lands on **crew**, space landings become animated stages (`SpaceShowcase.tsx`) instead of feature grids, premium icon swaps, studio mobile drawer, route-level loading skeletons | The studio had **no mobile navigation at all** — `StudioSidebar` rendered unconditionally and squeezed every page on a phone; only the portal had a drawer. And "4-second navigation" is two problems, not one: dev-mode compile dominates (prefetch is disabled in dev), but the studio layout also serialized three independent round trips, and the space landings paid auth + roster queries to draw a grid duplicating the rail |
 | 12.2 | **Workspace → Suite** (slug + label; proxy redirect for old URLs; the `workspace` OrgCap keeps its name — it lives in `extra_caps` rows); CRM · Pipeline / Lead-Gen gated to plan feature `internal.pipeline` (house only, sidebar + `requireOrgFeature`); rail badges are live counts only (unread client messages, `changes_requested` gates, overdue invoices — ★ markers gone); active space tile double-bevel + gold type; **erasure built** (`lib/erasure.ts` + `erase-person` route + Settings → Data & Privacy, plan feature `platform.erasure`); `update-client` org-scoped (the last unscoped admin write); `delete-client` deletes the R2/storage blobs before the rows; crew re-invite returns a clean 409 instead of a raw 23505 (pre-check before the invite email fires); AD-003/deleteUser doc drift corrected in S0-conformance + S0-A | The conformance and amendment docs still asserted four live `deleteUser` call sites that Batch 6.2 had removed — anyone designing from those docs was designing against dead code. `tenantBrand` already read `organizations.plan` and threw it away; exposing it made every plan gate free. And the crew-invite 23505 fired **after** `sendTenantInvite` — the person got a working invite email while the roster insert died |
 | 13 (the brief was titled "Batch 10" — renumbered, the repo already had one) | **The message room moves to the client company.** S3-core + S3-core-A committed; `message_rooms` (0027); room columns on `messages` (0028); the 190-row backfill (0029); NOT NULL + thread trigger + room-scoped RLS + A-4's FK defusal (0030) — **all four applied to production**, 0027–0029 by the owner, 0030 by the agent under the new Management-API grant. All six send sites resolve their room via `lib/messageRooms.ts` and stamp `organization_id` (five had leaned on the column DEFAULT — A-7/T-5); the delete route stops blanking bodies (A-2); harness grows 10 → **14 assertions, 0 vacuous** | Item 0's audit became **S3-core-A** before any migration was printed: `edited_at` and `reply_to_id` already existed; soft delete existed as a body-blanking boolean (**data loss** — a 90-day grace restoring nothing); `project_id` was ON DELETE CASCADE (**data loss** once it became a tag); `sender_role`'s CHECK blocked crew rooms. The backfill matched its printed prediction exactly — 7 rooms, 190 messages, 0 unresolvable, 0 org changes, 7 reply chains walked. The seeder was silently incompatible with the NOT NULL (its message upserts carried no `room_id`) — found by running it, fixed in 13.7 |
-| 14 | **Unread becomes a question about a person, and the message layer grows up.** `message_read_state` (0031, backfilled 7 rows exactly as pre-counted), six supporting tables (0032), the attachment FK + 11-row backfill (0033 — 11 in, 11 out, 0 unresolved, 0 tenant mismatches) — **all applied and verified live**. All twelve unread sites read `lib/messageRead.ts`; the watermark routes advance per-user state while still writing `read_at` (drops in migration 12); the nudge cron regroups by room and only nudges what someone actually hasn't read; every read path scrubs deleted bodies server-side (item 5); `verifyAttachment` makes a forged attachment ref fail at send (closes §8.3.1). Harness 15/15. **Owner items shipped in the same batch:** the General thread (`room:<clientId>` understood by every route; rooms minted at onboarding; project-less sends both sides), the thread-bus realtime unification (pages broadcast sends + typing on `thread:<id>`; hubs gain filtered replication fallbacks with id-dedupe), the subtle WebAudio chime with device mute, and the premium MessageThread pass (grouping, tails, glass composer, gold rail) | The click-test's "3-minute delay" was NOT replication — a live probe delivered in 1.8s under the new policies to both personas. It was wiring: project pages never broadcast their sends, the hubs had no replication subscription (built when "RLS-starved for admins" was true — it no longer is), and typing rode a different channel name on pages than hubs. Also: MessageThread filtered deleted messages entirely (the "tombstone" never rendered), and General-thread attachments are deliberately disabled — the presign scope requires a project, and widening `lib/uploadScope` deserves review, not a side door ||
+| 14 | **Unread becomes a question about a person, and the message layer grows up.** `message_read_state` (0031, backfilled 7 rows exactly as pre-counted), six supporting tables (0032), the attachment FK + 11-row backfill (0033 — 11 in, 11 out, 0 unresolved, 0 tenant mismatches) — **all applied and verified live**. All twelve unread sites read `lib/messageRead.ts`; the watermark routes advance per-user state while still writing `read_at` (drops in migration 12); the nudge cron regroups by room and only nudges what someone actually hasn't read; every read path scrubs deleted bodies server-side (item 5); `verifyAttachment` makes a forged attachment ref fail at send (closes §8.3.1). Harness 15/15. **Owner items shipped in the same batch:** the General thread (`room:<clientId>` understood by every route; rooms minted at onboarding; project-less sends both sides), the thread-bus realtime unification (pages broadcast sends + typing on `thread:<id>`; hubs gain filtered replication fallbacks with id-dedupe), the subtle WebAudio chime with device mute, and the premium MessageThread pass (grouping, tails, glass composer, gold rail) | The click-test's "3-minute delay" was NOT replication — a live probe delivered in 1.8s under the new policies to both personas. It was wiring: project pages never broadcast their sends, the hubs had no replication subscription (built when "RLS-starved for admins" was true — it no longer is), and typing rode a different channel name on pages than hubs. Also: MessageThread filtered deleted messages entirely (the "tombstone" never rendered), and General-thread attachments are deliberately disabled — the presign scope requires a project, and widening `lib/uploadScope` deserves review, not a side door |
 | 15 | **The room-first hub, complete.** RoomThread is THE conversation engine — hub All-view, General thread and both project pages are one code path over one room; the studio hub lists client COMPANIES with presence, previews and gold pills; keyset pagination on `messages_room_keyset_idx` (lib/keyset.ts is the helper files/tasks/activity copy); threads one-level-deep with the 0030 trigger as sole authority; reactions/pins/saves UI on the 0032 tables (user-client RLS writes — AD-001); mentions server-parsed/tenant-validated/per-viewer-resolved (I-6); per-room notification prefs enforced in pushMessageAlert; the roster surfaced in-room; General-thread attachments via the EXISTING `_general` client scope. Founder items folded in: instant rail badges over `badges:*` topics, list movement only on new latest-message id, WebAudio priming (the chime was silent for want of a user gesture), focus mode | Item 0's census: hub sessions ran ~13 (portal) / ~21 (studio) channels; the room model collapsed them to ~6 each (fixed four + active topic + one filtered fallback) — I-2 still violated but halved. The `room:<clientId>` synthetic id coexists with `message_rooms.id`, normalized at five route boundaries — managed drift, recorded. `(admin)/admin/projects/page.tsx:28` remains the one unbounded message read (reported, >1 line). The project pages lost ~800 lines of duplicated message machinery; lint fell 355 → 319 |
 | 16 (owner-directed, no formal brief) | **The messaging polish round.** App-wide chime (PresencePulse — the "can't hear anything off the messages page" fix), typing/recording presence in the studio ROOM LIST and headers, the four utility icons collapsed into ONE ⋯ menu at the top bar's extreme right, **search-in-conversation** (body_tsv's first consumer, scoped like the list), mention trigger configurable (@ · / · both), **project colour-bonding** (lib/projectColor.ts — dot on chip, inset stripe on bubble, ringed tag pill), horizontal message action bar with a ⋯ menu (Pin/Save/Copy/Edit/Delete), composer emoji picker + jumbo emoji, hover-play video previews, and the recorder's scrolling RMS waveform | Two found defects: the studio hub REMOUNTED the whole engine on every chip click (the key is gone — chips respond instantly now), and 15.4 had duplicated the react/pin/save controls in the received-side hover stack (both stacks replaced wholesale). Rule zero note: the owner explicitly overrode parts of the 14.10 renderer this round (action layout, emoji, media) — their call to make |
 | 17 (owner-directed) | **The bug round with a smoking gun.** THE upload failure (files, recordings, vault — every portal) was NOT code: the R2 bucket's CORS allowed localhost but not `https://genreline.com` — proven by preflight probe (403/no-allow-origin vs 204 for localhost); broken since the Aug-31 domain switch. **FIXED — the owner added the dashboard rule and uploads work (verified before Batch 21); this row carried the defect as open after it closed, which is exactly the re-investigation cost §12 warns about.** Shipped: instant voice send (optimistic blob bubble, upload rides behind), app-wide WebAudio priming in PresencePulse (the real reason "global sound" wasn't), General chip removed (All + projects only), sticky composer project-tag (additive until changed, per room per device), 360°-hue collision-free project colours, theme-aware wallpaper in three patterns + intensity in chat settings (16.8's gray tile vanished on light portals — the "only in the org" bug was a theme bug), mentions show @Name in the input with token substitution at submit, ~170 emoji + a Stickers tab with pop-and-sway jumbo sends | Upload errors now surface their reason instead of a mute "failed". The A-8-style discipline paid again: probe first, then code |
@@ -272,20 +299,30 @@ The audited era, each batch with what it *found*:
 | 19 (owner) | **Voice speaks WAV everywhere.** The sender's browser transcodes every voice note to 16 kHz mono WAV before upload (`lib/audioWav.ts`) — Chrome records webm/opus, Safari cannot play it, so an org note arrived Apple-side as a dead 0:00 by physics. Also: per-view render cache (chip/room switches at 0ms, network merge behind), uncropped studio logo chip in the portal hub, Aurora + Waves wallpapers | Server-verified while debugging "All doesn't show project chats": the room query composition was correct at HEAD — the running deploy was behind |
 | 20 (owner rounds 20.1–20.3) | 20.1: the portal messages GET's 400 guard predated `?scope=room` and `?mention_candidates` and ran FIRST — it starved the All view and the composer roster; guards now run after the requests they must not strangle. 20.2: a live project tag was a render-time TypeError that unmounted BOTH portals (map present, id absent fell through to `card.label` with `card` undefined); the guard is airtight by construction now. 20.3: chat settings move to `user_prefs` (0034, one jsonb row per auth user, Class C RLS, `/api/prefs` on the USER client per AD-001) with localStorage as the zero-latency cache | The admin route's equivalent guard sat AFTER its candidates branch, which is why only the portal broke — the asymmetry was the bug report |
 | 21 (the "Batch 19" brief, renumbered — the repo was at 20.3) | **Closeout: messages fully bounded, the Suite unblocked, the dual-write ended.** 21.1: thread-panel replies keyset-cursored (both routes + panel load-older); admin hub preview one limit-1 query per room; unread scans carry the watermark predicate in-query under an explicit saturating cap; the projects page counts via `messages(count)` + `orgUnread` (the last unbounded message read, reported three times, closed). 21.2: 0036 settles `documents.kind` (screenplay/treatment/bible/breakdown/document; 'script' renamed, default → 'document'). 21.3: sender_role/attachment_url/is_deleted/read_at writes stopped everywhere; sides derive from the ROSTER, read ticks from the other side's watermark, attachment URLs from the FK (`roomSides`/`deriveWire` in lib/messageRead.ts); 0035 applied (NOT NULL relaxed + 13 of 16 null senders recovered). 21.4: 0037 printed + gated on deploy; seven catalogs searched clean. Harness 15/15 | Three premise failures: `documents.kind` had existed since 0004 with four live 'script' sites (the "additive" item was a reconciliation); `sender_role` was NOT NULL/no-default (the brief's stop-write-then-drop order would have 23502'd every send in the window — 0035 is the migration the brief didn't know it needed); the nudge cron's oldest-first window only worked BECAUSE of the legacy read_at prefilter (flipped newest-first or it would silt up). Lint baseline was 318 at start, not the brief's 319 |
-
 | 22 (the approvals engine, S3-c) | **Approval becomes a record, not a gate.** 0038 (five tables + the anchor model on `messages` + `organizations.approval_window_hours`, Class B RLS); 0039 + 0040 + 0041 (three triggers, each written because a defect was PROVEN first); `lib/approvals.ts` — the single write path; five approval capabilities on both rosters behind one new cap; six routes (45 → 51 handlers) with **zero new service-role importers**; the per-org auto-advance sweep + reminder ladder (`/api/cron/approval-sweep`, daily 08:00); harness **15 → 20**; the card in the room, the record on both review pages, the printable certificate; and the browser ledger path DELETED (`lib/logActivity.ts` + `/api/activity` + its allowlist entry) | **Seven premise failures, and three defects found by probing rather than reading.** The brief's `is_org_member(organization_id)` does not exist (no-arg). `messages` has no crew INSERT policy to extend — `messages_crew_all` is an ALL policy, so the comment gate became a RESTRICTIVE policy that touches neither existing one. `messages.timecode_ms` was NEVER created, so S3-c §5.1's premise is false and there is one anchor model, not two (S3-b migration 5 must drop its line). Rule Zero named three legacy columns; **six** are live, and `approved_at` — which the brief does not name — is what both approval pages actually gate on. `deadline-check` was a SECOND, unrecorded instance of HANDOFF §8.3 item 4's page-load-cron defect, and it wrote `approval_status='auto_approved'` while `studio/client/review/page.tsx:131` counted that among the APPROVED — the studio's own page was already reporting timeouts as client sign-offs. **The three probe-found defects:** a client could record a decision and the stage would silently never advance (crew-only UPDATE + PostgREST returning no error on zero rows) — which would have had the record claim "no response received" about a client who responded; a decision with a null `actor_id` could never satisfy a user assignee, so the same silent stall one layer down; and a client assignee could **forge who signed off**, naming a colleague as `actor_id` and anything as `actor_name`, because 0038 permits direct assignee inserts and the routes being careful is not a control. Also: the reminder ladder counted ledger EVENTS, and there is one per RECIPIENT — a three-assignee stage would have gone permanently silent while the record still claimed the window was honoured |
-
 | 23 (S3-d, 2026-09-03) | **Membership becomes a ROW, and the crew space gets its chat.** 0043 `room_members` + the helper quartet + a trigger confining self-service to notify/leave; 0044 backfill (printed prediction matched exactly: 11 crew + 9 client, 0 overlap, 20 rows, zero parity gaps both directions); 0045 kind widens to channel/group/dm/broadcast with topic/is_private/archived_at/project_id, dm_key + partial unique index (race-free DM find-or-create, the 0027 shape one level down), `last_message_at` WITH its trigger; 0046 **THE FLIP** — message and room policies move off tenant identity onto `is_room_member()`/`room_can_post()`/`room_history_from()`, sender and org pinned in the INSERT policy; 0047 drops the one-crew-room index (0027 §9.1's promised migration); 0048 printed, GATED on deploy (prefs onto the seat); 0049 person avatars + collaborator display_name. Harness 20 → **28** (21 stays reserved for the retention purge), run RED pre-flip — 25 and 27 genuinely FAILED (a left member kept reading; the org owner could read a DM) — then 28/28 green post-flip. `lib/rooms.ts` (creation with creator-first-seat under RLS, DM dedup, seating with explicit-rejoin semantics, §5.3 seeding + `healDerivableMemberships` self-heal), four `/api/rooms*` routes (zod at every boundary; creation/seating/sends on the USER client — 0046 IS the authorization), group receipts (blue = every other member's watermark covers it), member-scoped `orgUnread`, `pushRoomMessageAlert`, pause/revoke stamps every seat + restore re-derives, Crew › Chat hub (was a phase-4 stub), portal DM chips in the notch, avatar bubble heads. 13-probe persona smoke run: 13/13 | **The pause hole found before it shipped**: under MD-1 the seat reads the room, so cutting claims alone would have left a paused member reading everything with a live session — the cut now stamps seats. **The RLS recursion trap in the bootstrap**: the creator-first-seat policy's subquery runs under the CALLER's RLS, and the creator could not yet SEE the private room they had just created — member_read gained a created_by clause before it shipped. **§5.2's own instruction was wrong against its own gate**: dropping the project-visibility conjunct would have widened a live scoped crew member's access, so the conjunct stays, recorded as a deviation. Earlier the same day (owner rounds): the Film wallpaper restored as redrawn artifacts (the ask was improve, not replace), and five reported defects each traced to a mechanism — stale closures/responses contaminating the per-view cache (and then PERSISTING), a hidden tab forging READ ticks and silencing the away push, media without reserved boxes bouncing the open, unsupported Unicode rendering as invisible emoji, the chips band consuming chat height (now a floating notch) |
-
 | 24 (owner-directed, 2026-09-03) | **The spaces separate, and files stop being one-way.** SPACE SCOPING: the crew hub filtered `kind !== 'client'`, so a DM or channel with a client company's person landed on the studio's INTERNAL floor — the COMPANY COLUMN is the boundary now, everywhere. Crew · Chat = rooms with no company (directory: crew + seated collaborators). Client · Messages = rooms WITH a company, as chips beside the project chips, with a `+` scoped to that company. Portal = DMs and groups only, owner-initiated (tightened from owner-or-approver; RLS still admits an approver, so the route is the narrower gate and says so). A DM is stamped with the counterparty's company at creation, so routing is a column lookup. UPLOADS: real multipart above 8 MB (`/api/files/multipart` + four `lib/r2` helpers) — pause, resume, cancel, with the server aborting so abandoned parts are not billed. DELETION: `lib/fileDelete` — detach, row, then blob; `/api/files/[id]` widened from admin-only to "any admin of the file's own org, or its uploader"; a deleted chat message destroys its attachment NOW. Plus: the hover action bar stops eating neighbouring clicks, delete-during-upload cancels, pending captions are editable, Audio joins the attach menu, Save to device, attachments work in the new room kinds (`resolveUploadScope` grows a ROOM scope gated on membership), thread/search/pins pre-sign like the main list, and projects mint their chat on creation | **Four bugs whose cause was not where the symptom was.** (1) "Files cannot be deleted permanently" was true because the route was `isAdmin`-only — and while fixing it, that same route turned out to have NO TENANT PREDICATE, so an admin of studio B could delete studio A's file by id. (2) "The actions hide behind rather than in front" was `opacity-0`, which hides an element and keeps it CLICKABLE — the invisible bar at `-top-4` was swallowing the neighbouring message's clicks. (3) "I deleted a file that was still loading and it didn't work" — the delete route was being called with a `temp-` id, which 404s. (4) The obvious multipart design would have read ETags off each PUT response, which a cross-origin XHR cannot do unless the bucket's CORS names `ExposeHeaders` — a fourth silent CORS dependency of exactly the Batch 17 kind; completion asks R2 what it stored instead. Also found: `create-project` never stamped `organization_id`, so a second studio's project (and now its chat room) would have been minted in tenant zero |
+| 25 (the "Batch 24" brief, renumbered — the repo already had a 24; the COMMITS and code comments say 24, so a grep for either finds it) | **The capability layer: money and people.** 0050 (role vocabulary + `blocked_on_permission`), 0051 (grant tables + `has_cap()` + the 1→1 dot rename), 0052 (legacy aliases in SQL), 0053 (capability predicates on the nine S-R §9 tables), 0054 (G-1…G-4 as triggers) — **all applied and verified live as personas**. `lib/capabilities.ts` is the one vocabulary, generating `role_baseline()`/`valid_*_cap()` with `npm run check:caps` failing on drift in THREE phases; `lib/capabilities.server.ts` is the one resolver, on the USER client; `lib/grants.ts` the one grant write path; `components/shared/CapabilityGrants.tsx` the one surface, on all three team panels. Route gates on money and people, the claim-shaped grep across all 56 handlers (1 → 0), R-11 in the sweep, harness **28 → 35**. Two live holes closed first (item 1a) and the `org_role` claim deleted (item 1b) | **The brief over-warned once and under-warned four times.** Item 1 was called "the most dangerous item in this batch" and changed NO production row: the role column was already honest, because it HAS A WRITER. What it missed: (1) the seeder would have silently reverted 0050 on every re-seed, and the harness documents a re-seed between runs, so "silently" meant "always"; (2) making `coordinator`/`crew` invitable before `lib/permissions.ts` knew them would have sent an invited coordinator to an EMPTY STUDIO — `ORG_CAPS[r]?.includes()` returns false for an unknown role, with no error; (3) 0051's rename left `has_cap()` blind to the legacy aliases the TS resolver honoured, so the route said yes and the policy said no — a silent empty set, found by probe and fixed in 0052, and the parity check had gone GREEN through it because every harness persona has empty `extra_caps`; (4) the roster routes still gated on `canManageOrg` (role ∈ owner/admin) after 0053 widened the ROW to `has_cap('people.manage')`, so a *granted* people.manage was admitted by the database and refused by the route. Also: R-11's first implementation called `clientCanApproval()`, which ORs the role baseline, so a DENIED assignee still read as able to decide and the stage lapsed — the exact wrong record R-11 exists to prevent, produced by the code meant to prevent it. Ruling 1 itself was wrong and was superseded mid-batch: snake_case→dot is a GRANULARITY change, not a spelling one |
 
-## 7. Current state (verified 2026-08-28 after Batch 8; Batch 9 deltas from the
-code 2026-08-30, with one live read; Batch 10 deltas from the code 2026-08-31)
+## 7. Current state
 
 - **Branch:** `throughline` (main ⊆ throughline, fast-forward). Not renamed —
   S0-B §6 excludes the branch, and renaming it is a remote/CI change, not a
   code one.
-- **Migrations applied: 0000–0047, plus 0049. 0048 is printed and GATED on
+- **Migrations applied: 0000–0054, every one of them.** Verified live
+  2026-09-12: the two grant tables exist with RLS; ten new functions
+  (`has_cap`, `role_baseline`, `client_role_baseline`, `valid_org_cap`,
+  `valid_client_cap`, `normalize_cap{,_org,_client}`, `actor_is_org_owner`,
+  `actor_is_client_owner`); five `*_guard` triggers; **12 policies carry a
+  `has_cap()` predicate**. 0050–0054 are Batch 25's.
+  **CORRECTION — 0048 IS APPLIED.** The line below said it was "printed and
+  GATED on the Batch 23 deploy" while §9's own remainder list said it was
+  applied 2026-09-03. The two halves of this file disagreed; a live read settles
+  it for §9 — `message_room_prefs` is gone. This is HANDOFF contradicting
+  itself, which is the failure mode §12 exists to catch, and it survived one
+  recompile.
+  The superseded line, kept because it is what this file claimed:
+  **Migrations applied: 0000–0047, plus 0049. 0048 is printed and GATED on
   the Batch 23 deploy** (it drops `message_room_prefs`, which the RUNNING
   deploy still reads — the 0036/0037 lesson applied in advance). Verified
   live 2026-09-03: `room_members` holds the 20 backfilled seats plus the
@@ -329,7 +366,20 @@ code 2026-08-30, with one live read; Batch 10 deltas from the code 2026-08-31)
 - **Access token hook:** enabled in production, verified from a live JWT. 0026
   changes its body; step 2 (verify a client's token still carries
   `organization_id`) is the check that matters after applying it.
-- **Harness:** `npm run test:rls` → **28 pass / 0 fail / 0 vacuous / 0 error**
+- **Harness:** `npm run test:rls` → **35 pass / 0 fail / 0 vacuous / 0 error**
+  (30–36 added in Batch 25 from S-R §11: the money boundary, a denial beating a
+  role baseline, and the four delegation rules that no route test can prove.
+  A new `finance` persona exists so assertion 30's positive control is a role
+  that holds money and nothing else — an owner control would have proved only
+  that invoices are readable by somebody. Both grant tables join the every-table
+  sweeps. **None of the seven is single-use**: run twice without re-seeding, only
+  the pre-existing 17 goes vacuous.)
+  **`npm run check:caps`** is the second test surface now — three phases:
+  generated SQL vs the TS constant, TS resolver vs live `has_cap()` per persona,
+  and the legacy-alias path on a real row. Each phase has been seen to FAIL on a
+  real defect, which is the only thing that makes a green tick mean anything.
+  The pre-Batch-25 line:
+  `npm run test:rls` → **28 pass / 0 fail / 0 vacuous / 0 error**
   (22–29 added in Batch 23 from S3-d §7; 21 stays RESERVED for the retention
   purge assertion; the collab persona joins the roster — an auth user with NO
   roster row anywhere, whose entire tenancy is one `room_members` seat).
@@ -359,7 +409,10 @@ code 2026-08-30, with one live read; Batch 10 deltas from the code 2026-08-31)
   thread (receipts now derive from watermarks — Batch 21.3). (A sentence
   here was truncated mid-word — "The 0030 policy" — since Batch 14; its
   intent is unrecoverable and it is removed rather than guessed at.)
-- **`tsc --noEmit`:** clean. **Lint: 313** (unchanged across Batch 24).
+- **`tsc --noEmit`:** clean. **Lint: 313** (unchanged across Batch 25 —
+  counted at its start and after every one of its eleven commits; the I-8
+  ratchet refused a new service-role importer mid-batch and the fix was to stop
+  needing one, so the number never moved).
   **Route handlers: 56** — Batch 24 added `/api/files/multipart`, zod-validated
   like the four `/api/rooms*` routes Batch 23 added (I-7 holds for all new
   surfaces). The pre-Batch-24 line: **Lint: 313** (counted at Batch 23's end; 315
@@ -700,6 +753,69 @@ S2 §11 q4 close with it.
    done (9.1), this half is a deploy-time step. Recorded in `.env.example`
    beside the variable.
 
+18. **CLOSED in Batch 25 item 1a — and the SHAPE is the entry, not the two
+   routes.** Both were found by the item-0 audit, neither was in the brief.
+
+   **THE GENERAL FORM: a route whose GET gates on the ROUTING CLAIM while its
+   mutations gate on a capability.** `app/api/admin/team/route.ts` stamps
+   `app_metadata.role = 'admin'` on EVERY crew invite at every roster role
+   (:129 before item 1b), and `isAdmin()` reads that claim — so any handler
+   using it as authorization admits every crew member. Three instances in one
+   batch:
+   · `/api/studio/credits` + `/checkout` gated on `if (!user)` alone. Every
+     client-portal user carries the STUDIO's `organization_id` claim, so a
+     CLIENT read the studio's balance and hard-stop state (200, proven over
+     HTTP) and reached Stripe with the studio's org id stamped on the session.
+   · `/api/admin/invoice-actions` gated on `isAdmin()`, so a roster `member`
+     created, sent, marked paid and DELETED invoices — and read
+     `business_settings`, i.e. the studio's BANK DETAILS, via its three
+     settings actions.
+   · `GET /api/admin/team` returned the entire crew roster to a roster
+     `member` while its own mutations required `canManageOrg`.
+   All three closed. **Batch 22's lesson applied, and it paid:** the fix was a
+   grep for the SHAPE across all 56 handlers, not for the filename. It went
+   1 → 0 for the literal shape; 17 handlers remain claim-only throughout and
+   are listed in §8.4, all of them `work.*` surfaces S-R §9 leaves app-layer.
+
+   The two roster GETs return a REDUCED PAYLOAD rather than a 403, because
+   `RoomThread.tsx:930-931` fetches both for the IN-ROOM ROSTER and needs only
+   `{ name, role }`. A 403 there would have blanked a live messaging surface for
+   coordinator and crew — the roles this batch exists to make usable.
+
+19. **`slim.slims0241@gmail.con` — a live `member` on Norton Slims whose
+   address is typo'd (`.con`).** They hold a `client_members` row, so they can
+   sign in and be scoped and notified, and **can never receive mail**: every
+   invite, reset and nudge to that address is undeliverable by construction.
+   Noticed three times across audits before being written down. Not a code
+   defect — a data one, fixable only by the studio correcting the address, which
+   also needs the auth account's email changed (and there is no email-change
+   flow, §8.3 item 15).
+
+20. **KNOWN COARSENESS in the capability vocabulary, recorded rather than
+   discovered later.** Batch 25 chose coarse stored capabilities over S-R §4's
+   38 fine keys (option A — expanding one stored grant into ten asserts an
+   intent nobody recorded). Two consequences:
+   · `record.ledger.read` and `record.certificate.export` both resolve to
+     `work.projects`. So **anyone who can touch a project can export the
+     certificate that proves what a client signed off** — the dispute surface
+     (S3-c §3.2) has no grant of its own and cannot be withheld independently of
+     the work. Defensible for a producer; wrong for a studio that wants a
+     coordinator to run jobs without exporting sign-offs. Splitting it needs a
+     real case.
+   · `client.message.send` also resolves to `work.projects`. Milder, and it
+     produces S-R §3.1's coordinator exactly — talk to a client, never create or
+     delete the company.
+   Both share a cause: **`work.projects` is by a distance the broadest coarse
+   cap and the one most likely to need splitting first.**
+
+21. **The legacy snake_case capability aliases are OWED FOR DELETION**, and they
+   exist in TWO places on purpose — `LEGACY_ORG_CAP`/`LEGACY_CLIENT_CAP` in
+   `lib/capabilities.ts` and `normalize_cap{,_org,_client}()` in 0052. A single
+   copy was the original plan and it produced a real divergence: the TS resolver
+   honoured the alias and `has_cap()` did not, so the route said yes and the
+   policy said no. Until they go, `check:caps` phase 3 is what holds the two
+   copies together. Deleting them is a migration plus one TS constant.
+
 Item 4 of this list in the Batch 7 compilation — `lib/sms.ts:24` metering every
 tenant against `DEFAULT_ORG_ID` — **closed in 8.4**.
 
@@ -727,7 +843,71 @@ is why SMS dedupes by number) · provenance tables have zero reads/writes
 (`supabase/migrations/0003`) · dead code inventory (C-6) including `app/(admin)`
 (S4), `hooks/useFileUpload.ts`, `lib/r2.ts:39-107`, `lib/billing/plans.ts`.
 
+**The 17 claim-only route handlers** (Batch 25 item 5's grep; every method gates
+on `isAdmin`/`userRole` and no capability appears in the file). All are `work.*`
+or `client.*` surfaces, which S-R §9 deliberately leaves app-layer and filters by
+PROJECT SCOPE — so they are the next batch's, not a hole this one skipped:
+`admin/deadline-check` · `admin/invite-client` · `admin/messages` ·
+`admin/notifications` · `admin/project-actions` · `admin/project-image` ·
+`admin/resend-invite` · `admin/update-client` · `auth/welcome-context` ·
+`files/[id]/download` · `files/[id]/raw` · `files/[id]` (DELETE) ·
+`files/signed-url` · `portal/messages/attachment` · `presence/heartbeat` ·
+`rooms` · `studio/approvals/[id]`.
+Re-run the grep, do not quote this list: the script is
+`scripts/`-less by design (it lived in the batch's scratch) and the shape is
+`CLAIM` beside `CAP` per exported method.
+
 ## 9. What to do next
+
+**THE NEXT BATCH IS THE REST OF S-R: seat class, project roles, and the scoping
+default** (S-R §12's migration 1, minus what Batch 25 took). Specifically:
+`organization_members.seat_class` with its backfill; `project_role` and
+`expires_at` on `organization_member_projects`; and the thing that makes seat
+class mean anything — **a stated `scope_mode` at invite time** (S3-b §4.1, §11
+q2). Until then every crew member is invited with the permissive default because
+nothing chooses otherwise: *the mechanism is not missing, the decision is.*
+
+**THE RESIDUAL EXPOSURE, NAMED PLAINLY: a crew member still reads every project
+in the tenant.** Batch 25 closed money and people. It did NOT close `work.*` or
+`client.*`, which S-R §9 leaves app-layer and filters by PROJECT SCOPE — and the
+scope filter is the next batch. So today a `crew` or `coordinator` member reads
+every project, file, task and message in the organization that is not narrowed by
+`scope_mode`, and `scope_mode` is `'all'` on every live row. That is not a
+regression and it is not a hole this batch skipped; it is the boundary the batch
+drew, and it is the reason the next one matters.
+
+Two corrections carried into it: **`organization_member_projects` ALREADY
+EXISTS** (from the B1–B4 scoping work — S-R §2 and §10 both say it does not, which
+is one of the three errors owed to `S-R-A`), so only `project_role` and
+`expires_at` are additive. And **the seeder must be updated in the same commit as
+any roster change** — Batch 25's 0050 would otherwise have been silently reverted
+by the next `seed:harness`, and the harness documents a re-seed between runs, so
+"silently" would have meant "always".
+
+**`S-R-A` IS OWED BEFORE THE NEXT BATCH** (S-R is settled at `b8cf4aa` and is
+amended by a superseding entry, never edited). Three errors and one deviation:
+1. §2 and §10 both say `organization_member_projects` does not exist. It does.
+2. §4's paragraph claiming Batch 22 "created five approval capabilities on both
+   rosters" is false — Batch 22 created an ApprovalAction TYPE mapping onto
+   EXISTING caps, and exactly one new stored cap (`approval_policy`). There is
+   no `record.approval.decide` and never was.
+3. §10's `unique (member_id, capability) where revoked_at is null` makes R-3's
+   "a grant and a denial naming the same capability" UNREACHABLE. The index is
+   right; R-3's wording describes a state the schema forbids. The semantic that
+   matters — and R-3's own Producer/rates example — is a denial beating the ROLE
+   BASELINE, which is what harness assertion 31 asserts.
+4. The vocabulary that shipped is COARSE, and §4's 38 fine keys are the
+   vocabulary of QUESTIONS rather than of storage. §4 also has two gaps the
+   shipped table fills: `org.settings` (no business-settings key existed, and
+   folding it into `platform.billing` would be wrong twice — billing is
+   owner-only and ungrantable, business settings are legitimately an admin's)
+   and `portal.*` (§4 enumerates the crew side only; `client.*` was already
+   taken for the STUDIO's authority OVER client companies).
+
+**Then:** the client-side capability ceiling (S-R §8's "one ceiling lower",
+Batch 26) — `client_members_team_read` is untouched today, deliberately.
+
+---
 
 **S3-core migrations 1–7 are live** (0027–0033), 0034–0037 on top, and
 **S3-c's engine is live** (0038–0041). Approval is a record, not a gate:
@@ -911,6 +1091,29 @@ live and paying.
    Migration 9 settles the first; S-F settles whether the second ever needs a
    table of its own.
 
+13. **Should a mention or chat push name the PERSON or the STUDIO?** New, from
+   Batch 25's attribution fix. The message row and the ledger row now name the
+   person (they must — they are the record). The notification ENVELOPE still
+   names the studio, which S-C CM-1/CM-3 require and Batch 9.3 set deliberately.
+   But "You were mentioned by McPrime Digital" is a worse sentence than "by
+   Gabby", and `notifyMentions`/`pushMessageAlert` are where it would change.
+   A product decision, not a defect; left as the studio because changing what
+   clients receive is not a side effect of a bug fix.
+
+14. **Does `money.rates.read` ever get a coarse cap?** New, from Batch 25. It is
+   the one S-R §4 key deliberately left UNMAPPED, so it denies for everyone —
+   correct while no rates table and no surface exist, and it must not fold into
+   `money.costs` because a `producer` holds that and S-R §3.1 gives a producer
+   "budget on their own productions, not the company's books". Resolving it is
+   the same product question S-R §14 q5 asks: whether crew rates live in
+   Genreline at all.
+
+15. **Who owns `seat_class` at invite time?** New, and it is the whole reason the
+   next batch exists. `scope_mode` machinery has worked since B1–B4; nothing
+   STATES the value, so every crew member gets the permissive default. S3-b §4.1
+   specifies it. Answering it is a line in the invite route, not a project — and
+   until it is answered, "crew project scoping" is a column nobody sets.
+
 Hours per week is answered — **30** — and is not carried forward.
 
 **Answered and removed in Batch 8:** the old question 7 — *claim-cut fan-out on
@@ -1007,3 +1210,48 @@ one is recognised rather than rediscovered.
    This is also why the item-2 probe passed while the defect was live — it ran
    as the service role, which bypasses RLS. **A probe that does not run as the
    persona proves nothing about the persona.**
+
+   **Batch 25 added the other half of this lesson: a probe that cannot tell
+   "refused" from "did nothing" is just as dangerous in reverse.** An UPDATE that
+   RLS refuses matches ZERO ROWS and PostgREST returns NO ERROR. Item 7's first
+   delegation probe read that as "the write was accepted" and reported four
+   WORKING triggers as broken; two of its four "failures" were the policy
+   correctly refusing before the trigger could run, and the other two were the
+   probe aiming at the wrong target so a different rule fired first. Every write
+   probe must ask for rows back and treat an empty result as refused —
+   distinctly from a named refusal, so a refusal *for the wrong reason* fails
+   rather than passes.
+
+7. **A column with a writer tells the truth. A column with only a default tells
+   you its default.** Batch 25 item 1 was briefed as "the most dangerous item in
+   this batch — every later item assumes the role column tells the truth, and
+   today it probably does not." It did. Both production crew rows and all eight
+   production `client_members` rows carried a deliberate, correct, non-default
+   role; the `'member'` default had fired on exactly two synthetic rows. It is
+   honest because `organization_members.role` HAS A WRITER
+   (`admin/team/route.ts`) and `client_members.role` has one too (the create
+   paths, since 8.1).
+
+   This is the other face of lesson 5's coin. Together they explain the whole
+   pattern: **`organizations.plan` is wrong because nothing writes it** (§11 q9 —
+   all three orgs sat on the column default for months); **`role` is right
+   because something does.** Before trusting or distrusting a column, find its
+   writer. If there isn't one, you are reading a default that nobody chose.
+
+   The corollary, and it is the expensive half: **the real danger was one layer
+   up.** The rows were right and NOTHING READ THEM — `orgCan()` had exactly one
+   consumer in the entire codebase. A brief that over-warns about the data while
+   the defect is in the reader sends the batch looking in the wrong place, and it
+   is worth recording next to the briefs that got their facts wrong.
+
+8. **A brief can specify the wrong SHAPE, not just the wrong facts.** Batch 25's
+   ruling 1 ordered the capability vocabulary migrated from snake_case to S-R
+   §4's dot notation, treating it as a rename. It is not: §4 is FINE-GRAINED (38
+   keys) and the stored vocabulary is COARSE (14), so "migrating" it would have
+   expanded one stored grant into ten — asserting an intent nobody recorded,
+   which is lesson 1's shape in a migration. Caught at a checkpoint rather than
+   in a migration, and the ruling was superseded mid-batch.
+
+   The general form: **when a document says "rename", check whether the two
+   vocabularies have the same GRANULARITY.** If they do not, it is a
+   re-modelling, and the cost is not in the strings.

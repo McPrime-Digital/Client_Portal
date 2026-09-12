@@ -66,7 +66,7 @@ member_history_from()    -- the caller's history_from cutoff, null = full histor
 
 **Performance rule, non-negotiable in policy authoring:** wrap every helper call in a subselect — `(select is_org_member())`, never `is_org_member()`. Postgres then evaluates it once per query as an InitPlan rather than once per row. On a 174-row message table the difference is invisible; on a 200,000-row table it is the difference between 8ms and 4 seconds. Write it correctly from the first policy so it is never retrofitted.
 
-**On `is_admin()`.** It reads `app_metadata.role` from the JWT and is used by ~40 existing policies. It is *not* org-scoped, which is why `organization_members_admin_all` and its two siblings leak across tenants. It is not deleted in this spec — it is progressively replaced by `is_org_admin()` per table class, so no policy is left in an ambiguous half-migrated state.
+**On `is_admin()`.** It reads `app_metadata.role` from the JWT and was used by ~40 existing policies. **As of Batch 25 it has ZERO consumers** — no policy and no function body references it; migration 0021 replaced them all. It still exists, and `isAdmin()` in TypeScript is still the crew/client routing axis on 61 call sites, but nothing in the DATABASE authorizes on the claim any more. It is *not* org-scoped, which is why `organization_members_admin_all` and its two siblings leak across tenants. It is not deleted in this spec — it is progressively replaced by `is_org_admin()` per table class, so no policy is left in an ambiguous half-migrated state.
 
 ---
 

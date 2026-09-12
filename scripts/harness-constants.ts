@@ -74,10 +74,15 @@ export interface Persona {
   /** Key under which the generated password is stored in .env.local. */
   envKey: string
   /**
-   * app_metadata.role. Crew-side personas carry 'admin' deliberately: ~40
-   * existing policies gate on is_admin(), so a crew persona without it would
-   * match no policy, read nothing, and every isolation assertion about them
-   * would pass for the wrong reason.
+   * app_metadata.role — the crew/client ROUTING axis, and only that.
+   *
+   * This comment used to say "~40 existing policies gate on is_admin(), so a
+   * crew persona without it would match no policy". That is STALE: migration
+   * 0021 replaced every one, and a Batch 25 live read found is_admin() has ZERO
+   * database consumers — no policy, no function body. The claim grants nothing
+   * here. It is still stamped because the app's 61 isAdmin() call sites and
+   * proxy.ts read it to decide crew vs client, and a persona without it cannot
+   * reach a studio route at all.
    */
   role: 'admin' | 'client'
   label: string

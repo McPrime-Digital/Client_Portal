@@ -107,10 +107,22 @@ Note: dynamic-route `params` and `next/headers` `cookies()` are async (Promises)
 - `npm run lint` — ESLint flat config (`eslint.config.mjs`, extends `eslint-config-next`
   core-web-vitals + typescript)
 
-There is no unit-test framework configured. The one test surface is the RLS harness —
-`npm run test:rls` (scripts/test-rls.ts, 15 assertions with positive controls, seeded by
-`npm run seed:harness`) — run it after anything touching policies, auth, or tenancy. Do not
-invent another runner or claim tests passed that did not run.
+There is no unit-test framework configured. There are now TWO test surfaces, and both must
+be run after anything touching policies, auth, capabilities or tenancy:
+
+- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **35 assertions**, every one
+  with a positive control, seeded by `npm run seed:harness -- --apply`). Seed, then run ONCE:
+  assertion 17 is single-use and reports VACUOUS on a second run without a re-seed.
+- `npm run check:caps` — the capability table vs the generated SQL vs the TS resolver, in
+  three phases (`npm run gen:caps` prints the SQL to apply). It has been seen to FAIL on
+  three real defects, which is the only reason its green tick means anything.
+
+**If you change a roster row in a migration, change the seeder in the same commit.** Batch 25
+learned this the hard way: the seeder would have silently reverted migration 0050 on the next
+`seed:harness`, and since the harness documents a re-seed between runs, "silently" would have
+meant "always".
+
+Do not invent another runner or claim tests passed that did not run.
 
 ## Build / lint quirks
 
@@ -158,14 +170,47 @@ service-role access is an enumerated allowlist. Today the opposite is true:
   updates rather than erroring. `supabase/migrations/_archive/20260603_phase7.sql` exists
   solely because of this (moved to `_archive/` in Batch 6.9 — see "Migrations" below; it is
   historical and never re-applied).
-- **Role and identity come from `app_metadata`, never `user_metadata`.** `lib/auth/role.ts`
-  is the single trust anchor (`userRole`, `isAdmin`, `userClientId`, `userOrgId`).
-  `user_metadata` is user-editable via `supabase.auth.updateUser({ data })` — trusting it is
-  privilege escalation. `public.is_admin()` (migration `0000`) reads `app_metadata` only.
-- **Capabilities** are a TypeScript matrix in `lib/permissions.ts` (client-side roles
-  owner/approver/member/viewer; org-side owner/admin/producer/finance/editor/member, plus
-  per-member `extra_caps`). `lib/team.ts` resolves membership server-side from the tables —
-  the table is truth, the JWT only routes.
+- **`app_metadata.role` IS ROUTING, NOT CAPABILITY** (Batch 25). It is the two-valued
+  crew/client axis `lib/auth/role.ts:26` declares, read by `proxy.ts` and 61 call sites to
+  decide which shell a session belongs in. It is `'admin'` for EVERY crew member whatever
+  their roster role — `app/api/admin/team/route.ts` stamps it at invite — so **nothing may
+  authorize on it.** `isAdmin(user)` answers "is this a crew session", never "may they do
+  this". A route that uses it as a permission admits every crew member; that shape was found
+  three times in one batch (HANDOFF §8.3 item 18). The `org_role` claim is DELETED — it had
+  six writers and no readers. `user_metadata` is user-editable and is never trusted for
+  anything. `public.is_admin()` still exists in SQL with **zero database consumers**.
+- **Capabilities resolve from the ROSTER on every request, never from a token** (S-R R-2).
+  The vocabulary is `lib/capabilities.ts` — and it is the ONE source: it generates
+  `public.role_baseline()`, `client_role_baseline()` and `valid_*_cap()`, with
+  `npm run check:caps` failing on drift in three phases (generated SQL vs the constant; the
+  TS resolver vs live `has_cap()` per persona; the legacy-alias path on a real row).
+  · **What is STORED is COARSE** — 14 dot-notation caps (`work.projects`, `work.suite`,
+    `client.manage`, `people.manage`, `money.invoices`, `money.costs`, `org.settings`,
+    `record.approval_policy`; portal side `portal.view|message|upload|approve|invoices|team`).
+    S-R §4's 38 fine keys are the vocabulary of QUESTIONS: `can(user, 'money.invoice.send')`
+    resolves through `CAP_RESOLUTION` to the coarse cap that answers it. Do not add a stored
+    cap casually — every one can end up in an `extra_caps` row, and renaming it strips
+    granted access.
+  · `lib/capabilities.server.ts` is the ONE resolver (`resolveCaps`, `can`, `capGate`), on
+    the **USER client** — it reads only the caller's own rows, which the ungated self-read
+    policies already permit. Do not give it the service role; the I-8 ratchet will refuse it
+    and the refusal is correct.
+  · `lib/grants.ts` is the ONE grant write path and it MUST be handed the user client:
+    0054's G-1…G-4 triggers read `auth.uid()` and pass a service-role write straight
+    through.
+  · `extra_caps` is still written as a PROJECTION of the grant rows (S-R §10, Rule Zero),
+    carrying grants only — a denial is not an absence, and `has_cap()` subtracts denials
+    last so a stale projection cannot defeat one.
+  · Snake_case values are accepted as READ aliases for one release, in TS *and* in SQL
+    (0052). Both copies go together; `check:caps` phase 3 holds them together until then.
+- **Nine tables carry a capability predicate in RLS** (0053, S-R §9's amendment to AD-001):
+  `invoices`, `org_credits`, `org_budgets`, `credit_ledger`, `usage_events`, both rosters,
+  both `*_member_projects`, both `*_cap_grants`. ANDed onto tenancy, never substituted.
+  **Self-read is never gated** — `resolveCaps()` depends on it, so gating it would make the
+  capability layer unable to resolve the capability that would ungate it.
+- **`work.*` and `client.*` stay app-layer** and are filtered by PROJECT SCOPE, which is not
+  built: **a crew member still reads every project in the tenant.** Do not treat the
+  capability layer as finished.
 
 Before changing a query or a table's schema, check the relevant policies in
 `supabase/migrations/`. When you add a *new* surface, follow AD-001 (user client + RLS), not
@@ -246,7 +291,8 @@ Walk each of these paths mentally before saving an edit to `proxy.ts`.
 - `app/api/` — route handlers for files, portal, admin, studio, rooms, cron,
   presence, push, and the Stripe webhook. This entry was off by one twice when
   it carried a number — count it (`find app/api -name route.ts | wc -l`),
-  don't quote it (55 at Batch 23's end). `app/api/rooms*` (Batch 23) is the
+  don't quote it (56 at Batch 25's end — unchanged by that batch, which added
+  capability gates to existing handlers rather than new ones). `app/api/rooms*` (Batch 23) is the
   S3-d surface: room list/create (channels, groups, broadcast, DMs), seating,
   and room-addressed messages — zod-validated, and the WRITES run on the user
   client so the 0046 policies are the authorization (AD-001 as written; the
@@ -339,13 +385,16 @@ into new code.
 
 `supabase/migrations/` holds one numbering scheme (`00NN`); the retired `2026*` scheme is fenced in `_archive/`:
 
-- `0000_baseline_schema.sql` … `0049_person_avatars.sql` — the current source
-  of truth, **all applied except 0048** (verified live 2026-09-03). 0038–0041
-  are the approvals engine; 0043–0047 + 0049 are S3-d (membership as a row,
-  the RLS flip onto `is_room_member()`, many crew rooms, person avatars).
-  **0048 is GATED on the Batch 23 deploy** — it drops `message_room_prefs`,
-  which the running deploy still reads. `0000` is a full captured baseline
-  that **drops and recreates** the core tables.
+- `0000_baseline_schema.sql` … `0054_delegation_triggers.sql` — the current
+  source of truth, **all applied** (verified live 2026-09-12; 0048 included —
+  the "gated" claim was stale in both this file and HANDOFF §7). 0038–0041 are
+  the approvals engine; 0043–0047 + 0049 are S3-d; **0050–0054 are the
+  capability layer (S-R)**: the role vocabulary and
+  `approval_stages.blocked_on_permission` (0050), the two grant tables +
+  `has_cap()` + the 1→1 capability rename (0051), the legacy read aliases in SQL
+  (0052), capability predicates on nine tables (0053), and G-1…G-4 as triggers
+  (0054). `0000` is a full captured baseline that **drops and recreates** the
+  core tables.
 - `_archive/20260531_*.sql` … `_archive/20260606_*.sql` (phase1–12 + invoicing) — historical,
   already baked into `0000`, moved to `supabase/migrations/_archive/` (Batch 6.9). Read
   `_archive/README.md` before touching them; nothing in that directory is ever applied.
@@ -406,6 +455,33 @@ lazy-accessor pattern; use that for anything new.
 **not referenced anywhere in the code**.
 
 `vercel.json` schedules one cron: `GET /api/cron/message-nudge` daily at 09:00.
+
+## Capabilities — one vocabulary, and where each half lives
+
+`lib/capabilities.ts` is the only place a capability or a role is DECLARED. If you find
+yourself writing a role list or a cap list anywhere else, you are creating the fifth copy:
+this batch deleted four (two `OrgRole` types that disagreed on their value count, two
+`OrgCap` types, and three untyped `const CAPS = [...]` write allowlists that tsc could not
+see go stale).
+
+| Question | Answer lives in |
+|---|---|
+| what capabilities exist, what each role holds | `lib/capabilities.ts` (generates the SQL) |
+| does THIS caller hold one | `lib/capabilities.server.ts` — `can()` / `capGate()` |
+| does a POLICY permit this row | `public.has_cap('coarse.cap')` (0051/0052) |
+| may this grant be made at all | 0054's G-1…G-4 triggers, not a route |
+| who granted what, when, until when | `org_member_cap_grants` / `client_member_cap_grants` |
+| what a person may SEE | `lib/permissions.ts` — a consumer now, not a source |
+
+Two rules that are not style preferences:
+
+- **A route returns the message; the row is the control.** Routes assert with `capGate()` and
+  return a 403 naming the required capability, because a silent empty set leaves the caller
+  unable to tell "nothing here" from "not allowed". But the policy and the trigger are what
+  actually stop a direct PostgREST write.
+- **Grants are written on the USER client.** `lib/grants.ts` says so at the top. The
+  delegation triggers read `auth.uid()`, so a service-role write disables every one of them
+  while looking identical at the call site.
 
 ## The application's own origin — one accessor, no literals
 
