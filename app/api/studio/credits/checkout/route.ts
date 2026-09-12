@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { userOrgId } from '@/lib/auth/role'
 import { getStripe } from '@/lib/stripe'
 import { appOrigin } from '@/lib/appOrigin'
-import { orgRolesOf } from '@/lib/team'
+import { capGate } from '@/lib/capabilities.server'
 
 // Create a Stripe Checkout session to buy credits. On success the webhook tops up
 // the org's balance via add_credits(). Amount is in cents ($5 min, $10k max).
@@ -18,10 +18,12 @@ export async function POST(req: NextRequest) {
   // the webhook tops that org up on payment. Every client-portal user carries
   // the studio's organization_id claim, so "any authenticated person" included
   // the studio's own clients.
-  const roles = await orgRolesOf(user)
-  if (roles.length === 0) {
-    return NextResponse.json({ error: 'Studio credits can only be topped up by crew.' }, { status: 403 })
-  }
+  // Narrowed from item 1a's membership gate to the capability (item 5).
+  // Spending money is money.credits.topup, which coordinator and crew do not
+  // hold — the checkout stamps the studio's organization_id, so this is the
+  // studio's wallet, not the caller's.
+  const denied = await capGate(user, 'money.credits.topup')
+  if (denied) return NextResponse.json(denied, { status: 403 })
 
   const { cents } = await req.json().catch(() => ({}))
   const amount = Math.max(500, Math.min(1_000_000, Math.round(Number(cents) || 0)))

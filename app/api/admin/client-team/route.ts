@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { orgRolesOf, canManageOrg } from '@/lib/team'
 import { CLIENT_GRANTABLE } from '@/lib/permissions'
+import { can } from '@/lib/capabilities.server'
 import { createNotification } from '@/lib/notify'
 import { cutMemberAccess, restoreClientAccess, statusCutsAccess } from '@/lib/memberAccess'
 import { sendTenantInvite } from '@/lib/email/invite'
@@ -17,6 +18,10 @@ async function requireManager() {
   if (!user || !isAdmin(user)) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
   const role = await orgRolesOf(user)
   if (!canManageOrg(role)) return { error: NextResponse.json({ error: 'Only org owners and admins can manage client teams.' }, { status: 403 }) }
+  // No capability gate here, deliberately: canManageOrg already restricts the
+  // MUTATIONS to owner/admin, and both baselines carry people.manage — a second
+  // check would be redundant rather than defence in depth. The read gate the
+  // audit asked for belongs on GET, which does not use this helper.
   // Every lookup and every write below carries this predicate. Before it,
   // each action keyed off a bare body id — an org admin of ANY tenant could
   // approve, pause, re-role or delete another tenant's client teammate, and
@@ -28,24 +33,39 @@ async function requireManager() {
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user || !isAdmin(user)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const me = await orgRolesOf(user)
+  if (me.length === 0) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const clientId = req.nextUrl.searchParams.get('clientId')
   if (!clientId) return NextResponse.json({ error: 'clientId required' }, { status: 400 })
   const orgId = userOrgId(user)
+
+  // Two payloads, same reasoning as admin/team's GET: RoomThread.tsx:930 fetches
+  // this for the in-room roster and needs only { name, role }, so a 403 would
+  // blank a live messaging surface for coordinator and crew. The capability
+  // narrows what is returned — email, status, extra_caps and invite metadata are
+  // the administrative record; names and roles are who is in the room.
+  const full = await can(user, 'people.roster.read')
+
   const [{ data: members }, { data: company }] = await Promise.all([
     supabaseAdmin
       .from('client_members')
-      .select('id, user_id, name, email, role, status, invited_at, accepted_at, invited_by, extra_caps, title')
+      .select(
+        full
+          ? 'id, user_id, name, email, role, status, invited_at, accepted_at, invited_by, extra_caps, title'
+          : 'id, name, role',
+      )
       .eq('client_id', clientId)
       .eq('organization_id', orgId)
       .order('created_at', { ascending: true }),
     supabaseAdmin.from('clients').select('invite_policy').eq('id', clientId).eq('organization_id', orgId).single(),
   ])
-  const me = await orgRolesOf(user)
   return NextResponse.json({
     members: members ?? [],
-    invitePolicy: company?.invite_policy ?? 'open',
+    // The invite policy is an administrative setting, not room-roster data.
+    invitePolicy: full ? (company?.invite_policy ?? 'open') : null,
     canManage: canManageOrg(me),
+    scope: full ? 'full' : 'names',
   })
 }
 

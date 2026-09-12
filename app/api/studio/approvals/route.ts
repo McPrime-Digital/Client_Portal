@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { orgAccessOf, rosterName } from '@/lib/team'
 import { orgCanApproval } from '@/lib/permissions'
+import { capGate } from '@/lib/capabilities.server'
 import { createApproval, listApprovals, type SubjectKind } from '@/lib/approvals'
 import { captureError } from '@/lib/errors'
 
@@ -62,6 +63,14 @@ export async function GET(req: NextRequest) {
   if (!user || !isAdmin(user)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  // THE ONE LITERAL INSTANCE OF THE SHAPE (Batch 24 item 5's grep across all 56
+  // handlers): this GET gated on the routing claim while the POST below gated on
+  // a capability, in the same file. The approvals list IS the record — S3-c §3.2
+  // calls it the dispute surface — so it reads record.ledger.read, which resolves
+  // to work.projects. `finance` therefore does not see it, which is S-R §8's
+  // finance exactly: money across every production, the craft floor absent.
+  const denied = await capGate(user, 'record.ledger.read')
+  if (denied) return NextResponse.json(denied, { status: 403 })
 
   const params = req.nextUrl.searchParams
   const status = params.get('status')

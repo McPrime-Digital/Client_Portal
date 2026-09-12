@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { userOrgId } from '@/lib/auth/role'
 import { getCreditState } from '@/lib/credits'
-import { orgRolesOf } from '@/lib/team'
+import { capGate } from '@/lib/capabilities.server'
 
 // Current org credit balance (cents) for the studio UI.
 //
@@ -21,10 +21,12 @@ export async function GET() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const roles = await orgRolesOf(user)
-  if (roles.length === 0) {
-    return NextResponse.json({ error: 'Studio credits are visible to crew only.' }, { status: 403 })
-  }
+  // Item 1a gated this on MEMBERSHIP, which closed the client hole. Item 5
+  // narrows it to the capability: reading the studio's balance is money-domain,
+  // so a coordinator — who holds work.projects and nothing in money — no longer
+  // sees it. `finance`, `producer`, `admin` and `owner` do (money.costs).
+  const denied = await capGate(user, 'money.credits.read')
+  if (denied) return NextResponse.json(denied, { status: 403 })
   const { balanceCents, hardStop } = await getCreditState(userOrgId(user as never))
   return NextResponse.json({ balanceCents, hardStop })
 }

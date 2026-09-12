@@ -1,4 +1,5 @@
 import { isAdmin, userOrgId } from '@/lib/auth/role'
+import { can } from '@/lib/capabilities.server'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -37,9 +38,17 @@ export async function GET() {
       .or(`status.eq.overdue,and(status.eq.unpaid,due_date.lt.${today})`),
   ])
 
+  // THE MONEY BADGE IS OMITTED, NOT REFUSED (Batch 24 item 5). A 403 here would
+  // blank the whole rail for a coordinator, who legitimately needs the message
+  // and review badges and legitimately holds nothing in money. So the invoice
+  // count is reported only to a caller holding money.invoice.read, and is 0
+  // otherwise — which is also S-R S-3: an empty state must not announce what is
+  // missing. The count is a disclosure (how much is overdue) even without the
+  // rows behind it.
+  const seesMoney = await can(user, 'money.invoice.read')
   return NextResponse.json({
     unreadClientMessages: msgRes.total,
     changesRequested: reviewRes.count ?? 0,
-    overdueInvoices: invoiceRes.count ?? 0,
+    overdueInvoices: seesMoney ? (invoiceRes.count ?? 0) : 0,
   })
 }

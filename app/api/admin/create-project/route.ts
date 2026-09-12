@@ -1,4 +1,5 @@
 import { isAdmin } from '@/lib/auth/role'
+import { can } from '@/lib/capabilities.server'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -191,8 +192,18 @@ export async function POST(request: NextRequest) {
       console.error('[create-project] chat mint failed (self-heals on next hub load):', e)
     }
 
-    // 4. Create invoice if amount provided
-    if (invoice_amount && Number(invoice_amount) > 0) {
+    // 4. Create invoice if amount provided.
+    //
+    // GATED SEPARATELY FROM THE PROJECT (Batch 24 item 5). Creating a project is
+    // work.project.create; minting an invoice against it is money.invoice.write,
+    // and a producer or coordinator who may do the first must not get the second
+    // for free by passing invoice_amount. The project is still created and the
+    // response SAYS the invoice was skipped — the caller asked for two things and
+    // may do one, and a silent omission would read as a bug in invoicing.
+    let invoiceSkipped = false
+    if (invoice_amount && Number(invoice_amount) > 0 && !(await can(user, 'money.invoice.write'))) {
+      invoiceSkipped = true
+    } else if (invoice_amount && Number(invoice_amount) > 0) {
       const { error: invoiceError } = await supabaseAdmin
         .from('invoices')
         .insert({
@@ -212,6 +223,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       project,
+      ...(invoiceSkipped
+        ? { invoiceSkipped: true, notice: 'The project was created. The invoice was not: that needs money.invoice.write.' }
+        : {}),
     })
   } catch (error: any) {
     console.error('[create-project] Server error:', error)

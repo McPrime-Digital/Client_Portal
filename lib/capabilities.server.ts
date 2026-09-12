@@ -228,3 +228,18 @@ export async function hasCap(user: User, cap: OrgCap | ClientCap, db?: SupabaseC
   const resolved = db ? await resolveCaps(user, db) : await resolveCaps(user)
   return resolved.side !== null && resolved.caps.has(cap)
 }
+
+/**
+ * ROUTE GATE — the message, not the control (S-R R-5).
+ *
+ * Returns null when the caller holds the capability, or a ready 403 NAMING what
+ * is required when they do not. The row-level policies are the control; a route
+ * that only returns an empty result leaves the caller unable to tell "nothing
+ * here" from "not allowed", and leaves the next engineer unable to tell either.
+ *
+ * 403 and not 401: these callers are authenticated. A 401 tells a signed-in
+ * person to sign in again, which is a bug report waiting to happen.
+ */
+export async function capGate(user: User, cap: Capability): Promise<{ error: string; cap: Capability } | null> {
+  return (await can(user, cap)) ? null : { error: `You do not have permission for this. Required: ${cap}.`, cap }
+}

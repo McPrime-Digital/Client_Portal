@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { orgRolesOf, canManageOrg } from '@/lib/team'
 import { ORG_GRANTABLE } from '@/lib/permissions'
+import { can } from '@/lib/capabilities.server'
 import { cutMemberAccess, restoreOrgAccess, statusCutsAccess } from '@/lib/memberAccess'
 import { recordUsage } from '@/lib/usage'
 import { sendTenantInvite } from '@/lib/email/invite'
@@ -23,15 +24,47 @@ async function requireManager() {
 export async function GET() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user || !isAdmin(user)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // TWO PAYLOADS, NOT A 403 (Batch 24 item 5).
+  //
+  // This GET used to gate on isAdmin(user) alone while POST/PATCH/DELETE gated on
+  // canManageOrg — the claim-shaped hole item 1b's probe found. It returned the
+  // ENTIRE crew roster (every email, role, status, extra_caps, title, invite
+  // metadata) to any crew member.
+  //
+  // But refusing outright would have broken a live surface: RoomThread.tsx:931
+  // fetches this for the IN-ROOM ROSTER, and it needs only { name, role }. A crew
+  // member seeing who is in the room they are standing in is not roster
+  // management, and a 403 there would have blanked the roster panel for
+  // coordinator and crew — the very roles this batch exists to make usable.
+  //
+  // So the capability narrows the PAYLOAD. Without people.roster.read you get
+  // names and roles; with it you get the administrative record. The disclosure
+  // that matters is email / status / extra_caps / invite metadata, not "who is
+  // on this team".
+  const me = await orgRolesOf(user)
+  if (me.length === 0) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const full = await can(user, 'people.roster.read')
+
   const { data } = await supabaseAdmin
     .from('organization_members')
-    .select('id, user_id, name, email, role, roles, extra_caps, title, status, invited_at, accepted_at, invited_by')
+    .select(
+      full
+        ? 'id, user_id, name, email, role, roles, extra_caps, title, status, invited_at, accepted_at, invited_by'
+        : 'id, name, role',
+    )
     .eq('organization_id', userOrgId(user))
     .neq('status', 'revoked')
     .order('created_at', { ascending: true })
-  const me = await orgRolesOf(user)
-  return NextResponse.json({ members: data ?? [], myRole: me, canManage: canManageOrg(me) })
+  return NextResponse.json({
+    members: data ?? [],
+    myRole: me,
+    canManage: canManageOrg(me),
+    // So a client can tell a reduced payload from an empty roster (S-R S-3: an
+    // empty state must not be indistinguishable from a denial).
+    scope: full ? 'full' : 'names',
+  })
 }
 
 export async function POST(req: NextRequest) {

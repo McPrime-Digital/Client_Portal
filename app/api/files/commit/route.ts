@@ -1,6 +1,7 @@
 import { userRole } from '@/lib/auth/role'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { can } from '@/lib/capabilities.server'
 import { resolveUploadScope } from '@/lib/uploadScope'
 import { createNotification, createAdminNotification } from '@/lib/notify'
 import { tenantBrandForClient } from '@/lib/tenantBrand'
@@ -117,7 +118,12 @@ export async function POST(req: NextRequest) {
         .select('id, client_id')
         .eq('id', invoiceId)
         .single()
-      if (invoice && (role === 'admin' || invoice.client_id === scope.clientId)) {
+      // The crew branch is a money WRITE and now needs the capability, not the
+      // routing claim (item 5). The client branch is unchanged: a client
+      // attaching a receipt to THEIR OWN invoice is the portal flow, authorized
+      // by the invoice's client_id matching their resolved scope.
+      const crewMayWrite = role === 'admin' && (await can(user, 'money.invoice.write'))
+      if (invoice && (crewMayWrite || invoice.client_id === scope.clientId)) {
         // Client receipt → 'submitted' (awaits admin verify). Admin proof →
         // 'verified' (admin-confirmed). Columns are optional; degrade safely.
         const receiptPatch: Record<string, unknown> = { receipt_file_id: fileRecord.id }
