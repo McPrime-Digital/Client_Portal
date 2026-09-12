@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { UsersRound, ShieldCheck, Check, X, Pause, Play, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { CLIENT_GRANTABLE } from '@/lib/permissions'
+import CapabilityGrants, { GrantSummary, type Grant } from '@/components/shared/CapabilityGrants'
 
 // Org oversight of one client company's team: roster with invite states,
 // pending-invite approval, role overrides, revocation, and the invite policy.
@@ -36,6 +37,9 @@ export default function ClientTeamPanel({ clientId }: { clientId: string }) {
   const [canManage, setCanManage] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
+  const [grants, setGrants] = useState<Record<string, Grant[]>>({})
+  const [myCaps, setMyCaps] = useState<string[]>([])
+  const [openCaps, setOpenCaps] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -46,6 +50,8 @@ export default function ClientTeamPanel({ clientId }: { clientId: string }) {
         setMembers((json.members ?? []).filter((m: Member) => m.status !== 'revoked'))
         setPolicy(json.invitePolicy ?? 'open')
         setCanManage(!!json.canManage)
+        setGrants(json.grants ?? {})
+        setMyCaps(json.myCaps ?? [])
       }
     } catch {}
     setLoading(false)
@@ -153,27 +159,16 @@ export default function ClientTeamPanel({ clientId }: { clientId: string }) {
             </div>
             {canManage && m.role !== 'owner' ? (
               <>
-                <div className="hidden flex-shrink-0 flex-wrap items-center justify-end gap-1 xl:flex" style={{ maxWidth: 260 }}>
-                  {CLIENT_GRANTABLE.map(({ cap, label }) => {
-                    const on = (m.extra_caps ?? []).includes(cap)
-                    return (
-                      <button
-                        key={cap} type="button" disabled={busy === m.id}
-                        onClick={() => {
-                          const current = m.extra_caps ?? []
-                          const next = on ? current.filter((c) => c !== cap) : [...current, cap]
-                          act({ action: 'set_access', memberId: m.id, extraCaps: next }, m.id)
-                        }}
-                        title={`Grant "${label}" beyond their role`}
-                        className={`rounded-full border px-1.5 py-0.5 text-[9px] font-medium transition-colors ${
-                          on ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-faint hover:text-muted-foreground'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    )
-                  })}
-                </div>
+                {/* One chip, detail on demand (S-R §13). The flat row of
+                    toggles it replaces could only express "granted", never
+                    "denied", and showed neither who granted it nor when. */}
+                <button
+                  type="button"
+                  onClick={() => setOpenCaps(openCaps === m.id ? null : m.id)}
+                  className="hidden flex-shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground xl:block"
+                >
+                  <GrantSummary grants={grants[m.id] ?? []} />
+                </button>
                 <select
                   value={m.role} disabled={busy === m.id}
                   onChange={(e) => act({ action: 'set_role', memberId: m.id, role: e.target.value }, m.id)}
@@ -202,6 +197,33 @@ export default function ClientTeamPanel({ clientId }: { clientId: string }) {
               </>
             ) : (
               <span className="flex-shrink-0 text-xs font-semibold capitalize text-muted-foreground">{m.role}</span>
+            )}
+            {canManage && m.role !== 'owner' && openCaps === m.id && (
+              <div className="w-full basis-full pt-2">
+                <CapabilityGrants
+                  grantable={CLIENT_GRANTABLE}
+                  grants={grants[m.id] ?? []}
+                  myCaps={myCaps}
+                  busy={busy === m.id}
+                  onCycle={(cap) => {
+                    const live = (grants[m.id] ?? []).filter((g) => g.capability === cap)
+                    const nextMode = live.length === 0 ? 'grant' : live[0].mode === 'grant' ? 'deny' : null
+                    const desired = [
+                      ...(grants[m.id] ?? []).filter((g) => g.capability !== cap)
+                        .map((g) => ({ capability: g.capability, mode: g.mode, expiresAt: g.expiresAt })),
+                      ...(nextMode ? [{ capability: cap, mode: nextMode, expiresAt: null }] : []),
+                    ]
+                    act({ action: 'set_access', memberId: m.id, grants: desired }, m.id)
+                  }}
+                  onExpiry={(cap, v) => {
+                    const desired = (grants[m.id] ?? []).map((g) =>
+                      g.capability === cap
+                        ? { capability: g.capability, mode: g.mode, expiresAt: v ? new Date(v).toISOString() : null }
+                        : { capability: g.capability, mode: g.mode, expiresAt: g.expiresAt })
+                    act({ action: 'set_access', memberId: m.id, grants: desired }, m.id)
+                  }}
+                />
+              </div>
             )}
           </div>
         ))

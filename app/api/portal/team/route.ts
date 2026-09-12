@@ -5,6 +5,8 @@ import { userOrgId } from '@/lib/auth/role'
 import { cutMemberAccess, restoreClientAccess, statusCutsAccess } from '@/lib/memberAccess'
 import { clientMembershipOf } from '@/lib/team'
 import { clientCan, CLIENT_GRANTABLE } from '@/lib/permissions'
+import { setMemberGrants, listMemberGrants, recordRoleChange, type DesiredGrant } from '@/lib/grants'
+import { CLIENT_ROLE_BASELINE } from '@/lib/capabilities'
 import { recordUsage } from '@/lib/usage'
 import { createAdminNotification } from '@/lib/notify'
 import { sendTenantInvite } from '@/lib/email/invite'
@@ -21,7 +23,9 @@ async function requireMembership() {
   if (!user) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
   const membership = await clientMembershipOf(user)
   if (!membership) return { error: NextResponse.json({ error: 'No client account found.' }, { status: 403 }) }
-  return { user, membership }
+  // The USER client comes back too: grant writes must go through it so 0054's
+  // delegation triggers see auth.uid(). See lib/grants.ts.
+  return { user, membership, supabase }
 }
 
 export async function GET() {
@@ -38,8 +42,17 @@ export async function GET() {
     supabaseAdmin.from('clients').select('invite_policy, name, company').eq('id', membership.clientId).single(),
     supabaseAdmin.from('projects').select('id, title').eq('client_id', membership.clientId).order('created_at', { ascending: false }),
   ])
+  // The live grants, plus the ACTOR's own ceiling so the picker can offer only
+  // what they hold (G-1 offered rather than discovered — see admin/team's note).
+  const grants = await listMemberGrants(gate.supabase, 'client', (members ?? []).map((m) => m.id as string))
+  const mine = new Set<string>([
+    ...(CLIENT_ROLE_BASELINE[membership.role] ?? []),
+    ...(membership.extraCaps ?? []),
+  ])
   return NextResponse.json({
     members: members ?? [],
+    grants: Object.fromEntries(grants),
+    myCaps: [...mine],
     myRole: membership.role,
     canManage: clientCan(membership.role, 'portal.team', membership.extraCaps),
     invitePolicy: company?.invite_policy ?? 'open',
@@ -152,7 +165,7 @@ export async function PATCH(req: NextRequest) {
   if ('error' in gate) return gate.error
   const { membership } = gate
   if (!clientCan(membership.role, 'portal.team', membership.extraCaps)) return NextResponse.json({ error: 'You need team-management access to manage teammates.' }, { status: 403 })
-  const { memberId, role, status, extraCaps, title } = await req.json().catch(() => ({}))
+  const { memberId, role, status, extraCaps, title, grants } = await req.json().catch(() => ({}))
   if (!memberId) return NextResponse.json({ error: 'memberId required.' }, { status: 400 })
   if (role !== undefined && !INVITABLE_ROLES.includes(role)) return NextResponse.json({ error: 'Invalid role.' }, { status: 400 })
   if (status !== undefined && !['paused', 'active'].includes(status)) {
@@ -165,12 +178,60 @@ export async function PATCH(req: NextRequest) {
   if (status !== undefined) patch.status = status
   if (extraCaps !== undefined && Array.isArray(extraCaps)) patch.extra_caps = extraCaps.filter((c) => CAPS.includes(c))
   if (title !== undefined) patch.title = String(title ?? '').trim().slice(0, 40) || null
+  // ── INDIVIDUAL GRANTS, portal side (item 8) ─────────────────────────────
+  // Written on the USER client so 0054's triggers are the control: a company
+  // owner cannot grant what they do not hold (G-1), cannot change their own
+  // capabilities (G-3), and cannot touch another owner unless the studio is
+  // acting (the two ceilings of S-R §6).
+  if (Array.isArray(grants)) {
+    const { data: tgt } = await supabaseAdmin
+      .from('client_members').select('id, name, organization_id')
+      .eq('id', memberId).eq('client_id', membership.clientId).maybeSingle()
+    if (!tgt) return NextResponse.json({ error: 'Teammate not found.' }, { status: 404 })
+    try {
+      const desired: DesiredGrant[] = grants
+        .filter((g: unknown): g is DesiredGrant =>
+          !!g && typeof g === 'object'
+          && typeof (g as DesiredGrant).capability === 'string'
+          && ((g as DesiredGrant).mode === 'grant' || (g as DesiredGrant).mode === 'deny'))
+        .map((g: DesiredGrant) => ({
+          capability: g.capability, mode: g.mode,
+          expiresAt: g.expiresAt ? new Date(g.expiresAt).toISOString() : null,
+        }))
+      const result = await setMemberGrants(gate.supabase, {
+        side: 'client',
+        memberId,
+        organizationId: tgt.organization_id as string,
+        clientId: membership.clientId,
+        desired,
+        actorId: gate.user.id,
+        actorName: membership.name ?? 'A teammate',
+        actorRole: 'client',
+        targetName: (tgt as { name?: string }).name ?? null,
+      })
+      if (Object.keys(patch).length === 0) return NextResponse.json({ success: true, grants: result })
+    } catch (e) {
+      const code = (e as { code?: string }).code
+      const say: Record<string, string> = {
+        GR001: 'You cannot grant access you do not have yourself.',
+        GR002: 'That is not a grantable capability.',
+        GR003: 'You cannot change your own access.',
+        GR004: 'Only an owner can change an owner.',
+        GR005: 'Your company must keep at least one active owner.',
+      }
+      return NextResponse.json(
+        { error: (code && say[code]) ?? (e as Error).message, code: code ?? null },
+        { status: code ? 403 : 500 },
+      )
+    }
+  }
+
   if (Object.keys(patch).length === 0) return NextResponse.json({ error: 'Nothing to change.' }, { status: 400 })
   // Read the target back so the claim change below applies to a row that is
   // provably inside this company (and not the owner).
   const { data: target } = await supabaseAdmin
     .from('client_members')
-    .select('id, user_id, organization_id')
+    .select('id, user_id, organization_id, role, name')
     .eq('id', memberId)
     .eq('client_id', membership.clientId)
     .neq('role', 'owner')
@@ -184,6 +245,22 @@ export async function PATCH(req: NextRequest) {
     .eq('client_id', membership.clientId)
     .neq('role', 'owner')
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // R-8 on the portal side too: a role change is a ledger event, written after
+  // the row so the record never claims a change that did not land.
+  if (role !== undefined && role !== target.role) {
+    await recordRoleChange({
+      organizationId: target.organization_id as string,
+      clientId: membership.clientId,
+      memberId,
+      from: target.role as string,
+      to: role,
+      actorId: gate.user.id,
+      actorName: membership.name ?? 'A teammate',
+      actorRole: 'client',
+      targetName: (target as { name?: string }).name ?? null,
+    })
+  }
 
   // Previously this updated the roster row ONLY. A paused teammate kept
   // role='client' and client_id in app_metadata, so the portal let them

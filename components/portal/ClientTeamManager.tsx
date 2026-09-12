@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { UsersRound, UserPlus, ShieldCheck, Loader2, Lock, History, FolderLock, Pause, Play, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { CLIENT_GRANTABLE } from '@/lib/permissions'
+import CapabilityGrants, { GrantSummary, type Grant } from '@/components/shared/CapabilityGrants'
 
 type Member = {
   id: string
@@ -43,6 +44,9 @@ export default function ClientTeamManager() {
   const [policy, setPolicy] = useState<string>('open')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
+  const [grants, setGrants] = useState<Record<string, Grant[]>>({})
+  const [myCaps, setMyCaps] = useState<string[]>([])
+  const [openCaps, setOpenCaps] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [form, setForm] = useState({ name: '', email: '', role: 'member' })
@@ -58,6 +62,8 @@ export default function ClientTeamManager() {
       if (res.ok) {
         const json = await res.json()
         setMembers(json.members ?? [])
+        setGrants(json.grants ?? {})
+        setMyCaps(json.myCaps ?? [])
         setMyRole(json.myRole ?? 'member')
         setCanManage(!!json.canManage)
         setPolicy(json.invitePolicy ?? 'open')
@@ -81,18 +87,35 @@ export default function ClientTeamManager() {
 
   const isOwner = myRole === 'owner' || canManage
 
-  // Custom access: toggle a granted capability on top of the member's role.
-  async function toggleGrant(m: Member, cap: string) {
-    const current = m.extra_caps ?? []
-    const next = current.includes(cap) ? current.filter((c) => c !== cap) : [...current, cap]
+  /** Individual access, written to client_member_cap_grants (item 8). Three
+   *  states — nothing → granted → denied → nothing — because a role baseline can
+   *  already carry a capability, so "not granted" and "denied" differ (R-3). */
+  async function sendGrants(m: Member, desired: { capability: string; mode: 'grant' | 'deny'; expiresAt: string | null }[]) {
     setBusy(m.id); setError(null)
     const res = await fetch('/api/portal/team', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ memberId: m.id, extraCaps: next }),
+      body: JSON.stringify({ memberId: m.id, grants: desired }),
     })
     if (!res.ok) setError((await res.json()).error ?? 'Could not change access.')
     await load(); setBusy(null)
+  }
+
+  function cycleGrant(m: Member, cap: string) {
+    const live = (grants[m.id] ?? []).filter((g) => g.capability === cap)
+    const nextMode = live.length === 0 ? 'grant' : live[0].mode === 'grant' ? 'deny' : null
+    return sendGrants(m, [
+      ...(grants[m.id] ?? []).filter((g) => g.capability !== cap)
+        .map((g) => ({ capability: g.capability, mode: g.mode, expiresAt: g.expiresAt })),
+      ...(nextMode ? [{ capability: cap, mode: nextMode as 'grant' | 'deny', expiresAt: null }] : []),
+    ])
+  }
+
+  function setExpiry(m: Member, cap: string, v: string) {
+    return sendGrants(m, (grants[m.id] ?? []).map((g) =>
+      g.capability === cap
+        ? { capability: g.capability, mode: g.mode, expiresAt: v ? new Date(v).toISOString() : null }
+        : { capability: g.capability, mode: g.mode, expiresAt: g.expiresAt }))
   }
 
   // Custom role name — shown across the portal in place of the standard label.
@@ -318,22 +341,13 @@ export default function ClientTeamManager() {
                 </p>
                 {isOwner && m.role !== 'owner' && (
                   <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                    <span className="text-[9.5px] uppercase tracking-wide text-faint">access:</span>
-                    {CLIENT_GRANTABLE.map(({ cap, label }) => {
-                      const on = (m.extra_caps ?? []).includes(cap)
-                      return (
-                        <button
-                          key={cap} type="button" disabled={busy === m.id}
-                          onClick={() => toggleGrant(m, cap)}
-                          title={`Grant "${label}" beyond their role`}
-                          className={`rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                            on ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-faint hover:text-muted-foreground'
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      )
-                    })}
+                    <button
+                      type="button"
+                      onClick={() => setOpenCaps(openCaps === m.id ? null : m.id)}
+                      className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      <GrantSummary grants={grants[m.id] ?? []} />
+                    </button>
                     <input
                       key={`${m.id}-${m.title ?? ''}`}
                       defaultValue={m.title ?? ''}
@@ -342,6 +356,18 @@ export default function ClientTeamManager() {
                       onBlur={(e) => saveTitle(m, e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
                       className="ml-1 w-36 rounded-lg border border-border bg-background px-2 py-0.5 text-[10.5px] text-foreground placeholder:text-faint focus:border-primary focus:outline-none"
+                    />
+                  </div>
+                )}
+                {isOwner && m.role !== 'owner' && openCaps === m.id && (
+                  <div className="mt-2">
+                    <CapabilityGrants
+                      grantable={CLIENT_GRANTABLE}
+                      grants={grants[m.id] ?? []}
+                      myCaps={myCaps}
+                      busy={busy === m.id}
+                      onCycle={(cap) => cycleGrant(m, cap)}
+                      onExpiry={(cap, v) => setExpiry(m, cap, v)}
                     />
                   </div>
                 )}

@@ -38,6 +38,15 @@ export const EVENT_TYPES = [
   'approval_auto_advanced',
   'approval_withdrawn',
   'approval_reminded',
+  // The PERMISSION ledger (Batch 24 item 8, S-R R-8). "A permission change is
+  // precisely the fact you need a record of when something has gone wrong, and
+  // it is the second table after approvals where 'the record is the product'
+  // applies." Written server-side as a side effect of the change itself — never
+  // by the browser, which is why /api/activity was deleted in Batch 22.
+  'member_cap_granted',
+  'member_cap_denied',
+  'member_cap_revoked',
+  'member_role_changed',
 ] as const
 
 export type EventType = (typeof EVENT_TYPES)[number]

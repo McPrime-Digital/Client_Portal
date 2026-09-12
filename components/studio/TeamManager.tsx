@@ -3,14 +3,21 @@
 import { useCallback, useEffect, useState } from 'react'
 import { UsersRound, UserPlus, ShieldCheck, Loader2, Pause, Play, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { ORG_GRANTABLE } from '@/lib/permissions'
+import { ORG_GRANTABLE, ORG_ROLE_HELP } from '@/lib/permissions'
+import { ORG_ROLES_ASSIGNABLE, type OrgRole } from '@/lib/capabilities'
+import CapabilityGrants, { GrantSummary, type Grant } from '@/components/shared/CapabilityGrants'
 
+// THREE LOCAL COPIES OF THE VOCABULARY LIVED HERE and all three were stale: a
+// six-value role union, an ASSIGNABLE list of five that could not offer
+// `coordinator` or `crew`, and a ROLE_HELP map that still called the Suite "the
+// workspace". They now come from lib/capabilities.ts — the same source that
+// generates role_baseline() in SQL (ruling 2).
 type Member = {
   id: string
   user_id: string | null
   name: string | null
   email: string
-  role: 'owner' | 'admin' | 'producer' | 'finance' | 'editor' | 'member'
+  role: OrgRole
   roles?: string[]
   extra_caps?: string[]
   title?: string | null
@@ -19,16 +26,8 @@ type Member = {
   accepted_at: string | null
 }
 
-const ASSIGNABLE = ['admin', 'producer', 'finance', 'editor', 'member'] as const
-
-const ROLE_HELP: Record<string, string> = {
-  owner: 'Everything, including billing and this page',
-  admin: 'Manage team, clients, settings, and money',
-  producer: 'Run projects and the client relationship',
-  finance: 'Invoices, billing, and cost control',
-  editor: 'Workspace craft — script, storyboard, AI tools',
-  member: 'Work inside projects and the workspace',
-}
+const ASSIGNABLE = ORG_ROLES_ASSIGNABLE
+const ROLE_HELP: Record<string, string> = ORG_ROLE_HELP
 
 const fmt = (d: string | null) =>
   d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'
@@ -38,6 +37,12 @@ export default function TeamManager() {
   const [canManage, setCanManage] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
+  const [grants, setGrants] = useState<Record<string, Grant[]>>({})
+  /** The GRANTER's own resolved set. G-1's ceiling, offered rather than
+   *  discovered: a picker that shows what the trigger will refuse turns a rule
+   *  into a bug report. */
+  const [myCaps, setMyCaps] = useState<string[]>([])
+  const [openCaps, setOpenCaps] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [form, setForm] = useState({ name: '', email: '', role: 'member' })
@@ -50,6 +55,8 @@ export default function TeamManager() {
         const json = await res.json()
         setMembers(json.members ?? [])
         setCanManage(!!json.canManage)
+        setGrants(json.grants ?? {})
+        setMyCaps(json.myCaps ?? [])
       }
     } catch {}
     setLoading(false)
@@ -98,17 +105,48 @@ export default function TeamManager() {
     await load(); setBusy(null)
   }
 
-  // Custom access: toggle a granted capability on top of the member's roles.
-  async function toggleGrant(m: Member, cap: string) {
-    const current = m.extra_caps ?? []
-    const next = current.includes(cap) ? current.filter((c) => c !== cap) : [...current, cap]
+  /**
+   * Individual access, written to the GRANT TABLES (item 8) rather than straight
+   * into extra_caps. The rows are the record — who granted what, when, and until
+   * when (R-8) — and extra_caps is kept as a projection of them.
+   *
+   * Three states per capability, cycled in that order: nothing → granted →
+   * denied → nothing. DENY IS NOT THE ABSENCE OF A GRANT: a role baseline can
+   * carry a capability, so "not granted" and "denied" are different answers and
+   * the UI has to be able to express both (S-R R-3).
+   */
+  async function cycleGrant(m: Member, cap: string) {
+    const live = (grants[m.id] ?? []).filter((g) => g.capability === cap)
+    const nextMode = live.length === 0 ? 'grant' : live[0].mode === 'grant' ? 'deny' : null
+    const desired = [
+      ...(grants[m.id] ?? []).filter((g) => g.capability !== cap)
+        .map((g) => ({ capability: g.capability, mode: g.mode, expiresAt: g.expiresAt })),
+      ...(nextMode ? [{ capability: cap, mode: nextMode, expiresAt: null }] : []),
+    ]
     setBusy(m.id); setError(null)
     const res = await fetch('/api/admin/team', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ memberId: m.id, extraCaps: next }),
+      body: JSON.stringify({ memberId: m.id, grants: desired }),
     })
     if (!res.ok) setError((await res.json()).error ?? 'Could not change access.')
+    await load(); setBusy(null)
+  }
+
+  /** Expiry on one grant (G-5). Null = permanent, which is the default. */
+  async function setExpiry(m: Member, cap: string, value: string) {
+    const desired = (grants[m.id] ?? []).map((g) =>
+      g.capability === cap
+        ? { capability: g.capability, mode: g.mode, expiresAt: value ? new Date(value).toISOString() : null }
+        : { capability: g.capability, mode: g.mode, expiresAt: g.expiresAt },
+    )
+    setBusy(m.id); setError(null)
+    const res = await fetch('/api/admin/team', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memberId: m.id, grants: desired }),
+    })
+    if (!res.ok) setError((await res.json()).error ?? 'Could not set an expiry.')
     await load(); setBusy(null)
   }
 
@@ -254,22 +292,16 @@ export default function TeamManager() {
                 )}
                 {canManage && m.role !== 'owner' && (
                   <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                    <span className="text-[9.5px] uppercase tracking-wide text-faint">access:</span>
-                    {ORG_GRANTABLE.map(({ cap, label }) => {
-                      const on = (m.extra_caps ?? []).includes(cap)
-                      return (
-                        <button
-                          key={cap} type="button" disabled={busy === m.id}
-                          onClick={() => toggleGrant(m, cap)}
-                          title={`Grant "${label}" beyond their roles`}
-                          className={`rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                            on ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-faint hover:text-muted-foreground'
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      )
-                    })}
+                    {/* GROUPED BY DOMAIN, NOT FORTY CHECKBOXES (S-R §13). The
+                        summary line is the resolved answer; the detail opens on
+                        demand, so the common case stays one line per person. */}
+                    <button
+                      type="button"
+                      onClick={() => setOpenCaps(openCaps === m.id ? null : m.id)}
+                      className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      <GrantSummary grants={grants[m.id] ?? []} />
+                    </button>
                     <input
                       key={`${m.id}-${m.title ?? ''}`}
                       defaultValue={m.title ?? ''}
@@ -278,6 +310,19 @@ export default function TeamManager() {
                       onBlur={(e) => saveTitle(m, e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
                       className="ml-1 w-36 rounded-lg border border-border bg-background px-2 py-0.5 text-[10.5px] text-foreground placeholder:text-faint focus:border-primary focus:outline-none"
+                    />
+                  </div>
+                )}
+
+                {canManage && m.role !== 'owner' && openCaps === m.id && (
+                  <div className="mt-2">
+                    <CapabilityGrants
+                      grantable={ORG_GRANTABLE}
+                      grants={grants[m.id] ?? []}
+                      myCaps={myCaps}
+                      busy={busy === m.id}
+                      onCycle={(cap) => cycleGrant(m, cap)}
+                      onExpiry={(cap, v) => setExpiry(m, cap, v)}
                     />
                   </div>
                 )}

@@ -4,7 +4,9 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { orgRolesOf, canManageOrg } from '@/lib/team'
 import { ORG_GRANTABLE } from '@/lib/permissions'
-import { can } from '@/lib/capabilities.server'
+import { can, resolveCaps } from '@/lib/capabilities.server'
+import { setMemberGrants, recordRoleChange, listMemberGrants, type DesiredGrant } from '@/lib/grants'
+import { rosterName } from '@/lib/team'
 import { cutMemberAccess, restoreOrgAccess, statusCutsAccess } from '@/lib/memberAccess'
 import { recordUsage } from '@/lib/usage'
 import { sendTenantInvite } from '@/lib/email/invite'
@@ -17,8 +19,19 @@ async function requireManager() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || !isAdmin(user)) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
   const role = await orgRolesOf(user)
-  if (!canManageOrg(role)) return { error: NextResponse.json({ error: 'Only org owners and admins can manage the team.' }, { status: 403 }) }
-  return { user, role }
+  // THE CAPABILITY, NOT THE ROLE LIST (Batch 24 item 8's probe found this).
+  // canManageOrg(role) tests role ∈ {owner, admin}. Migration 0053 widened the
+  // ROW to has_cap('people.manage') — so a person GRANTED people.manage was
+  // admitted by the database and refused here, which makes the grant surface
+  // able to hand out an authority the route then ignores. The whole point of the
+  // capability layer is that a grant works; a route that only understands roles
+  // is the "hiding a tile" problem inverted.
+  if (!(await can(user, 'people.invite'))) {
+    return { error: NextResponse.json({ error: 'You need people.manage to manage the team.' }, { status: 403 }) }
+  }
+  // The USER client is returned, not just the user: grant writes must go through
+  // it so 0054's G-1…G-4 triggers see auth.uid(). See lib/grants.ts.
+  return { user, role, supabase }
 }
 
 export async function GET() {
@@ -57,8 +70,25 @@ export async function GET() {
     .eq('organization_id', userOrgId(user))
     .neq('status', 'revoked')
     .order('created_at', { ascending: true })
+  // The individual grants, so the surface can show what was given or withheld
+  // per person, by whom, and when (S-R §8 / item 8). Read on the USER client:
+  // 0053's policy and 0051's self-read are the authorization, and a manager
+  // holding people.manage sees the org's rows either way.
+  // The dynamic select() defeats supabase-js's row typing, so the shape is
+  // asserted once here rather than at each use.
+  const rows = (data ?? []) as unknown as { id: string; name?: string }[]
+  const grants = full
+    ? await listMemberGrants(supabase, 'crew', rows.map((m) => m.id))
+    : new Map()
+  // G-1 IS ENFORCED IN A TRIGGER AND OFFERED IN THE UI. The picker must show
+  // only what the granter holds, or it invites a click that the database will
+  // refuse — and a refusal the user could not have predicted reads as a bug.
+  // The trigger stays the control; this is the courtesy.
+  const mine = await resolveCaps(user)
   return NextResponse.json({
-    members: data ?? [],
+    members: rows,
+    grants: Object.fromEntries(grants),
+    myCaps: [...mine.caps],
     myRole: me,
     canManage: canManageOrg(me),
     // So a client can tell a reduced payload from an empty roster (S-R S-3: an
@@ -204,7 +234,7 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const gate = await requireManager()
   if ('error' in gate) return gate.error
-  const { memberId, role, roles: extraRoles, status, extraCaps, title } = await req.json().catch(() => ({}))
+  const { memberId, role, roles: extraRoles, status, extraCaps, title, grants } = await req.json().catch(() => ({}))
   // PATCH's list, which differs from POST's by ONE value and must: an existing
   // owner may promote someone to 'owner', an invite form may not create one.
   // Widened with 'coordinator' and 'crew' alongside the 0050 CHECK — a second
@@ -226,7 +256,7 @@ export async function PATCH(req: NextRequest) {
   // one tenant patching another tenant's crew row.
   const { data: target } = await supabaseAdmin
     .from('organization_members')
-    .select('id, user_id, role')
+    .select('id, user_id, role, name')
     .eq('id', memberId)
     .eq('organization_id', userOrgId(gate.user))
     .maybeSingle()
@@ -248,8 +278,54 @@ export async function PATCH(req: NextRequest) {
   if (title !== undefined) patch.title = String(title ?? '').trim().slice(0, 40) || null
   if (additional !== undefined) patch.roles = additional.filter((r) => r !== (role ?? target.role))
   if (status !== undefined) patch.status = status
+  // ── INDIVIDUAL GRANTS (item 8) ──────────────────────────────────────────
+  // Written through lib/grants.ts on the USER client, because 0054's G-1…G-4
+  // triggers read auth.uid() and pass a service-role write straight through.
+  // Handing this the admin client would disable every delegation rule while
+  // looking identical at the call site.
+  if (Array.isArray(grants)) {
+    try {
+      const desired: DesiredGrant[] = grants
+        .filter((g: unknown): g is DesiredGrant =>
+          !!g && typeof g === 'object'
+          && typeof (g as DesiredGrant).capability === 'string'
+          && ((g as DesiredGrant).mode === 'grant' || (g as DesiredGrant).mode === 'deny'))
+        .map((g: DesiredGrant) => ({
+          capability: g.capability, mode: g.mode,
+          expiresAt: g.expiresAt ? new Date(g.expiresAt).toISOString() : null,
+        }))
+      const result = await setMemberGrants(gate.supabase, {
+        side: 'crew',
+        memberId,
+        organizationId: userOrgId(gate.user),
+        desired,
+        actorId: gate.user.id,
+        actorName: (await rosterName(gate.user)) ?? 'A manager',
+        actorRole: 'admin',
+        targetName: (target as { name?: string }).name ?? null,
+      })
+      if (Object.keys(patch).length === 0) {
+        return NextResponse.json({ success: true, grants: result })
+      }
+    } catch (e) {
+      // 0054 raises a named SQLSTATE so this can be a sentence rather than a 500.
+      const code = (e as { code?: string }).code
+      const say: Record<string, string> = {
+        GR001: 'You cannot grant a capability you do not hold yourself.',
+        GR002: 'That is not a grantable capability.',
+        GR003: 'You cannot change your own capabilities.',
+        GR004: 'Only an owner can change an owner.',
+        GR005: 'An organization must keep at least one active owner.',
+      }
+      return NextResponse.json(
+        { error: (code && say[code]) ?? (e as Error).message, code: code ?? null },
+        { status: code ? 403 : 500 },
+      )
+    }
+  }
+
   if (Object.keys(patch).length === 0) {
-    return NextResponse.json({ error: 'Nothing to change — pass role, roles, status, extraCaps, or title.' }, { status: 400 })
+    return NextResponse.json({ error: 'Nothing to change — pass role, roles, status, extraCaps, title, or grants.' }, { status: 400 })
   }
   const { error } = await supabaseAdmin
     .from('organization_members')
@@ -257,6 +333,22 @@ export async function PATCH(req: NextRequest) {
     .eq('id', memberId)
     .eq('organization_id', userOrgId(gate.user))
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // R-8: a role change is a ledger event. Written after the row, so the record
+  // never claims a change that did not land.
+  if (role !== undefined && role !== target.role) {
+    await recordRoleChange({
+      organizationId: userOrgId(gate.user),
+      memberId,
+      from: target.role as string,
+      to: role,
+      actorId: gate.user.id,
+      actorName: (await rosterName(gate.user)) ?? 'A manager',
+      actorRole: 'admin',
+      targetName: (target as { name?: string }).name ?? null,
+    })
+  }
+
   if (target.user_id) {
     // A claim strip that fails must surface: reporting success while the member
     // keeps role='admin' is the whole defect this guards against.

@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
-import { orgRolesOf, canManageOrg } from '@/lib/team'
+import { orgRolesOf, canManageOrg, rosterName } from '@/lib/team'
 import { CLIENT_GRANTABLE } from '@/lib/permissions'
+import { setMemberGrants, listMemberGrants, recordRoleChange, type DesiredGrant } from '@/lib/grants'
 import { can } from '@/lib/capabilities.server'
 import { createNotification } from '@/lib/notify'
 import { cutMemberAccess, restoreClientAccess, statusCutsAccess } from '@/lib/memberAccess'
@@ -16,18 +17,27 @@ async function requireManager() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || !isAdmin(user)) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
-  const role = await orgRolesOf(user)
-  if (!canManageOrg(role)) return { error: NextResponse.json({ error: 'Only org owners and admins can manage client teams.' }, { status: 403 }) }
-  // No capability gate here, deliberately: canManageOrg already restricts the
-  // MUTATIONS to owner/admin, and both baselines carry people.manage — a second
-  // check would be redundant rather than defence in depth. The read gate the
-  // audit asked for belongs on GET, which does not use this helper.
+  // THE CAPABILITY, NOT THE ROLE LIST (Batch 24 item 8's probe found this).
+  // canManageOrg(role) tests role ∈ {owner, admin}. Migration 0053 widened the
+  // ROW to has_cap('people.manage') — so a person GRANTED people.manage was
+  // admitted by the database and refused here, which makes the grant surface
+  // able to hand out an authority the route then ignores. The whole point of the
+  // capability layer is that a grant works; a route that only understands roles
+  // is the "hiding a tile" problem inverted.
+  if (!(await can(user, 'people.invite'))) {
+    return { error: NextResponse.json({ error: 'You need people.manage to manage client teams.' }, { status: 403 }) }
+  }
+  // The gate above covers every MUTATION that uses this helper. GET does not use
+  // it — it has its own two-payload treatment, because the in-room roster needs
+  // names without needing the administrative record.
   // Every lookup and every write below carries this predicate. Before it,
   // each action keyed off a bare body id — an org admin of ANY tenant could
   // approve, pause, re-role or delete another tenant's client teammate, and
   // flip another tenant's invite policy, by id (the Batch 3A hole, fixed on
   // admin/team, missed here).
-  return { user, orgId: userOrgId(user) }
+  // The USER client too: grant writes go through it so 0054's triggers see
+  // auth.uid(). See lib/grants.ts.
+  return { user, orgId: userOrgId(user), supabase }
 }
 
 export async function GET(req: NextRequest) {
@@ -60,8 +70,16 @@ export async function GET(req: NextRequest) {
       .order('created_at', { ascending: true }),
     supabaseAdmin.from('clients').select('invite_policy').eq('id', clientId).eq('organization_id', orgId).single(),
   ])
+  const rows = (members ?? []) as unknown as { id: string; name?: string }[]
+  const grants = full ? await listMemberGrants(supabase, 'client', rows.map((m) => m.id)) : new Map()
+  // A STUDIO actor administering a client company is bounded by the studio's own
+  // ceiling, not by portal capabilities they do not hold at all (S-R §6's two
+  // ceilings). Holding people.manage is what lets them set any portal capability
+  // here, so the picker offers all of them; 0054's trigger is still the control.
   return NextResponse.json({
-    members: members ?? [],
+    members: rows,
+    grants: Object.fromEntries(grants),
+    myCaps: full ? CLIENT_GRANTABLE.map((g) => g.cap) : [],
     // The invite policy is an administrative setting, not room-roster data.
     invitePolicy: full ? (company?.invite_policy ?? 'open') : null,
     canManage: canManageOrg(me),
@@ -168,6 +186,13 @@ export async function POST(req: NextRequest) {
     if (!['approver', 'member', 'viewer'].includes(body.role)) {
       return NextResponse.json({ error: 'Invalid role.' }, { status: 400 })
     }
+    // Read the row back first: R-8 needs the FROM value, and a ledger entry
+    // written from what the caller sent rather than from what the row held is a
+    // record of an intention, not of a change.
+    const { data: before } = await supabaseAdmin
+      .from('client_members').select('id, role, name, client_id')
+      .eq('id', body.memberId).eq('organization_id', orgId).neq('role', 'owner').maybeSingle()
+    if (!before) return NextResponse.json({ error: 'Member not found.' }, { status: 404 })
     const { error } = await supabaseAdmin
       .from('client_members')
       .update({ role: body.role })
@@ -175,6 +200,17 @@ export async function POST(req: NextRequest) {
       .eq('organization_id', orgId)
       .neq('role', 'owner')
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    await recordRoleChange({
+      organizationId: orgId,
+      clientId: before.client_id as string,
+      memberId: body.memberId,
+      from: before.role as string,
+      to: body.role,
+      actorId: gate.user.id,
+      actorName: (await rosterName(gate.user)) ?? 'A manager',
+      actorRole: 'admin',
+      targetName: (before as { name?: string }).name ?? null,
+    })
     return NextResponse.json({ success: true })
   }
 
@@ -182,6 +218,48 @@ export async function POST(req: NextRequest) {
     // custom grants + custom role name, curated by the org
     // Derived from the shared vocabulary — see the note in admin/team.
     const CAPS: string[] = CLIENT_GRANTABLE.map((g) => g.cap)
+    // INDIVIDUAL GRANTS (item 8), written on the USER client so 0054's triggers
+    // are the control. Sent instead of extraCaps by the new surface; extraCaps
+    // stays accepted for the length of the rollout.
+    if (Array.isArray(body.grants)) {
+      const { data: tgt } = await supabaseAdmin
+        .from('client_members').select('id, name, client_id, organization_id')
+        .eq('id', body.memberId).eq('organization_id', orgId).maybeSingle()
+      if (!tgt) return NextResponse.json({ error: 'Member not found.' }, { status: 404 })
+      try {
+        const desired: DesiredGrant[] = (body.grants as DesiredGrant[])
+          .filter((g) => !!g && typeof g.capability === 'string' && (g.mode === 'grant' || g.mode === 'deny'))
+          .map((g) => ({
+            capability: g.capability, mode: g.mode,
+            expiresAt: g.expiresAt ? new Date(g.expiresAt).toISOString() : null,
+          }))
+        await setMemberGrants(gate.supabase, {
+          side: 'client',
+          memberId: body.memberId,
+          organizationId: orgId,
+          clientId: tgt.client_id as string,
+          desired,
+          actorId: gate.user.id,
+          actorName: (await rosterName(gate.user)) ?? 'A manager',
+          actorRole: 'admin',
+          targetName: (tgt as { name?: string }).name ?? null,
+        })
+        return NextResponse.json({ success: true })
+      } catch (e) {
+        const code = (e as { code?: string }).code
+        const say: Record<string, string> = {
+          GR001: 'You cannot grant a capability you do not hold yourself.',
+          GR002: 'That is not a grantable capability.',
+          GR003: 'You cannot change your own capabilities.',
+          GR004: 'Only an owner can change an owner.',
+          GR005: 'A client company must keep at least one active owner.',
+        }
+        return NextResponse.json(
+          { error: (code && say[code]) ?? (e as Error).message, code: code ?? null },
+          { status: code ? 403 : 500 },
+        )
+      }
+    }
     const patch: Record<string, unknown> = {}
     if (Array.isArray(body.extraCaps)) patch.extra_caps = body.extraCaps.filter((c: string) => CAPS.includes(c))
     if (body.title !== undefined) patch.title = String(body.title ?? '').trim().slice(0, 40) || null
