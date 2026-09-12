@@ -11,7 +11,7 @@ was the final foundation batch.
 
 After this, read `docs/specs/` in order: S0 → S0-A → **S0-B** → S0-conformance
 → S1-P → S-V → **S-F** → S1 → S2 → **S-C** → **S3-core** → **S3-core-A** →
-**S3-b** → **S3-c**. **Where S0 and S0-A disagree, S0-A wins**, and the same rule binds
+**S3-b** → **S3-c** → **S-R**. **Where S0 and S0-A disagree, S0-A wins**, and the same rule binds
 `S3-core` and `S3-core-A`; **S0-B supersedes the product name in all of them.**
 **`S-F` (feature scope and market position) supersedes `S-V` §13 — the v1 cap
 — in full**; `S-V` §1–§12 stand as the destination, and the redrawn cap is
@@ -23,7 +23,13 @@ into v1, and is sequenced after `S3-core`. `S3-c` (approvals, review and live
 artifacts) **supersedes `S3-core` §2 (the approvals tables), `S3-core` §9.2
 and `S-F` §3.3 where they disagree** — approval is a record, not a gate:
 silence auto-advances and is never written as approval — and is sequenced
-after `S3-core` migrations 1–7 as migration 8 onward. `S-F`, `S-C`
+after `S3-core` migrations 1–7 as migration 8 onward. `S-R` (roles,
+capabilities and surfaces) is **settled** and governs the authorization layer
+AD-001 names and never built: the four axes (seat class, company role,
+project role, individual grants and denials), the capability namespace,
+delegation limits, live propagation, and how a dashboard composes from a
+capability set. It **supersedes `S1` §5.1 and `S2` §5**, and it **amends
+`S0` AD-001 at its §9**. `S-F`, `S-C`
 (communications and sender identity), `S3-core`, `S3-b` and `S3-c` are
 **draft for approval** — the five specs in the stack that are not settled.
 `CLAUDE.md` holds the working mechanics (commands, clients, route groups,
@@ -114,6 +120,13 @@ paying"** (S-V §13).
   by RLS, so correct RLS must exist regardless — app-layer-only would pay
   RLS's full cost and collect none of its protection. Done through migration
   0021: the database is now the tenancy boundary, proven by the harness.
+  **AMENDED by `S-R` §9 (2026-09-12).** The split holds everywhere except a
+  named subset — `invoices`, `org_credits`, `org_budgets`, `credit_ledger`,
+  `usage_events` and both rosters with their grant tables — where RLS carries a
+  capability predicate via `public.has_cap()` as well as a tenancy one. The
+  reason is that AD-001 itself puts the USER client on those paths, so a check
+  in a route handler is not what stands between a crew member and the company's
+  books; PostgREST is. HANDOFF §12 lesson 6, paid for once already in Batch 22.
 - **AD-002(-R) — one US region; `organizations.region` exists** (0018) so a
   second region is a deployment, not a rewrite. Film has its own residency
   regime (TPN audits, studio content-security riders).
