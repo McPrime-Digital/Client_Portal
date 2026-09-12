@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint .",
     "test:rls": "tsx scripts/test-rls.ts",
+    "check:caps": "tsx scripts/gen-capability-sql.ts",
+    "gen:caps": "tsx scripts/gen-capability-sql.ts --print",
     "seed:harness": "tsx scripts/seed-harness-tenant.ts",
     "provision:tenant": "tsx scripts/provision-tenant.ts"
   },
