@@ -112,8 +112,8 @@ export default async function ProjectDetailPage({
         studioName={brand.name}
         memberName={access?.name}
         memberRole={access?.role}
-        canApprove={clientCan(access?.role ?? 'owner', 'approve', access?.extraCaps)}
-        canMessage={clientCan(access?.role ?? 'owner', 'message', access?.extraCaps)}
+        canApprove={clientCan(access?.role ?? 'owner', 'portal.approve', access?.extraCaps)}
+        canMessage={clientCan(access?.role ?? 'owner', 'portal.message', access?.extraCaps)}
         involvement={involvement}
       />
     </>

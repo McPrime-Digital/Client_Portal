@@ -189,6 +189,67 @@ async function parity(env: Record<string, string>): Promise<number> {
   return bad
 }
 
+/**
+ * PHASE 3 — THE LEGACY ALIAS PATH, which phase 2 cannot reach.
+ *
+ * Every harness persona has extra_caps = '{}', so phase 2 never executes the
+ * aliasing branch on either side. It passed green while TS normalized a legacy
+ * value and has_cap() did not — the route would have said yes and the policy no,
+ * a silent empty result (found by probe, fixed in 0052). A guard proves what it
+ * looks at and nothing else (HANDOFF §12 lesson 2).
+ *
+ * So this WRITES a pre-rename snake_case value onto the harness crew row,
+ * asserts both resolvers agree, and reverts in a finally block. It touches the
+ * harness org only, and never tenant zero.
+ */
+async function legacyAliasParity(env: Record<string, string>): Promise<number> {
+  const CREW_MEMBER_ID = '0f0f0f0f-0004-4000-8000-000000000002'
+  const CREW_EMAIL = 'harness-crew@rls-harness.example.com'
+  if (!env.HARNESS_CREW_PASSWORD) {
+    console.log('  ! SKIPPED — no harness password. This is a SKIP, not a pass.')
+    return 0
+  }
+  const { createClient } = await import('@supabase/supabase-js')
+  const { resolveCaps } = await import('../lib/capabilities.server')
+
+  // [stored legacy value, the NEW key it must resolve to]
+  const cases: [string, string][] = [
+    ['client_money', 'money.invoices'],
+    ['workspace', 'work.suite'],
+    ['manage_team', 'people.manage'],
+  ]
+  let bad = 0
+  try {
+    for (const [legacy, expected] of cases) {
+      await query(
+        `update public.organization_members set extra_caps = array['${legacy}']::text[]
+          where id = '${CREW_MEMBER_ID}';`,
+      )
+      const c = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+      const { data: signed, error } = await c.auth.signInWithPassword({
+        email: CREW_EMAIL, password: env.HARNESS_CREW_PASSWORD,
+      })
+      if (error || !signed.user) { console.error(`✗ alias: sign-in failed`); bad++; continue }
+      const { data: sql } = await c.rpc('has_cap', { p_cap: expected })
+      const ts = await resolveCaps(signed.user as never, c as never)
+      await c.auth.signOut()
+      const tsHas = ts.caps.has(expected)
+      if (Boolean(sql) !== tsHas || !tsHas) {
+        console.error(`✗ alias {${legacy}} → ${expected}: sql=${Boolean(sql)} ts=${tsHas} (both must be true)`)
+        bad++
+      } else {
+        console.log(`  ✓ alias {${legacy}}`.padEnd(28) + `→ ${expected} resolves in BOTH`)
+      }
+    }
+  } finally {
+    await query(
+      `update public.organization_members set extra_caps = array[]::text[]
+        where id = '${CREW_MEMBER_ID}';`,
+    )
+  }
+  return bad
+}
+
 function loadEnv(): Record<string, string> {
   const env: Record<string, string> = {}
   for (const raw of readFileSync('.env.local', 'utf8').split('\n')) {
@@ -206,10 +267,13 @@ async function main() {
     console.log(clientBaselineSql())
     return
   }
-  console.log('1/2 · live role_baseline()/client_role_baseline() vs lib/capabilities.ts …')
+  console.log('1/3 · live role_baseline()/client_role_baseline() vs lib/capabilities.ts …')
   let bad = await check()
-  console.log('\n2/2 · TS resolveCaps() vs SQL has_cap(), as each persona …')
-  bad += await parity(loadEnv())
+  const env = loadEnv()
+  console.log('\n2/3 · TS resolveCaps() vs SQL has_cap(), as each persona …')
+  bad += await parity(env)
+  console.log('\n3/3 · the legacy snake_case alias path, on a real row …')
+  bad += await legacyAliasParity(env)
   if (bad > 0) {
     console.error(`\n✗ ${bad} mismatch(es). Regenerate with --print and apply, or fix the constant.`)
     process.exit(1)

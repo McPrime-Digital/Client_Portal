@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { orgRolesOf, canManageOrg } from '@/lib/team'
+import { ORG_GRANTABLE } from '@/lib/permissions'
 import { cutMemberAccess, restoreOrgAccess, statusCutsAccess } from '@/lib/memberAccess'
 import { recordUsage } from '@/lib/usage'
 import { sendTenantInvite } from '@/lib/email/invite'
@@ -200,7 +201,14 @@ export async function PATCH(req: NextRequest) {
   if (target.role === 'owner' && !gate.role.includes('owner')) {
     return NextResponse.json({ error: 'Only an owner can change an owner.' }, { status: 403 })
   }
-  const CAPS = ['org_settings', 'manage_team', 'manage_clients', 'client_money', 'run_projects', 'workspace', 'cost_control']
+  // DERIVED, not repeated. This was a FOURTH hand-maintained copy of the
+  // capability vocabulary, in snake_case, and it is `string[]` so tsc could not
+  // see it go stale — after the 0051 rename it would have silently filtered out
+  // every value the grant UI sent, writing an empty extra_caps and reading as
+  // "no custom access" rather than as an error. It also omitted
+  // 'approval_policy', which ORG_GRANTABLE has offered since Batch 22, so that
+  // capability was ungrantable here by accident.
+  const CAPS: string[] = ORG_GRANTABLE.map((g) => g.cap)
   const patch: Record<string, unknown> = {}
   if (role !== undefined) patch.role = role
   if (extraCaps !== undefined && Array.isArray(extraCaps)) patch.extra_caps = extraCaps.filter((c) => CAPS.includes(c))

@@ -36,7 +36,7 @@ import { createNotification } from '@/lib/notify'
 const SETTINGS_ACTIONS = new Set(['get_settings', 'save_settings', 'save_notification_prefs'])
 
 function capFor(action: string): OrgCap {
-  return SETTINGS_ACTIONS.has(action) ? 'org_settings' : 'client_money'
+  return SETTINGS_ACTIONS.has(action) ? 'org.settings' : 'money.invoices'
 }
 
 async function verifyCrew() {

@@ -12,7 +12,7 @@ export default async function ClientTeamPage() {
   if (!user) redirect('/login')
 
   const membership = await clientMembershipOf(user)
-  if (!membership || !clientCan(membership.role, 'manage_team', membership.extraCaps)) redirect('/dashboard')
+  if (!membership || !clientCan(membership.role, 'portal.team', membership.extraCaps)) redirect('/dashboard')
 
   return <ClientTeamManager />
 }

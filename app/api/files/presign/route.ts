@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     // on a company capability would refuse the only surface they have.
     if (role === 'client' && !roomId) {
       const membership = await clientMembershipOf(user)
-      if (!membership || !clientCan(membership.role, 'upload', membership.extraCaps)) {
+      if (!membership || !clientCan(membership.role, 'portal.upload', membership.extraCaps)) {
         return NextResponse.json({ error: 'Your role is view-only — uploads are not available.' }, { status: 403 })
       }
     }

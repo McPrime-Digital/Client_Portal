@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
     // not by the company capability an external collaborator does not have.
     if (role === 'client' && !input.roomId) {
       const membership = await clientMembershipOf(user)
-      if (!membership || !clientCan(membership.role, 'upload', membership.extraCaps)) {
+      if (!membership || !clientCan(membership.role, 'portal.upload', membership.extraCaps)) {
         return NextResponse.json(
           { error: 'Your role is view-only — uploads are not available.' },
           { status: 403 }

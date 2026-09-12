@@ -171,9 +171,9 @@ export default async function DashboardPage() {
   const projectIds = scopedProjects.map((p) => p.id)
   const hasProjects = projectIds.length > 0
   // Role shelling — billing exists ONLY for roles that hold the invoices cap.
-  const canBilling = clientCan(access?.role ?? 'owner', 'invoices', access?.extraCaps)
-  const canApproveRole = clientCan(access?.role ?? 'owner', 'approve', access?.extraCaps)
-  const canVault = clientCan(access?.role ?? 'owner', 'upload', access?.extraCaps)
+  const canBilling = clientCan(access?.role ?? 'owner', 'portal.invoices', access?.extraCaps)
+  const canApproveRole = clientCan(access?.role ?? 'owner', 'portal.approve', access?.extraCaps)
+  const canVault = clientCan(access?.role ?? 'owner', 'portal.upload', access?.extraCaps)
   const isViewer = (access?.role ?? 'owner') === 'viewer'
 
   const [

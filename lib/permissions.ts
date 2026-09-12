@@ -7,28 +7,24 @@
 // dependency on spaces.ts (and drags no icon bundle into anything importing it).
 import type { FeatureKey } from '@/lib/studio/spaces'
 
-// ── client-side (portal) ────────────────────────────────────────────────────
-// RULING 2: the role types live in lib/capabilities.ts and nowhere else. This
-// file and lib/team.ts each exported a type named OrgRole and they DISAGREED —
-// four values there, six here — with `data.role as OrgRole` laundering the gap.
-// Re-exported rather than redeclared so every existing importer keeps working.
-export type { OrgRole, ClientRole } from '@/lib/capabilities'
-import type { OrgRole, ClientRole } from '@/lib/capabilities'
-
-export type ClientCap =
-  | 'view'            // overview, projects, files, approvals queue, messages
-  | 'message'         // send messages
-  | 'upload'          // upload files
-  | 'approve'         // approve deliverables / request changes
-  | 'invoices'        // see & pay invoices
-  | 'manage_team'     // invite / roles / remove
-
-const CLIENT_CAPS: Record<ClientRole, ClientCap[]> = {
-  owner: ['view', 'message', 'upload', 'approve', 'invoices', 'manage_team'],
-  approver: ['view', 'message', 'upload', 'approve', 'invoices'],
-  member: ['view', 'message', 'upload'],
-  viewer: ['view'],
-}
+// ── THIS FILE IS A CONSUMER NOW (Batch 24 item 4) ───────────────────────────
+// It used to be a SECOND source of authorization: its own OrgRole, its own cap
+// unions, and its own role→capability matrices, maintained beside the ones in
+// the database. Every type and every baseline now comes from
+// lib/capabilities.ts, which is also what generates the SQL (ruling 2).
+//
+// What STAYS here is the part that is not capability: feature and space gating
+// (S-R §5 steps 1-2 — plan entitlement and organizations.type), the nav
+// projections, and the default-deny discipline around ORG_FEATURE_CAP. Those are
+// entitlement and UI composition, not authority.
+//
+// Still client-safe: no server imports, so 'use client' components may import
+// it. The server-side assertion is can() in lib/capabilities.server.ts.
+export type { OrgRole, ClientRole, OrgCap, ClientCap } from '@/lib/capabilities'
+import {
+  ORG_ROLE_BASELINE, CLIENT_ROLE_BASELINE, LEGACY_ORG_CAP, LEGACY_CLIENT_CAP,
+  type OrgRole, type ClientRole, type OrgCap, type ClientCap,
+} from '@/lib/capabilities'
 
 /** Role gives the DEFAULT capability set; `extra` holds per-member grants the
  *  owner added on top (custom access). Effective = union. */
@@ -37,18 +33,22 @@ export function clientCan(
   cap: ClientCap,
   extra?: readonly string[] | null
 ): boolean {
-  if (extra?.includes(cap)) return true
+  // A stored row may still hold a pre-0051 snake_case value while a mid-deploy
+  // session is live, so extras are normalized on READ through the alias table
+  // (deletion owed — HANDOFF §9). Without this, the rename would silently
+  // strip granted access for the length of a rollout.
+  if (extra?.some((e) => (LEGACY_CLIENT_CAP[e] ?? e) === cap)) return true
   if (!role) return false
-  return CLIENT_CAPS[role]?.includes(cap) ?? false
+  return CLIENT_ROLE_BASELINE[role]?.includes(cap) ?? false
 }
 
 /** Client-side capabilities an owner may grant individually, with UI labels. */
 export const CLIENT_GRANTABLE: { cap: ClientCap; label: string }[] = [
-  { cap: 'message', label: 'Messaging' },
-  { cap: 'upload', label: 'Files & uploads' },
-  { cap: 'approve', label: 'Approvals' },
-  { cap: 'invoices', label: 'Invoices & billing' },
-  { cap: 'manage_team', label: 'Team management' },
+  { cap: 'portal.message', label: 'Messaging' },
+  { cap: 'portal.upload', label: 'Files & uploads' },
+  { cap: 'portal.approve', label: 'Approvals' },
+  { cap: 'portal.invoices', label: 'Invoices & billing' },
+  { cap: 'portal.team', label: 'Team management' },
 ]
 
 /** Portal nav hrefs this role may see — the SAME matrix gates each page
@@ -68,78 +68,28 @@ export function clientNavAllowed(
     case '/messages':
       return true
     case '/files':
-      return clientCan(role, 'upload', extra)
+      return clientCan(role, 'portal.upload', extra)
     case '/approvals':
-      return clientCan(role, 'approve', extra)
+      return clientCan(role, 'portal.approve', extra)
     case '/invoices':
-      return clientCan(role, 'invoices', extra)
+      return clientCan(role, 'portal.invoices', extra)
     case '/team':
     case '/dashboard/settings':
-      return clientCan(role, 'manage_team', extra)
+      return clientCan(role, 'portal.team', extra)
     default:
       return true
   }
 }
 
 // ── organization side (studio) ──────────────────────────────────────────────
-// Deep crew roles — a member holds a primary role plus any number of
-// additional roles; their capabilities are the UNION of everything they hold.
-//   owner/admin  run the org (settings, team, money, everything)
-//   producer     runs production and the client relationship
-//   coordinator  scheduling, tasks, files, client messaging — no money, no roster
-//   finance      invoices, billing, cost control — nothing else extra
-//   crew         the craft floor: project work + the Suite
-// The finer per-feature matrix (finishing, generation, budgets…) deepens as
-// those features ship — these gates are the enforcement spine.
+// The role→capability matrix used to live here. It now lives in
+// lib/capabilities.ts as ORG_ROLE_BASELINE, which is also what generates
+// public.role_baseline() — so the studio UI, the route guards and the RLS
+// policies all answer from one table (S-R §5's one resolver).
 //
-// S-R §3.1's SIX, plus two deprecated aliases. `coordinator` is additive — it is
-// the role most production companies hire first after a producer, and today
-// those people have to be made admins. `crew` is the new name for what `member`
-// and `editor` both describe; all three resolve the same baseline, and `editor`
-// and `member` stay here because migration 0050 keeps them in the DB CHECK
-// (Gabby's roles[] holds 'editor' live).
-//
-// THESE TWO VALUES MUST NOT OUTRUN THE MAP. `ORG_CAPS[r]?.includes(cap)` returns
-// false for a role it has never heard of — silently — so a role the database
-// admits and this file does not is a person who signs in to an empty studio with
-// no error. That is why 'coordinator' and 'crew' land here in the SAME commit
-// that widens the CHECK and adds them to the invite route's VALID list, rather
-// than waiting for item 3's type unification.
-export type OrgCap =
-  | 'org_settings'    // business settings, billing, plans
-  | 'manage_team'     // crew invites / roles / removal
-  | 'manage_clients'  // create/edit clients, client teams, invite policies
-  | 'client_money'    // invoices: create, send, mark paid
-  | 'run_projects'    // projects, tasks, approvals, files, messages
-  // The Suite's capability keeps its pre-rename name: 'workspace' is stored in
-  // organization_members.extra_caps rows, so renaming the string would strip
-  // every member's granted Suite access. The SPACE is 'suite'; the CAP stays.
-  | 'workspace'       // the Suite — script, storyboard, PrimeOS, generation tools
-  | 'cost_control'    // Control Tower, budgets, usage
-  // Setting the TERMS of an approval, as opposed to taking part in one
-  // (S3-c §2.1). The review window is a commercial commitment — it belongs in
-  // the production agreement (§2.6) — and withdrawing an approval or deciding
-  // who may speak in the record are the same kind of authority. Participating
-  // (opening one, deciding on one) rides 'run_projects' instead, so a member
-  // who runs projects can raise an approval without being able to move the
-  // deadline the studio promised its client.
-  | 'approval_policy'
-
-const ORG_CAPS: Record<OrgRole, OrgCap[]> = {
-  owner: ['org_settings', 'manage_team', 'manage_clients', 'client_money', 'run_projects', 'workspace', 'cost_control', 'approval_policy'],
-  admin: ['org_settings', 'manage_team', 'manage_clients', 'client_money', 'run_projects', 'workspace', 'cost_control', 'approval_policy'],
-  producer: ['manage_clients', 'run_projects', 'workspace', 'cost_control', 'approval_policy'],
-  // No money and no roster (S-R §3.1), and no Suite: §8's sketch gives a
-  // coordinator "schedule, tasks, files and client messaging", which is
-  // run_projects, and puts the craft floor elsewhere. A coordinator who needs a
-  // Suite seat gets it as an individual grant, which is what grants are for.
-  coordinator: ['run_projects'],
-  finance: ['client_money', 'cost_control'],
-  crew: ['run_projects', 'workspace'],
-  // Deprecated aliases for `crew`, kept because the DB CHECK keeps them.
-  editor: ['run_projects', 'workspace'],
-  member: ['run_projects', 'workspace'],
-}
+// A crew member holds a primary role plus any number of additional roles, and
+// their capabilities are the UNION of everything they hold, plus per-member
+// grants.
 
 export const ORG_ROLE_HELP: Record<OrgRole, string> = {
   owner: 'Everything, including billing and ownership',
@@ -159,21 +109,24 @@ export function orgCan(
   cap: OrgCap,
   extra?: readonly string[] | null
 ): boolean {
-  if (extra?.includes(cap)) return true
+  // Extras are normalized on READ through 0051's alias table, so a row still
+  // holding a pre-rename snake_case value keeps resolving for the length of a
+  // rollout. Without it the rename would silently strip granted access.
+  if (extra?.some((e) => (LEGACY_ORG_CAP[e] ?? e) === cap)) return true
   const list = Array.isArray(role) ? role : role ? [role] : []
-  return list.some((r) => ORG_CAPS[r]?.includes(cap))
+  return list.some((r) => ORG_ROLE_BASELINE[r]?.includes(cap))
 }
 
 /** Org-side capabilities an owner/admin may grant individually, with labels. */
 export const ORG_GRANTABLE: { cap: OrgCap; label: string }[] = [
-  { cap: 'run_projects', label: 'Projects & delivery' },
-  { cap: 'workspace', label: 'Suite tools' },
-  { cap: 'manage_clients', label: 'Client management' },
-  { cap: 'client_money', label: 'Invoices & billing' },
-  { cap: 'cost_control', label: 'Cost control' },
-  { cap: 'manage_team', label: 'Team management' },
-  { cap: 'org_settings', label: 'Org settings' },
-  { cap: 'approval_policy', label: 'Approval terms & review windows' },
+  { cap: 'work.projects', label: 'Projects & delivery' },
+  { cap: 'work.suite', label: 'Suite tools' },
+  { cap: 'client.manage', label: 'Client management' },
+  { cap: 'money.invoices', label: 'Invoices & billing' },
+  { cap: 'money.costs', label: 'Cost control' },
+  { cap: 'people.manage', label: 'Team management' },
+  { cap: 'org.settings', label: 'Org settings' },
+  { cap: 'record.approval_policy', label: 'Approval terms & review windows' },
 ]
 
 // ── approvals, both rosters (S3-c) ──────────────────────────────────────────
@@ -197,11 +150,11 @@ export type ApprovalAction =
  * discipline as ORG_FEATURE_CAP below.
  */
 const ORG_APPROVAL_CAP: Record<ApprovalAction, OrgCap> = {
-  create: 'run_projects',
-  decide: 'run_projects',
-  set_window: 'approval_policy',
-  withdraw: 'approval_policy',
-  set_comment_permission: 'approval_policy',
+  create: 'work.projects',
+  decide: 'work.projects',
+  set_window: 'record.approval_policy',
+  withdraw: 'record.approval_policy',
+  set_comment_permission: 'record.approval_policy',
 }
 
 /**
@@ -231,7 +184,7 @@ const ORG_APPROVAL_CAP: Record<ApprovalAction, OrgCap> = {
  */
 const CLIENT_APPROVAL_CAP: Record<ApprovalAction, ClientCap | 'never'> = {
   create: 'never',
-  decide: 'approve',
+  decide: 'portal.approve',
   set_window: 'never',
   withdraw: 'never',
   set_comment_permission: 'never',
@@ -280,40 +233,40 @@ export function clientCanApproval(
 const ORG_FEATURE_CAP: Record<FeatureKey, OrgCap | null> = {
   // Crew
   'crew/chat': null,
-  'crew/tasks': 'run_projects',
+  'crew/tasks': 'work.projects',
   'crew/calendar': null,
   'crew/meetings': null,
-  'crew/crm': 'manage_clients',
-  'crew/leads': 'manage_clients',
-  'crew/control-tower': 'cost_control',
-  'crew/directory': 'manage_team',
-  'crew/settings': 'org_settings',
+  'crew/crm': 'client.manage',
+  'crew/leads': 'client.manage',
+  'crew/control-tower': 'money.costs',
+  'crew/directory': 'people.manage',
+  'crew/settings': 'org.settings',
   // Client space (the org's window into client work)
-  'client/overview': 'run_projects',
-  'client/companies': 'manage_clients',
-  'client/projects': 'run_projects',
-  'client/review': 'run_projects',
-  'client/files': 'run_projects',
-  'client/documents': 'run_projects',
-  'client/messages': 'run_projects',
-  'client/invoices': 'client_money',
-  'client/brand-kit': 'manage_clients',
-  'client/guest-links': 'run_projects',
-  'client/settings': 'org_settings',
+  'client/overview': 'work.projects',
+  'client/companies': 'client.manage',
+  'client/projects': 'work.projects',
+  'client/review': 'work.projects',
+  'client/files': 'work.projects',
+  'client/documents': 'work.projects',
+  'client/messages': 'work.projects',
+  'client/invoices': 'money.invoices',
+  'client/brand-kit': 'client.manage',
+  'client/guest-links': 'work.projects',
+  'client/settings': 'org.settings',
   // Suite (the craft floor) — the VALUE 'workspace' is the stored capability
   // name (see OrgCap above); only the space half of the key was renamed.
-  'suite/script': 'workspace',
-  'suite/storyboard': 'workspace',
-  'suite/workflow': 'workspace',
-  'suite/generation': 'workspace',
-  'suite/remaster': 'workspace',
-  'suite/finishing': 'workspace',
-  'suite/ai-chat': 'workspace',
-  'suite/continuity': 'workspace',
-  'suite/arena': 'workspace',
-  'suite/studio-kits': 'workspace',
-  'suite/library': 'workspace',
-  'suite/provenance': 'workspace',
+  'suite/script': 'work.suite',
+  'suite/storyboard': 'work.suite',
+  'suite/workflow': 'work.suite',
+  'suite/generation': 'work.suite',
+  'suite/remaster': 'work.suite',
+  'suite/finishing': 'work.suite',
+  'suite/ai-chat': 'work.suite',
+  'suite/continuity': 'work.suite',
+  'suite/arena': 'work.suite',
+  'suite/studio-kits': 'work.suite',
+  'suite/library': 'work.suite',
+  'suite/provenance': 'work.suite',
 }
 
 /**

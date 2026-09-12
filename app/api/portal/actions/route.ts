@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
 
       // ── Client approves a shared task ───────────────────────
       case 'approve_task': {
-        if (!clientCan(auth.memberRole, 'approve', auth.memberExtra)) {
+        if (!clientCan(auth.memberRole, 'portal.approve', auth.memberExtra)) {
           return NextResponse.json({ error: 'Your role does not include approvals.' }, { status: 403 })
         }
         const { task_id, note, attachment_url, attachment_name, attachment_file_id } = body
@@ -150,7 +150,7 @@ export async function POST(req: NextRequest) {
       // Client requests changes on an approval-gate task. A note is required
       // and is auto-posted into the project chat for further discussion.
       case 'request_changes': {
-        if (!clientCan(auth.memberRole, 'approve', auth.memberExtra)) {
+        if (!clientCan(auth.memberRole, 'portal.approve', auth.memberExtra)) {
           return NextResponse.json({ error: 'Your role does not include approvals.' }, { status: 403 })
         }
         const { task_id, note, attachment_url, attachment_name, attachment_file_id } = body
@@ -231,7 +231,7 @@ export async function POST(req: NextRequest) {
       }
 
       case 'send_message': {
-        if (!clientCan(auth.memberRole, 'message', auth.memberExtra)) {
+        if (!clientCan(auth.memberRole, 'portal.message', auth.memberExtra)) {
           return NextResponse.json({ error: 'Your role is view-only — messaging is not available.' }, { status: 403 })
         }
         const {

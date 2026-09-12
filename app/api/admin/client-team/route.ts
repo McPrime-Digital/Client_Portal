@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { orgRolesOf, canManageOrg } from '@/lib/team'
+import { CLIENT_GRANTABLE } from '@/lib/permissions'
 import { createNotification } from '@/lib/notify'
 import { cutMemberAccess, restoreClientAccess, statusCutsAccess } from '@/lib/memberAccess'
 import { sendTenantInvite } from '@/lib/email/invite'
@@ -159,7 +160,8 @@ export async function POST(req: NextRequest) {
 
   if (action === 'set_access') {
     // custom grants + custom role name, curated by the org
-    const CAPS = ['view', 'message', 'upload', 'approve', 'invoices', 'manage_team']
+    // Derived from the shared vocabulary — see the note in admin/team.
+    const CAPS: string[] = CLIENT_GRANTABLE.map((g) => g.cap)
     const patch: Record<string, unknown> = {}
     if (Array.isArray(body.extraCaps)) patch.extra_caps = body.extraCaps.filter((c: string) => CAPS.includes(c))
     if (body.title !== undefined) patch.title = String(body.title ?? '').trim().slice(0, 40) || null

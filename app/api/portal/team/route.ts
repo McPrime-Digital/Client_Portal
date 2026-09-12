@@ -4,7 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { userOrgId } from '@/lib/auth/role'
 import { cutMemberAccess, restoreClientAccess, statusCutsAccess } from '@/lib/memberAccess'
 import { clientMembershipOf } from '@/lib/team'
-import { clientCan } from '@/lib/permissions'
+import { clientCan, CLIENT_GRANTABLE } from '@/lib/permissions'
 import { recordUsage } from '@/lib/usage'
 import { createAdminNotification } from '@/lib/notify'
 import { sendTenantInvite } from '@/lib/email/invite'
@@ -41,7 +41,7 @@ export async function GET() {
   return NextResponse.json({
     members: members ?? [],
     myRole: membership.role,
-    canManage: clientCan(membership.role, 'manage_team', membership.extraCaps),
+    canManage: clientCan(membership.role, 'portal.team', membership.extraCaps),
     invitePolicy: company?.invite_policy ?? 'open',
     projects: projects ?? [],
   })
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
   const gate = await requireMembership()
   if ('error' in gate) return gate.error
   const { user, membership } = gate
-  if (!clientCan(membership.role, 'manage_team', membership.extraCaps)) {
+  if (!clientCan(membership.role, 'portal.team', membership.extraCaps)) {
     return NextResponse.json({ error: 'You need team-management access to invite teammates.' }, { status: 403 })
   }
 
@@ -151,14 +151,15 @@ export async function PATCH(req: NextRequest) {
   const gate = await requireMembership()
   if ('error' in gate) return gate.error
   const { membership } = gate
-  if (!clientCan(membership.role, 'manage_team', membership.extraCaps)) return NextResponse.json({ error: 'You need team-management access to manage teammates.' }, { status: 403 })
+  if (!clientCan(membership.role, 'portal.team', membership.extraCaps)) return NextResponse.json({ error: 'You need team-management access to manage teammates.' }, { status: 403 })
   const { memberId, role, status, extraCaps, title } = await req.json().catch(() => ({}))
   if (!memberId) return NextResponse.json({ error: 'memberId required.' }, { status: 400 })
   if (role !== undefined && !INVITABLE_ROLES.includes(role)) return NextResponse.json({ error: 'Invalid role.' }, { status: 400 })
   if (status !== undefined && !['paused', 'active'].includes(status)) {
     return NextResponse.json({ error: 'status must be "paused" or "active".' }, { status: 400 })
   }
-  const CAPS = ['view', 'message', 'upload', 'approve', 'invoices', 'manage_team']
+  // Derived from the shared vocabulary — see the note in admin/team.
+  const CAPS: string[] = CLIENT_GRANTABLE.map((g) => g.cap)
   const patch: Record<string, unknown> = {}
   if (role !== undefined) patch.role = role
   if (status !== undefined) patch.status = status
@@ -205,7 +206,7 @@ export async function DELETE(req: NextRequest) {
   const gate = await requireMembership()
   if ('error' in gate) return gate.error
   const { user, membership } = gate
-  if (!clientCan(membership.role, 'manage_team', membership.extraCaps)) return NextResponse.json({ error: 'You need team-management access to remove teammates.' }, { status: 403 })
+  if (!clientCan(membership.role, 'portal.team', membership.extraCaps)) return NextResponse.json({ error: 'You need team-management access to remove teammates.' }, { status: 403 })
   const { memberId } = await req.json().catch(() => ({}))
   const { data: target } = await supabaseAdmin
     .from('client_members')

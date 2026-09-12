@@ -50,7 +50,7 @@ async function requireOrgSettingsAdmin() {
   // The roster decides, not the claim (S2). `org_settings` is the capability
   // that already governs business identity elsewhere in the matrix.
   const roles = await orgRolesOf(user)
-  if (!orgCan(roles, 'org_settings')) {
+  if (!orgCan(roles, 'org.settings')) {
     return {
       error: NextResponse.json(
         { error: 'Only org owners and admins can change the studio logo.' },

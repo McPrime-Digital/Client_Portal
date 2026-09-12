@@ -14,7 +14,7 @@ export default async function SettingsPage() {
 
   // Company & owner information is the account owner's alone.
   const membership = await clientMembershipOf(user)
-  if (membership && !clientCan(membership.role, 'manage_team', membership.extraCaps)) redirect('/dashboard')
+  if (membership && !clientCan(membership.role, 'portal.team', membership.extraCaps)) redirect('/dashboard')
 
   const { data: client } = await supabaseAdmin
     .from('clients')
