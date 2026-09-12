@@ -43,18 +43,16 @@ import {
   ROOM_GROUP_A_ID, ROOM_GROUP_B_ID, ROOM_DM_ID,
   GA_MSG_OLD_ID, GA_MSG_NEW_ID, GA_MSG_CREW_ID, GB_MSG_ID, DM_MSG_ID,
   loadEnv, requireEnv, assertEnvLocalIgnored,
+  OM_OWNER_ID, OM_CREW_ID, OM_REVOKED_ID, OM_FINANCE_ID,
+  CM_C1OWN_ID, CM_C1MATE_ID, CM_C2OWN_ID,
 } from './harness-constants'
 
 const APPLY = process.argv.includes('--apply')
 
 // Fixed ids for the roster rows. Local to the seed — the harness never needs
 // a member id, only company/project ids and the personas' credentials.
-const OM_OWNER_ID   = '0f0f0f0f-0004-4000-8000-000000000001'
-const OM_CREW_ID    = '0f0f0f0f-0004-4000-8000-000000000002'
-const OM_REVOKED_ID = '0f0f0f0f-0004-4000-8000-000000000003'
-const CM_C1OWN_ID   = '0f0f0f0f-0003-4000-8000-000000000001'
-const CM_C1MATE_ID  = '0f0f0f0f-0003-4000-8000-000000000002'
-const CM_C2OWN_ID   = '0f0f0f0f-0003-4000-8000-000000000003'
+// Roster row ids now live in harness-constants.ts — shared with the harness,
+// which asserts against them (item 10).
 
 const now = new Date()
 const at = (msAgo: number) => new Date(now.getTime() - msAgo).toISOString()
@@ -263,7 +261,7 @@ async function main() {
   const passwords: Record<string, string> = {}
   const userIds = {} as Record<PersonaKey, string>
   const clientOf: Record<PersonaKey, string | null> = {
-    owner: null, crew: null, revoked: null,
+    owner: null, crew: null, revoked: null, finance: null,
     c1own: COMPANY_1_ID, c1mate: COMPANY_1_ID, c2own: COMPANY_2_ID,
     // MD-4 made literal: the collaborator gets NO roster row anywhere — their
     // only foothold is a room_members row, seeded below.
@@ -314,6 +312,13 @@ async function main() {
     { id: OM_REVOKED_ID, organization_id: HARNESS_ORG_ID, user_id: userIds.revoked,
       name: 'Harness Revoked', email: PERSONAS.revoked.email, role: 'crew', status: 'revoked',
       scope_mode: 'all' },
+    // S-R §3.1's `finance`: money across every production, the craft floor
+    // absent. It exists so assertion 30's positive control is a role that holds
+    // money.invoices and nothing else — an owner control would prove only that
+    // invoices are readable by somebody.
+    { id: OM_FINANCE_ID, organization_id: HARNESS_ORG_ID, user_id: userIds.finance,
+      name: 'Harness Finance', email: PERSONAS.finance.email, role: 'finance', status: 'active',
+      scope_mode: 'all', accepted_at: at(0) },
   ])
 
   record(`\n-- ═══ client rosters ═══`)

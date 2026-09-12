@@ -50,6 +50,7 @@ import {
   ROOM_GROUP_A_ID, ROOM_GROUP_B_ID, ROOM_DM_ID,
   GA_MSG_OLD_ID, GA_MSG_NEW_ID, GA_MSG_CREW_ID,
   ALL_TABLES, readManifest, loadEnv, requireEnv,
+  OM_OWNER_ID, OM_CREW_ID, OM_FINANCE_ID,
 } from './harness-constants'
 
 // ── result model ────────────────────────────────────────────────────────────
@@ -180,6 +181,7 @@ async function main() {
   const c1mate  = await signIn(url, anonKey, 'c1mate', env)
   const c2own   = await signIn(url, anonKey, 'c2own', env)
   const collab  = await signIn(url, anonKey, 'collab', env)
+  const finance = await signIn(url, anonKey, 'finance', env)
   const anon    = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } })
 
   // Company 1's room, read as the client rather than carried as a constant —
@@ -706,6 +708,153 @@ async function main() {
     } else {
       record(29, 'access parity across the flip: both doors agree, both directions', 'ERROR',
         'company-1 room unresolvable — cannot run the parity probes')
+    }
+  }
+
+  // ── 30-36 · S-R §6 and §9: the capability layer (Batch 24 item 10) ────────
+  //
+  // Assertions 32-35 are the ones that make S-R §6 true rather than intended,
+  // and NONE of them can be proven by a route test, because the route is not the
+  // control (S-R R-5): migration 0053 gives a people.manage holder UPDATE on the
+  // rosters, so every rule about those rows has to live at or below the row.
+  //
+  // Every one runs as a real persona on the anon key. A mutation that RLS
+  // refuses matches ZERO ROWS and PostgREST returns NO ERROR — so each write
+  // probe below asks for rows back and treats an empty result as refused. Item
+  // 7's first probe read "no error" as "accepted" and reported four working
+  // triggers as broken; that trap is recorded in HANDOFF §12 and it is this one.
+  {
+    const rowsOf = async (
+      c: SupabaseClient, table: string, payload: Record<string, unknown>,
+    ): Promise<{ ok: boolean; code: string | null }> => {
+      const { data, error } = await c.from(table).insert(payload).select('id')
+      if (error) return { ok: false, code: error.code ?? 'ERR' }
+      return { ok: (data ?? []).length > 0, code: (data ?? []).length > 0 ? null : 'RLS-ZERO-ROWS' }
+    }
+    const updOf = async (
+      c: SupabaseClient, table: string, patch: Record<string, unknown>, id: string,
+    ): Promise<{ ok: boolean; code: string | null }> => {
+      const { data, error } = await c.from(table).update(patch).eq('id', id).select('id')
+      if (error) return { ok: false, code: error.code ?? 'ERR' }
+      return { ok: (data ?? []).length > 0, code: (data ?? []).length > 0 ? null : 'RLS-ZERO-ROWS' }
+    }
+    function grant(
+      member: string, cap: string, mode = 'grant', expires: string | null = null,
+    ): Record<string, unknown> {
+      return {
+        organization_id: HARNESS_ORG_ID, member_id: member, capability: cap, mode,
+        granted_by_name: 'Harness', expires_at: expires,
+      }
+    }
+
+    // 30 · a crew member cannot read an invoice. Control: finance can.
+    {
+      const crewSees = await countRows(crew, 'invoices')
+      const finSees = await countRows(finance, 'invoices')
+      judge(30, 'a crew member reads zero invoices (control: finance reads them)',
+        crewSees > 0 ? [`invoices=${crewSees}`] : [], finSees)
+    }
+
+    // 31 · a denial beats the ROLE BASELINE.
+    //
+    // NOT "a deny row beats a grant row on the same capability", which S-R R-3's
+    // wording suggests and §10's own unique index makes UNREACHABLE: the partial
+    // index is on (member_id, capability) where revoked_at is null, so the two
+    // rows cannot coexist. The semantic that matters — and the example R-3 itself
+    // gives, a Producer denied rates — is a denial beating what the ROLE grants.
+    // Reported to S-R-A rather than asserted against a state the schema forbids.
+    {
+      const before = await countRows(finance, 'invoices')   // baseline permits
+      const d = await rowsOf(owner, 'org_member_cap_grants', grant(OM_FINANCE_ID, 'money.invoices', 'deny'))
+      const after = d.ok ? await countRows(finance, 'invoices') : -1
+      if (!d.ok) {
+        record(31, 'a denial beats the role baseline', 'ERROR', `deny row refused: ${d.code}`)
+      } else {
+        judge(31, 'a denial beats the role baseline (control: without it, finance reads)',
+          after > 0 ? [`invoices still readable=${after}`] : [], before)
+      }
+      await owner.from('org_member_cap_grants').delete()
+        .eq('member_id', OM_FINANCE_ID).eq('capability', 'money.invoices')
+      await owner.from('organization_members').update({ extra_caps: [] }).eq('id', OM_FINANCE_ID)
+    }
+
+    // 32 · an admin cannot change their OWN role or caps. Control: another's.
+    {
+      const own = await updOf(owner, 'organization_members', { role: 'crew' }, OM_OWNER_ID)
+      const other = await updOf(owner, 'organization_members', { title: 'Harness' }, OM_FINANCE_ID)
+      const leaks: string[] = []
+      if (own.ok) leaks.push('owner changed their OWN role')
+      if (own.code !== 'GR003' && !own.ok) leaks.push(`refused, but not by G-3 (${own.code})`)
+      judge(32, 'nobody changes their own role or capabilities (control: another member)',
+        leaks, other.ok ? 1 : 0)
+      await owner.from('organization_members').update({ title: null }).eq('id', OM_FINANCE_ID)
+    }
+
+    // 33 · an admin cannot modify an OWNER's row. Control: an owner can.
+    {
+      // finance is granted people.manage so it reaches the table at all —
+      // otherwise 0053 refuses first and the trigger never runs, which is
+      // exactly how item 7's first probe misread itself.
+      const g = await rowsOf(owner, 'org_member_cap_grants', grant(OM_FINANCE_ID, 'people.manage'))
+      const asAdmin = g.ok
+        ? await updOf(finance, 'organization_members', { title: 'nope' }, OM_OWNER_ID)
+        : { ok: false, code: 'SETUP' }
+      const asOwner = await updOf(owner, 'organization_members', { title: 'Harness Owner' }, OM_OWNER_ID)
+      const leaks: string[] = []
+      if (!g.ok) leaks.push(`setup grant refused: ${g.code}`)
+      if (asAdmin.ok) leaks.push('a non-owner holding people.manage edited the OWNER')
+      judge(33, 'only an owner may edit an owner (control: the owner can)', leaks, asOwner.ok ? 1 : 0)
+      await owner.from('organization_members').update({ title: null }).eq('id', OM_OWNER_ID)
+    }
+
+    // 34 · nobody grants a capability they do not hold. Control: one they hold.
+    {
+      // finance still holds people.manage from 33, and holds no work.suite.
+      const over = await rowsOf(finance, 'org_member_cap_grants', grant(OM_CREW_ID, 'work.suite'))
+      const within = await rowsOf(finance, 'org_member_cap_grants', grant(OM_CREW_ID, 'money.costs'))
+      const leaks: string[] = []
+      if (over.ok) leaks.push('granted work.suite without holding it')
+      else if (over.code !== 'GR001') leaks.push(`refused, but not by G-1 (${over.code})`)
+      judge(34, 'nobody grants a capability they do not hold (control: one they do)',
+        leaks, within.ok ? 1 : 0)
+      await owner.from('org_member_cap_grants').delete().eq('member_id', OM_CREW_ID)
+      await owner.from('organization_members').update({ extra_caps: [] }).eq('id', OM_CREW_ID)
+    }
+
+    // 35 · the last active owner cannot be removed. Control: with two, one can.
+    {
+      const sole = await (async () => {
+        const { data, error } = await owner.from('organization_members').delete().eq('id', OM_OWNER_ID).select('id')
+        if (error) return { ok: false, code: error.code ?? 'ERR' }
+        return { ok: (data ?? []).length > 0, code: null as string | null }
+      })()
+      // Control: make finance an owner too, then the same delete is permitted.
+      await owner.from('organization_members').update({ role: 'owner' }).eq('id', OM_FINANCE_ID)
+      const withTwo = await updOf(owner, 'organization_members', { role: 'crew' }, OM_FINANCE_ID)
+      const leaks: string[] = []
+      if (sole.ok) leaks.push('the sole active owner was DELETED')
+      else if (sole.code !== 'GR005') leaks.push(`refused, but not by G-4 (${sole.code})`)
+      judge(35, 'an org keeps at least one active owner (control: with two, one may go)',
+        leaks, withTwo.ok ? 1 : 0)
+      await owner.from('organization_members').update({ role: 'finance' }).eq('id', OM_FINANCE_ID)
+      await owner.from('org_member_cap_grants').delete().eq('member_id', OM_FINANCE_ID)
+      await owner.from('organization_members').update({ extra_caps: [] }).eq('id', OM_FINANCE_ID)
+    }
+
+    // 36 · an expired grant does not resolve. Control: the same grant, unexpired.
+    {
+      const past = new Date(Date.now() - 3600_000).toISOString()
+      const e = await rowsOf(owner, 'org_member_cap_grants', grant(OM_CREW_ID, 'money.invoices', 'grant', past))
+      const whileExpired = e.ok ? await countRows(crew, 'invoices') : -1
+      await owner.from('org_member_cap_grants').delete().eq('member_id', OM_CREW_ID)
+      const f = await rowsOf(owner, 'org_member_cap_grants', grant(OM_CREW_ID, 'money.invoices'))
+      const whileLive = f.ok ? await countRows(crew, 'invoices') : 0
+      const leaks: string[] = []
+      if (!e.ok) leaks.push(`expired grant row refused: ${e.code}`)
+      if (whileExpired > 0) leaks.push(`expired grant resolved (invoices=${whileExpired})`)
+      judge(36, 'an expired grant does not resolve (control: the same grant, live)', leaks, whileLive)
+      await owner.from('org_member_cap_grants').delete().eq('member_id', OM_CREW_ID)
+      await owner.from('organization_members').update({ extra_caps: [] }).eq('id', OM_CREW_ID)
     }
   }
 

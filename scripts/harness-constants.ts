@@ -61,6 +61,12 @@ const DOMAIN = 'rls-harness.example.com'
 
 export type PersonaKey =
   | 'owner' | 'crew' | 'revoked' | 'c1own' | 'c1mate' | 'c2own' | 'collab'
+  // Batch 24 item 10. "The harness cannot prove a role boundary without a
+  // persona holding that role": assertion 30 asserts a `crew` member reads zero
+  // invoices, and without a `finance` persona its positive control would have to
+  // be the OWNER — who reads everything, so the control would prove that money
+  // is readable rather than that money.invoices is what makes it readable.
+  | 'finance'
 
 export interface Persona {
   key: PersonaKey
@@ -120,6 +126,13 @@ export const PERSONAS: Record<PersonaKey, Persona> = {
     role: 'client',
     label: 'company 2 owner',
   },
+  finance: {
+    key: 'finance',
+    email: `harness-finance@${DOMAIN}`,
+    envKey: 'HARNESS_FINANCE_PASSWORD',
+    role: 'admin',
+    label: 'studio B finance (money.invoices + money.costs, no craft floor)',
+  },
   collab: {
     key: 'collab',
     email: `harness-collab@${DOMAIN}`,
@@ -130,6 +143,19 @@ export const PERSONAS: Record<PersonaKey, Persona> = {
 }
 
 export const PERSONA_LIST: Persona[] = Object.values(PERSONAS)
+
+// ── roster row ids ──────────────────────────────────────────────────────────
+// These lived in the seeder only, and Batch 24 item 10's assertions needed them
+// too — which is the duplication this file's own header warns about ("exactly how
+// a harness starts asserting against rows that no longer exist and reports a
+// vacuous PASS"). Shared now, so the seed and the assertions cannot disagree.
+export const OM_OWNER_ID   = '0f0f0f0f-0004-4000-8000-000000000001'
+export const OM_CREW_ID    = '0f0f0f0f-0004-4000-8000-000000000002'
+export const OM_REVOKED_ID = '0f0f0f0f-0004-4000-8000-000000000003'
+export const OM_FINANCE_ID = '0f0f0f0f-0004-4000-8000-000000000004'
+export const CM_C1OWN_ID   = '0f0f0f0f-0003-4000-8000-000000000001'
+export const CM_C1MATE_ID  = '0f0f0f0f-0003-4000-8000-000000000002'
+export const CM_C2OWN_ID   = '0f0f0f0f-0003-4000-8000-000000000003'
 
 // ── the tables every "reads zero from everywhere" assertion sweeps ──────────
 
@@ -183,7 +209,14 @@ export const GA_MSG_CREW_ID = '0f0f0f0f-000e-4000-8000-000000000003'
 export const GB_MSG_ID = '0f0f0f0f-000e-4000-8000-000000000004'
 export const DM_MSG_ID = '0f0f0f0f-000e-4000-8000-000000000005'
 
-export const MEMBERSHIP_TABLES = ['organization_members', 'client_members'] as const
+export const MEMBERSHIP_TABLES = [
+  'organization_members', 'client_members',
+  // Batch 24 (0051). The grant tables join the every-table sweeps the way
+  // room_members did in Batch 23: a revoked member and an anonymous session must
+  // read zero of them like everything else, and a grant row names both a person
+  // and an authority, so a leak here discloses the shape of a studio's roster.
+  'org_member_cap_grants', 'client_member_cap_grants',
+] as const
 
 export const ALL_TABLES = [...WORK_TABLES, ...MEMBERSHIP_TABLES] as const
 
