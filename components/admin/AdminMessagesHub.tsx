@@ -45,7 +45,10 @@ export type HubRoom = {
 
 type Props = {
   orgId: string
-  adminName: string
+  /** The signed-in CREW MEMBER's name — persisted into messages.sender_name.
+   *  Named for what it is: it was `adminName` and held the studio's brand name,
+   *  which is how a client came to see the organization as the sender. */
+  senderName: string
   rooms: HubRoom[]
 }
 
@@ -78,7 +81,7 @@ const EXTRA_ICON: Record<string, typeof Hash> = {
   channel: Hash, group: Lock, broadcast: Megaphone, dm: MessageSquare,
 }
 
-export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms }: Props) {
+export default function AdminMessagesHub({ orgId, senderName, rooms: initialRooms }: Props) {
   const supabase = createClient()
   const [rooms, setRooms] = useState(initialRooms)
   const [extraRooms, setExtraRooms] = useState<ExtraRoom[]>([])
@@ -753,7 +756,7 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                     room={{ id: activeExtra.id, kind: activeExtra.kind, label: activeExtra.label }}
                     orgId={orgId}
                     filter={{ kind: 'all' }}
-                    currentName={adminName}
+                    currentName={senderName}
                     otherName={activeExtra.label}
                     canSend={activeExtra.membership.canPost && !activeExtra.archived}
                     allowAttachments={activeExtra.membership.canPost && !activeExtra.archived}
@@ -768,7 +771,7 @@ export default function AdminMessagesHub({ orgId, adminName, rooms: initialRooms
                   clientId={active.clientId}
                   orgId={orgId}
                   filter={filter}
-                  currentName={adminName}
+                  currentName={senderName}
                   otherName={active.name}
                           externalRow={externalRow}
                   onActivity={onActivity}

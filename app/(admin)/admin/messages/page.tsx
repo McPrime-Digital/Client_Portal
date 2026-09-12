@@ -1,5 +1,6 @@
 import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { tenantBrand } from '@/lib/tenantBrand'
+import { rosterName } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
@@ -107,5 +108,23 @@ export default async function AdminMessagesPage() {
       return new Date(b.latest.created_at).getTime() - new Date(a.latest.created_at).getTime()
     })
 
-  return <AdminMessagesHub orgId={orgId} adminName={brand.name} rooms={hubRooms} />
+  // THE SENDER IS A PERSON, NOT THE STUDIO.
+  //
+  // This passed `brand.name`, under a prop called `adminName` — so every message
+  // a crew member sent to a client company was persisted with the STUDIO's name
+  // in messages.sender_name, and the client portal showed the organization
+  // instead of whoever wrote it. The misleading prop name is part of why it
+  // survived: `adminName` reads like a person.
+  //
+  // rosterName() is the correct accessor and the one Batch 23's crew chat page
+  // already uses: it reads the roster that owns the person
+  // (organization_members for crew), never user_metadata — the 7.8 / 11.5 rule,
+  // because this value is PERSISTED into messages.sender_name.
+  //
+  // Falls back to the studio's name rather than to a literal: if the roster
+  // lookup somehow misses, "McPrime Digital" is a worse answer than the person's
+  // name but a better one than "Member" or an empty bubble — and a crew member
+  // with no roster row cannot reach this page at all (requireOrgFeature).
+  const senderName = (await rosterName(user)) ?? brand.name
+  return <AdminMessagesHub orgId={orgId} senderName={senderName} rooms={hubRooms} />
 }

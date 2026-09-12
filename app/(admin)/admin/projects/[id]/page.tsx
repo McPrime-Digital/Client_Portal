@@ -1,5 +1,6 @@
 import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { tenantBrand } from '@/lib/tenantBrand'
+import { rosterName } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect, notFound } from 'next/navigation'
@@ -149,6 +150,12 @@ export default async function AdminProjectDetailPage({
         files={files ?? []}
         involvement={involvement}
         studioName={brand.name}
+        // The STUDIO's name and the SENDER's name are different values and this
+        // page used to have only the first. `currentName={studioName}` meant a
+        // message sent from the project page reached the client attributed to the
+        // organization. studioName stays for what it actually is — the vault's
+        // brand label, the task board's — and the person gets their own prop.
+        senderName={(await rosterName(user)) ?? brand.name}
       />
     </>
   )

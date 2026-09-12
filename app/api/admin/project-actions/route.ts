@@ -17,13 +17,18 @@ import { writeMentions, notifyMentions } from '@/lib/messageMentions'
 
 // Records an approval-gate send into the Approvals & Records ledger when a
 // visible approval gate enters review (first send OR a resend for re-approval).
-async function recordGateSent(task: { id: string; title: string; project_id: string; visible_to_client?: boolean; requires_approval?: boolean; category?: string }, actorId: string, studioName: string, resend = false, orgId?: string) {
+// `actorName` is the PERSON, not the studio. It was named studioName and was
+// given the brand name, so `activity_log.actor_name` and the approval's actor
+// both recorded the organization as having requested approval — attribution is
+// the product in the approvals record (S3-c), and Batch 11.5 made the roster the
+// only source for a persisted actor name.
+async function recordGateSent(task: { id: string; title: string; project_id: string; visible_to_client?: boolean; requires_approval?: boolean; category?: string }, actorId: string, actorName: string, resend = false, orgId?: string) {
   const isGate = task.requires_approval || task.category === 'approval'
   if (!isGate || task.visible_to_client === false) return
   const clientId = await clientIdForProject(task.project_id)
   await recordActivity({
     projectId: task.project_id, clientId,
-    actorId, actorName: studioName, actorRole: 'admin',
+    actorId, actorName, actorRole: 'admin',
     eventType: 'approval_requested',
     title: `${resend ? 'Re-sent for approval' : 'Approval requested'}: “${task.title}”`,
     body: null,
@@ -45,7 +50,7 @@ async function recordGateSent(task: { id: string; title: string; project_id: str
     try {
       await ensureApprovalForTaskGate(supabaseAdmin, {
         orgId, taskId: task.id, taskTitle: task.title,
-        projectId: task.project_id, clientId, actorId, actorName: studioName,
+        projectId: task.project_id, clientId, actorId, actorName,
       })
     } catch (e) {
       captureError(e, { where: 'recordGateSent approval bridge', taskId: task.id })
@@ -160,6 +165,13 @@ export async function POST(req: NextRequest) {
   // hardcoded sender identity S-V §X-6 exists to prevent. Resolved once per
   // request from the caller's own org, after the tenant check above.
   const studioName = (await tenantBrand(userOrgId(user))).name
+  // THE PERSON, beside the studio, because they are different values and this
+  // route had only the second. A message row and a ledger row record WHO acted;
+  // the studio's name belongs on the notification ENVELOPE (S-C CM-1/CM-3), not
+  // in messages.sender_name. rosterName() reads the roster that owns the person
+  // and never user_metadata — the 7.8 / 11.5 rule, which binds here precisely
+  // because both values are PERSISTED.
+  const actorName = (await rosterName(user)) ?? studioName
 
   try {
     switch (action) {
@@ -241,7 +253,7 @@ export async function POST(req: NextRequest) {
             // sender_role/attachment_url no longer written (Batch 21 item 3;
             // S3-core migration 12 drops them): side derives from the
             // roster, the URL from the message_attachments FK.
-            sender_name: studioName,
+            sender_name: actorName,
             body: msgBody,
             attachment_name: att?.name ?? null,
             reply_to_id: reply_to_id || null,
@@ -534,7 +546,7 @@ export async function POST(req: NextRequest) {
             body: title ?? null,
           })
           // A visible gate created directly in review is an approval send.
-          if (initialStatus === 'review') await recordGateSent(data, user.id, studioName, false, userOrgId(user))
+          if (initialStatus === 'review') await recordGateSent(data, user.id, actorName, false, userOrgId(user))
         }
         // LEDGER, SERVER-SIDE (Batch 22 item 11) — moved from TaskBoard:501.
         // Written for EVERY task, not only client-visible ones: the ledger is
@@ -588,7 +600,7 @@ export async function POST(req: NextRequest) {
               body: data.title ?? null,
             })
             // Record the gate send (resend if it was previously changed).
-            await recordGateSent(data, user.id, studioName, data.approval_status === 'changes_requested', userOrgId(user))
+            await recordGateSent(data, user.id, actorName, data.approval_status === 'changes_requested', userOrgId(user))
           } else if (status === 'completed') {
             await createNotification({
               clientId: await clientIdForProject(data.project_id),
@@ -684,7 +696,7 @@ export async function POST(req: NextRequest) {
             title: 'A task needs your approval',
             body: data.title ?? null,
           })
-          await recordGateSent(data, user.id, studioName, data.approval_status === 'changes_requested', userOrgId(user))
+          await recordGateSent(data, user.id, actorName, data.approval_status === 'changes_requested', userOrgId(user))
         }
         return NextResponse.json({ task: data })
       }
@@ -715,7 +727,7 @@ export async function POST(req: NextRequest) {
             body: data.title ?? null,
           })
         }
-        await recordGateSent(data, user.id, studioName, true, userOrgId(user))
+        await recordGateSent(data, user.id, actorName, true, userOrgId(user))
         return NextResponse.json({ task: data })
       }
 
@@ -758,7 +770,7 @@ export async function POST(req: NextRequest) {
           organization_id: mediaOrgId, // stamped, never defaulted (T-5)
           project_id: task.project_id,
           sender_id: user.id,
-          sender_name: studioName,
+          sender_name: actorName,
           body: msgBody,
           attachment_name: mediaAtt?.name ?? null,
         }).select('id').single()
@@ -790,7 +802,7 @@ export async function POST(req: NextRequest) {
         if (isGate && task.visible_to_client !== false) {
           await recordActivity({
             projectId: task.project_id, clientId,
-            actorId: user.id, actorName: studioName, actorRole: 'admin',
+            actorId: user.id, actorName, actorRole: 'admin',
             eventType: 'approval_requested',
             title: `${resend ? 'Re-sent for approval' : 'Approval requested'}: “${task.title}”`,
             body: trimmedNote || null,

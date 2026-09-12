@@ -84,6 +84,7 @@ export default function AdminProjectDetail({
   files: initialFiles,
   involvement,
   studioName,
+  senderName,
 }: any) {
   const router = useRouter()
   const supabase = createClient()
@@ -772,7 +773,7 @@ export default function AdminProjectDetail({
               clientId={client.id}
               orgId={client.organization_id}
               filter={{ kind: 'project', projectId: project.id }}
-              currentName={studioName}
+              currentName={senderName}
               otherName={client.name}
               selfFallback
               onTypingChange={(k) => setClientTyping(k !== null)}
