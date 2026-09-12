@@ -5,13 +5,20 @@ import { cache } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { isAdmin, userClientId, userOrgId } from '@/lib/auth/role'
+import type { OrgRole, ClientRole } from '@/lib/capabilities'
 
 // Server-side role resolution for teams & roles. THE TABLE IS TRUTH: every
 // gate that protects an action reads these, never the JWT (app_metadata only
 // routes/identifies). A revoked member is dead the moment the row flips.
 
-export type OrgRole = 'owner' | 'admin' | 'producer' | 'member'
-export type ClientRole = 'owner' | 'approver' | 'member' | 'viewer'
+// RULING 2. This file used to declare its OWN four-value OrgRole —
+// 'owner'|'admin'|'producer'|'member' — while lib/permissions.ts declared a
+// six-value one of the same name. `orgRolesOf` laundered the difference with
+// `data.role as OrgRole` at the read below, so Gabby's live roles=['editor']
+// flowed through a union that excluded it and worked only because ORG_CAPS
+// happened to have the key at runtime. Nothing ever flagged it, which is why two
+// disagreeing TypeScript types are worse than TS and SQL disagreeing.
+export type { OrgRole, ClientRole } from '@/lib/capabilities'
 
 /** Every org-side role this admin user holds (primary + additional).
  *

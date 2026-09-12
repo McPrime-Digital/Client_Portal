@@ -8,7 +8,12 @@
 import type { FeatureKey } from '@/lib/studio/spaces'
 
 // ── client-side (portal) ────────────────────────────────────────────────────
-export type ClientRole = 'owner' | 'approver' | 'member' | 'viewer'
+// RULING 2: the role types live in lib/capabilities.ts and nowhere else. This
+// file and lib/team.ts each exported a type named OrgRole and they DISAGREED —
+// four values there, six here — with `data.role as OrgRole` laundering the gap.
+// Re-exported rather than redeclared so every existing importer keeps working.
+export type { OrgRole, ClientRole } from '@/lib/capabilities'
+import type { OrgRole, ClientRole } from '@/lib/capabilities'
 
 export type ClientCap =
   | 'view'            // overview, projects, files, approvals queue, messages
@@ -100,10 +105,6 @@ export function clientNavAllowed(
 // no error. That is why 'coordinator' and 'crew' land here in the SAME commit
 // that widens the CHECK and adds them to the invite route's VALID list, rather
 // than waiting for item 3's type unification.
-export type OrgRole =
-  | 'owner' | 'admin' | 'producer' | 'coordinator' | 'finance' | 'crew'
-  | 'editor' | 'member'
-
 export type OrgCap =
   | 'org_settings'    // business settings, billing, plans
   | 'manage_team'     // crew invites / roles / removal
@@ -151,13 +152,6 @@ export const ORG_ROLE_HELP: Record<OrgRole, string> = {
   member: 'Work inside projects and the Suite',
 }
 
-/** The roles a human may be given today. `editor` and `member` are admitted by
- *  the DB CHECK and resolved by ORG_CAPS, but they are not offered: S-R §3.1
- *  retires both, and offering a deprecated name is how it stops being one.
- *  Item 8's role picker reads this, never the full OrgRole union. */
-export const ORG_ROLES_ASSIGNABLE: OrgRole[] = [
-  'admin', 'producer', 'coordinator', 'finance', 'crew',
-]
 
 /** Union-of-roles capability check, plus per-member grants on top. */
 export function orgCan(

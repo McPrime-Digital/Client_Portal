@@ -129,6 +129,76 @@ async function check(): Promise<number> {
   return bad
 }
 
+/**
+ * PHASE 2 — TS/SQL PARITY, as the personas.
+ *
+ * The baselines are single-sourced (phase 1 proves the generated function
+ * matches the constant). The RESOLUTION ALGORITHM is not: it exists in
+ * lib/capabilities.server.ts AND in 0051's has_cap(), because they answer for
+ * different callers — an RLS session via auth.uid(), and a server component
+ * reading with the service role where auth.uid() is null.
+ *
+ * So this signs in as each harness persona and asserts the two agree on every
+ * coarse cap. Skipped with a LOUD notice when the harness passwords are absent,
+ * never silently: a parity check that quietly does nothing is worse than none,
+ * because its green tick is then a lie (HANDOFF §12 lesson 2).
+ */
+async function parity(env: Record<string, string>): Promise<number> {
+  const { createClient } = await import('@supabase/supabase-js')
+  const { ORG_CAPS_ALL: OC, CLIENT_CAPS_ALL: CC } = await import('../lib/capabilities')
+  const ALL = [...OC, ...CC] as string[]
+
+  const people: [string, string][] = [
+    ['harness-owner@rls-harness.example.com', env.HARNESS_OWNER_PASSWORD],
+    ['harness-crew@rls-harness.example.com', env.HARNESS_CREW_PASSWORD],
+    ['harness-revoked@rls-harness.example.com', env.HARNESS_REVOKED_PASSWORD],
+    ['harness-c1-own@rls-harness.example.com', env.HARNESS_C1_OWN_PASSWORD],
+    ['harness-c1-mate@rls-harness.example.com', env.HARNESS_C1_MATE_PASSWORD],
+  ]
+  if (people.some(([, pw]) => !pw)) {
+    console.log('\n  ! PARITY SKIPPED — harness passwords absent from .env.local.')
+    console.log('    Run `npm run seed:harness -- --apply` first. This is a SKIP, not a pass.')
+    return 0
+  }
+
+  // NO SERVICE ROLE. resolveCaps() takes an injectable client and reads only the
+  // caller's own rows, so the parity check hands it the SAME anon session it
+  // asks has_cap() through. That is what makes this a real comparison: both
+  // sides answer for one RLS session, under the same policies.
+  process.env.NEXT_PUBLIC_SUPABASE_URL ??= env.NEXT_PUBLIC_SUPABASE_URL
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const { resolveCaps } = await import('../lib/capabilities.server')
+
+  let bad = 0
+  for (const [email, pw] of people) {
+    const c = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+    const { data: signed, error } = await c.auth.signInWithPassword({ email, password: pw })
+    if (error || !signed.user) { console.error(`✗ parity: ${email} sign-in failed`); bad++; continue }
+
+    const ts = await resolveCaps(signed.user as never, c as never)
+    const diffs: string[] = []
+    for (const cap of ALL) {
+      const { data: sql } = await c.rpc('has_cap', { p_cap: cap })
+      const tsHas = ts.caps.has(cap)
+      if (Boolean(sql) !== tsHas) diffs.push(`${cap} sql=${Boolean(sql)} ts=${tsHas}`)
+    }
+    await c.auth.signOut()
+    if (diffs.length) { console.error(`✗ parity ${email}\n    ${diffs.join('\n    ')}`); bad += diffs.length }
+    else console.log(`  ✓ parity ${email.padEnd(42)} ${ts.caps.size} cap(s) agree`)
+  }
+  return bad
+}
+
+function loadEnv(): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const raw of readFileSync('.env.local', 'utf8').split('\n')) {
+    const l = raw.trim(); if (!l || l.startsWith('#')) continue
+    const i = l.indexOf('='); if (i < 0) continue
+    env[l.slice(0, i).trim()] = l.slice(i + 1).trim().replace(/^["']|["']$/g, '')
+  }
+  return env
+}
+
 async function main() {
   if (process.argv.includes('--print')) {
     console.log(orgBaselineSql())
@@ -136,12 +206,14 @@ async function main() {
     console.log(clientBaselineSql())
     return
   }
-  console.log('Checking live role_baseline()/client_role_baseline() against lib/capabilities.ts …')
-  const bad = await check()
+  console.log('1/2 · live role_baseline()/client_role_baseline() vs lib/capabilities.ts …')
+  let bad = await check()
+  console.log('\n2/2 · TS resolveCaps() vs SQL has_cap(), as each persona …')
+  bad += await parity(loadEnv())
   if (bad > 0) {
     console.error(`\n✗ ${bad} mismatch(es). Regenerate with --print and apply, or fix the constant.`)
     process.exit(1)
   }
-  console.log('\n✓ live SQL matches lib/capabilities.ts')
+  console.log('\n✓ the capability table, the generated SQL and the TS resolver all agree')
 }
 main().catch((e) => { console.error('FAILED:', e instanceof Error ? e.message : e); process.exit(1) })
