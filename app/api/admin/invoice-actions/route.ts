@@ -1,23 +1,51 @@
-import { isAdmin, userOrgId } from '@/lib/auth/role'
+import { userOrgId } from '@/lib/auth/role'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getBusinessSettings, upsertBusinessSettings } from '@/lib/businessSettings'
 import { tenantBrand } from '@/lib/tenantBrand'
-import { rosterName } from '@/lib/team'
+import { rosterName, orgAccessOf } from '@/lib/team'
+import { orgCan, type OrgCap } from '@/lib/permissions'
 import type { User } from '@supabase/supabase-js'
 import { createNotification } from '@/lib/notify'
 
-// All invoice writes go through here (service role, admin-gated) — never
-// from the browser client, which RLS blocks. Mirrors the project-actions
-// switch style. Bank/wire workflow today; Stripe/card can slot in later
-// via payment_method without schema changes.
+// All invoice writes go through here. Bank/wire workflow today; Stripe/card can
+// slot in later via payment_method without schema changes.
+//
+// A DELETED CLAIM, AND WHY (Batch 24 item 1a). This header used to say the
+// browser client could not write invoices "which RLS blocks". It does not:
+// `invoices_crew_all` is an ALL policy gated on `is_org_member()`, and the
+// item-0 audit probe — signed in as a roster 'member' on the anon key — both
+// INSERTED and UPDATED invoice rows through PostgREST. The sentence asserted a
+// control that was never there, which is worse than asserting none, because it
+// is the reason nobody looked. Migration 0052 is what makes it true; until then
+// the gate below is the only one.
+//
+// THE GATE IS THE CAPABILITY, NOT THE CLAIM. It used to be `isAdmin(user)`,
+// which reads app_metadata.role — and app/api/admin/team/route.ts stamps that
+// 'admin' on EVERY crew invite at every roster role. So any invited crew member
+// could create, send, mark paid and delete invoices, while the invoices PAGE
+// they could not open was gated on `client_money`. The page and the route now
+// agree, and they agree on the roster rather than on a routing value.
+//
+// Per-action, because this route is not purely money: the three settings
+// actions write `business_settings`, which holds the studio's BANK DETAILS
+// (S2 §4 Class D). A single `client_money` gate would have handed those to
+// `finance`, who legitimately holds money and legitimately does not hold
+// org_settings — closing one over-grant by opening another.
+const SETTINGS_ACTIONS = new Set(['get_settings', 'save_settings', 'save_notification_prefs'])
 
-async function verifyAdmin() {
+function capFor(action: string): OrgCap {
+  return SETTINGS_ACTIONS.has(action) ? 'org_settings' : 'client_money'
+}
+
+async function verifyCrew() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user || !isAdmin(user)) return null
-  return user
+  if (!user) return null
+  const access = await orgAccessOf(user)
+  if (access.roles.length === 0) return null
+  return { user, access }
 }
 
 // INV-2026-0001 style, sequential per year.
@@ -32,13 +60,23 @@ async function nextInvoiceNumber(): Promise<string> {
 }
 
 export async function POST(req: NextRequest) {
-  const user = await verifyAdmin()
-  if (!user) {
+  const gate = await verifyCrew()
+  if (!gate) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const { user, access } = gate
 
   const body = await req.json()
   const { action } = body
+
+  // A clear 403 naming what is required, not a silent empty result (S-R R-5).
+  const needed = capFor(String(action ?? ''))
+  if (!orgCan(access.roles, needed, access.extraCaps)) {
+    return NextResponse.json(
+      { error: `You do not have permission for this. Required: ${needed}.` },
+      { status: 403 },
+    )
+  }
 
   // The studio whose ledger this writes into (S-V §X-6).
   const studioName = (await tenantBrand(userOrgId(user))).name

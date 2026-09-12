@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { userOrgId } from '@/lib/auth/role'
 import { getStripe } from '@/lib/stripe'
 import { appOrigin } from '@/lib/appOrigin'
+import { orgRolesOf } from '@/lib/team'
 
 // Create a Stripe Checkout session to buy credits. On success the webhook tops up
 // the org's balance via add_credits(). Amount is in cents ($5 min, $10k max).
@@ -10,6 +11,17 @@ export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // MEMBERSHIP FROM THE ROSTER, not the claim (S-R R-2, Batch 24 item 1a). The
+  // gate was `if (!user)` alone, so any authenticated person could mint a
+  // checkout session whose metadata stamps the STUDIO's organization_id — and
+  // the webhook tops that org up on payment. Every client-portal user carries
+  // the studio's organization_id claim, so "any authenticated person" included
+  // the studio's own clients.
+  const roles = await orgRolesOf(user)
+  if (roles.length === 0) {
+    return NextResponse.json({ error: 'Studio credits can only be topped up by crew.' }, { status: 403 })
+  }
 
   const { cents } = await req.json().catch(() => ({}))
   const amount = Math.max(500, Math.min(1_000_000, Math.round(Number(cents) || 0)))
