@@ -12,7 +12,7 @@ Batch 8 was the final foundation batch.
 
 After this, read `docs/specs/` in order: S0 → S0-A → **S0-B** → S0-conformance
 → S1-P → S-V → **S-F** → S1 → S2 → **S-C** → **S3-core** → **S3-core-A** →
-**S3-b** → **S3-c** → **S-R**. **Where S0 and S0-A disagree, S0-A wins**, and the same rule binds
+**S3-b** → **S3-c** → **S-R** → **S-R-A**. **Where S0 and S0-A disagree, S0-A wins**, and the same rule binds
 `S3-core` and `S3-core-A`; **S0-B supersedes the product name in all of them.**
 **`S-F` (feature scope and market position) supersedes `S-V` §13 — the v1 cap
 — in full**; `S-V` §1–§12 stand as the destination, and the redrawn cap is
@@ -30,12 +30,18 @@ money-and-people half: the four axes (seat class, company role, project role,
 individual grants and denials), the capability namespace, delegation limits, live
 propagation, and how a dashboard composes from a capability set. It
 **supersedes `S1` §5.1 and `S2` §5**, and it **amends `S0` AD-001 at its §9** —
-an amendment now live as 12 policies (0053). **Read it with `S-R-A` in hand once
-that exists:** three of S-R's statements are false against the code and one of
-its design decisions was superseded during the build, all four listed in §9.
+an amendment now live as 12 policies across eleven tables (0053). **Read it with
+`S-R-A` in hand — it is committed and settled:** four of S-R's statements are
+false against the code, one of its design decisions was superseded during the
+build, and its §10 index makes R-3 unreachable.
 Seat class, project roles and the scoping default are NOT built — that is the
 next batch, and until it lands a crew member still reads every project in the
-tenant. `S-F`, `S-C`
+tenant. `S-R-A` (settled) supersedes the named sections of `S-R`, in the same
+relationship `S0-A` has to `S0` and `S3-core-A` to `S3-core` — **where they
+disagree, `S-R-A` wins.** It was written from the Batch 25 build: four of
+`S-R`'s claims are false, its capability vocabulary shipped one granularity
+coarser than specified, and **its §10 unique index makes R-3 unreachable**,
+which is the one amendment carrying a migration rather than a correction. `S-F`, `S-C`
 (communications and sender identity), `S3-core`, `S3-b` and `S3-c` are
 **draft for approval** — the five specs in the stack that are not settled.
 `CLAUDE.md` holds the working mechanics (commands, clients, route groups,
@@ -127,7 +133,12 @@ paying"** (S-V §13).
   RLS's full cost and collect none of its protection. Done through migration
   0021: the database is now the tenancy boundary, proven by the harness.
   **AMENDED by `S-R` §9 and BUILT in Batch 25 (0053).** 12 policies now carry a
-  `public.has_cap()` predicate ANDed onto their tenancy one, on nine tables:
+  `public.has_cap()` predicate ANDed onto their tenancy one, on **eleven tables —
+  wider than §9's nine** (`S-R-A` A-10): §9's nine plus
+  `organization_member_projects` and `client_member_projects`, because the scope
+  of a membership is part of the membership record, and leaving them out would
+  let a granted `people.manage` change a role but not the project scope attached
+  to it. The nine §9 names:
   `invoices` (money.invoices) · `org_credits`, `org_budgets`, `credit_ledger`,
   `usage_events` (money.costs) · both rosters, both `*_member_projects` and both
   `*_cap_grants` (people.manage). Nothing was substituted — every tenancy
@@ -313,8 +324,9 @@ The audited era, each batch with what it *found*:
   2026-09-12: the two grant tables exist with RLS; ten new functions
   (`has_cap`, `role_baseline`, `client_role_baseline`, `valid_org_cap`,
   `valid_client_cap`, `normalize_cap{,_org,_client}`, `actor_is_org_owner`,
-  `actor_is_client_owner`); five `*_guard` triggers; **12 policies carry a
-  `has_cap()` predicate**. 0050–0054 are Batch 25's.
+  `actor_is_client_owner`); five `*_guard` triggers; **12 policies across ELEVEN
+  tables carry a `has_cap()` predicate** — two more than `S-R` §9 names, and
+  `S-R-A` A-10 records which and why. 0050–0054 are Batch 25's.
   **CORRECTION — 0048 IS APPLIED.** The line below said it was "printed and
   GATED on the Batch 23 deploy" while §9's own remainder list said it was
   applied 2026-09-03. The two halves of this file disagreed; a live read settles
@@ -782,14 +794,25 @@ S2 §11 q4 close with it.
    `{ name, role }`. A 403 there would have blanked a live messaging surface for
    coordinator and crew — the roles this batch exists to make usable.
 
-19. **`slim.slims0241@gmail.con` — a live `member` on Norton Slims whose
-   address is typo'd (`.con`).** They hold a `client_members` row, so they can
-   sign in and be scoped and notified, and **can never receive mail**: every
-   invite, reset and nudge to that address is undeliverable by construction.
-   Noticed three times across audits before being written down. Not a code
-   defect — a data one, fixable only by the studio correcting the address, which
-   also needs the auth account's email changed (and there is no email-change
-   flow, §8.3 item 15).
+19. **CORRECTED 2026-09-12, and the correction is the entry.** One `auth.users`
+   row carries a typo'd address (`.con`) with no membership on either roster and
+   no `client_id` claim — so it authenticates and then resolves to nothing:
+   `resolveCaps()` returns denied and the portal layout finds no membership. The
+   Norton Slims member is at the correct `.com` address and receives mail
+   normally. Recorded because the two defects are different and the wrong one was
+   filed first: "a member who can never be reached" is an address to correct, "a
+   sign-in that resolves to nothing" is an orphan auth row, and they have
+   different fixes.
+
+   The superseded text, kept because it is what this file claimed and because
+   `S-R-A` was written from it:
+   **`slim.slims0241@gmail.con` — a live `member` on Norton Slims whose address
+   is typo'd.** They hold a `client_members` row, so they can sign in and be
+   scoped and notified, and **can never receive mail**.
+   That was wrong on the load-bearing half. It was a compression of the Batch 25
+   audit's own q3 output — which had the right answer (`om_role: null`,
+   `cm_role: null`) — and it reached a SETTLED spec as a premise before a live
+   read caught it. §12 lesson 4, with one author on both ends.
 
 20. **KNOWN COARSENESS in the capability vocabulary, recorded rather than
    discovered later.** Batch 25 chose coarse stored capabilities over S-R §4's
@@ -884,7 +907,17 @@ any roster change** — Batch 25's 0050 would otherwise have been silently rever
 by the next `seed:harness`, and the harness documents a re-seed between runs, so
 "silently" would have meant "always".
 
-**`S-R-A` IS OWED BEFORE THE NEXT BATCH** (S-R is settled at `b8cf4aa` and is
+**The A-3 index widening.** `S-R` §10 specifies
+`unique (member_id, capability) where revoked_at is null` on both grant tables,
+which permits one active row per person per capability — so a grant and a deny
+cannot coexist and R-3's "deny beats grant" has nothing to resolve between.
+**Harness assertion 31 tests a state the tables cannot hold.** Widens to
+`unique (member_id, capability, mode) where revoked_at is null`. Batch 26, and
+its item 0 reports the live row count on both grant tables before the swap —
+cheapest while grants are few.
+
+**`S-R-A` IS COMMITTED AND SETTLED** (it was the item below until 2026-09-12;
+kept as an entry because its A-3 amendment is owed as a migration) (S-R is settled at `b8cf4aa` and is
 amended by a superseding entry, never edited). Three errors and one deviation:
 1. §2 and §10 both say `organization_member_projects` does not exist. It does.
 2. §4's paragraph claiming Batch 22 "created five approval capabilities on both
@@ -1255,3 +1288,19 @@ one is recognised rather than rediscovered.
    The general form: **when a document says "rename", check whether the two
    vocabularies have the same GRANULARITY.** If they do not, it is a
    re-modelling, and the cost is not in the strings.
+
+9. **A spec can be unreachable in its own schema, and nothing will say so.**
+   (Briefed as lesson 7; appended here as 9 because the Batch 25 recompile had
+   already taken 7 and 8.)
+
+   `S-R` R-3 says deny beats grant, which presupposes both rows existing at once.
+   `S-R` §10's unique index permits one active row per person per capability, so
+   the two could never coexist and the decision had nothing to resolve between.
+   Both sentences were written in the same document, on the same day, by the same
+   author. The build shipped both, the harness grew an assertion for the state
+   the tables cannot hold, and it passed — because a negative control that can
+   never be constructed does not fail, it reports nothing. **When a decision
+   describes two things being true at once, check that the schema can hold both.**
+   The general form is the harness's own VACUOUS category, one level up: an
+   assertion whose precondition is unconstructible proves nothing and looks like
+   a pass.
