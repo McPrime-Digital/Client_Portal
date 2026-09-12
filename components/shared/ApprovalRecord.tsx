@@ -37,7 +37,7 @@ type Stage = {
   id: string
   seq: number
   name: string
-  status: 'pending' | 'active' | 'complete' | 'auto_advanced' | 'blocked_on_changes'
+  status: 'pending' | 'active' | 'complete' | 'auto_advanced' | 'blocked_on_changes' | 'blocked_on_permission'
   deadline_at: string | null
   advanced_at: string | null
   decisions: Decision[]
@@ -122,6 +122,19 @@ function timeline(d: Detail) {
         detail: `${String(m.channel ?? 'email')} → ${String(m.recipient ?? 'recipient')}${m.delivered === false ? ' (delivery failed)' : ''}`,
         kind: 'reminder',
       })
+    } else if (e.event_type === 'approval_blocked_on_permission') {
+      // R-11, ON THE RECORD. This is the event that stops the certificate
+      // asserting silence that never happened: a stage nobody could act on is
+      // shown as blocked, naming it as an access problem rather than a
+      // non-response. Without it the timeline would simply end, and the reader
+      // would infer the client ignored the request.
+      out.push({
+        at: e.created_at,
+        who: 'System',
+        what: e.title,
+        detail: 'The review window did not lapse — nobody assigned could approve it.',
+        kind: 'blocked_on_permission',
+      })
     } else if (e.event_type === 'approval_created' || e.event_type === 'approval_withdrawn') {
       out.push({ at: e.created_at, who: e.actor_name, what: e.title, detail: e.body, kind: e.event_type })
     }
@@ -134,6 +147,7 @@ const TONE: Record<string, string> = {
   rejected: 'var(--destructive)',
   changes_requested: 'var(--status-amber, var(--destructive))',
   auto_advanced: 'var(--muted-foreground)',
+  blocked_on_permission: 'var(--destructive)',
   late: 'var(--destructive)',
   reminder: 'var(--muted-foreground)',
 }

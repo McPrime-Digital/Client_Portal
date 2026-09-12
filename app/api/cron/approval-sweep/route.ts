@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { advanceOnSilence } from '@/lib/approvals'
+import { approvalActionCap } from '@/lib/permissions'
+import { ORG_ROLE_BASELINE, CLIENT_ROLE_BASELINE, type OrgRole, type ClientRole } from '@/lib/capabilities'
 import { recordActivity } from '@/lib/logActivity.server'
 import { createNotification, createAdminNotification } from '@/lib/notify'
 import { tenantBrand } from '@/lib/tenantBrand'
@@ -126,10 +128,110 @@ async function recipientsForStage(
   return [...out.values()]
 }
 
+/**
+ * R-11 — CAN ANY ASSIGNEE STILL DECIDE?
+ *
+ * S-R R-11: "If a person loses the decide capability while they are the assignee
+ * of an active stage, the stage waits on someone who cannot act, the window
+ * lapses, and the certificate says *no response was received* about a person who
+ * was silently prevented from responding."
+ *
+ * That is S3-c AP-2's failure mode reached through the permission layer, and it
+ * is the thing the whole approvals engine exists to make impossible: the record
+ * must never assert silence that was actually a lockout.
+ *
+ * PER BATCH 24 RULING 1 THIS CHECKS THE **ACTION**, NOT A KEY. There is no
+ * `record.approval.decide` capability and there never was — Batch 22
+ * deliberately made the five approval concerns ACTIONS resolving onto existing
+ * stored caps (lib/permissions.ts:152-158), because every new stored string is a
+ * value that can end up in an extra_caps row. So "can this person decide" is
+ * orgCanApproval('decide') crew-side and clientCanApproval('decide')
+ * client-side, over each assignee's own resolved capability set.
+ *
+ * The resolution reads the ROSTER per assignee (S-R R-2), including their
+ * individual grants and denials — a DENY is exactly how someone loses the
+ * ability to decide, so a check that only read role baselines would miss the case
+ * this function exists for.
+ */
+async function anyAssigneeCanDecide(
+  stageId: string,
+  orgId: string,
+  approvalClientId: string | null,
+): Promise<{ any: boolean; examined: number }> {
+  const recipients = await recipientsForStage(stageId, orgId, approvalClientId)
+  if (recipients.length === 0) {
+    // No live assignee at all is a DIFFERENT fact and not R-11's: the stage is
+    // addressed to nobody, which auto-advance already handles (S3-core §2.4 —
+    // "a departed member neither blocks nor receives"). Reporting it as blocked
+    // on a permission change would be a wrong diagnosis.
+    return { any: true, examined: 0 }
+  }
+  for (const r of recipients) {
+    if (r.side === 'crew') {
+      const { data: m } = await supabaseAdmin
+        .from('organization_members')
+        .select('id, role, roles, extra_caps')
+        .eq('user_id', r.userId).eq('organization_id', orgId).eq('status', 'active')
+        .maybeSingle()
+      if (!m) continue
+      const want = approvalActionCap('crew', 'decide')
+      const roles = [m.role as OrgRole, ...((m.roles ?? []) as OrgRole[])]
+      const base = new Set<string>(roles.flatMap((x) => [...(ORG_ROLE_BASELINE[x] ?? [])]))
+      const set = await resolveEffective(base, 'org_member_cap_grants', m.id as string, m.extra_caps as string[] | null)
+      if (set.has(want)) return { any: true, examined: recipients.length }
+    } else {
+      const { data: m } = await supabaseAdmin
+        .from('client_members')
+        .select('id, role, extra_caps')
+        .eq('user_id', r.userId).eq('organization_id', orgId).eq('status', 'active')
+        .maybeSingle()
+      if (!m) continue
+      const want = approvalActionCap('client', 'decide')
+      if (want === 'never') continue
+      const base = new Set<string>([...(CLIENT_ROLE_BASELINE[m.role as ClientRole] ?? [])])
+      const set = await resolveEffective(base, 'client_member_cap_grants', m.id as string, m.extra_caps as string[] | null)
+      if (set.has(want)) return { any: true, examined: recipients.length }
+    }
+  }
+  return { any: false, examined: recipients.length }
+}
+
+/**
+ * A member's EFFECTIVE capability set: role baseline ∪ extra_caps ∪ live grants,
+ * MINUS live denials — the same order has_cap() uses, and the order is the rule.
+ *
+ * DENY SUBTRACTS LAST, and it must subtract from the BASELINE too. The first
+ * version of this check handed the extras to clientCanApproval() instead, which
+ * ORs the role baseline — so a client owner DENIED portal.approve still read as
+ * able to decide, because `owner` carries it by baseline. The probe's negative
+ * run caught it: the stage lapsed when it should have been blocked, which is
+ * exactly the wrong record R-11 exists to prevent.
+ *
+ * Not resolveCaps(): that answers for the CALLER through their own session, and
+ * this cron has no session and must answer about somebody else.
+ */
+async function resolveEffective(
+  baseline: Set<string>,
+  table: 'org_member_cap_grants' | 'client_member_cap_grants',
+  memberId: string,
+  extraCaps: string[] | null,
+): Promise<Set<string>> {
+  const set = new Set<string>([...baseline, ...(extraCaps ?? [])])
+  const { data } = await supabaseAdmin
+    .from(table).select('capability, mode, expires_at')
+    .eq('member_id', memberId).is('revoked_at', null)
+  const now = Date.now()
+  const live = (data ?? []).filter((g) => !g.expires_at || Date.parse(g.expires_at as string) > now)
+  for (const g of live) if (g.mode === 'grant') set.add(g.capability as string)
+  for (const g of live) if (g.mode === 'deny') set.delete(g.capability as string)
+  return set
+}
+
 async function sweepOrg(orgId: string) {
   const now = Date.now()
   let reminded = 0
   let lapsed = 0
+  let blocked = 0
 
   // Only 'active' stages with a deadline. AP-3 is enforced by this predicate:
   // 'blocked_on_changes' is NOT silent — someone asked for changes and the
@@ -149,7 +251,7 @@ async function sweepOrg(orgId: string) {
   const stages = (stageData ?? []) as unknown as (StageRow & {
     approvals: { id: string; organization_id: string; client_id: string | null; project_id: string | null; title: string; review_window_hours: number | null }
   })[]
-  if (stages.length === 0) return { reminded: 0, lapsed: 0, scanned: 0 }
+  if (stages.length === 0) return { reminded: 0, lapsed: 0, blocked: 0, scanned: 0 }
 
   const brand = await tenantBrand(orgId)
   const sender = senderForTenant(brand)
@@ -191,6 +293,44 @@ async function sweepOrg(orgId: string) {
     if (deadline <= now) {
       if (lapsed >= MAX_LAPSES_PER_ORG) continue
       try {
+        // R-11 FIRST. If nobody the stage is addressed to can still decide, this
+        // is NOT silence and must not be recorded as it — the stage is blocked
+        // on a permission change, which is our configuration error, not the
+        // client's non-response. A silent stall is worse than an error (the
+        // reason Batch 22's three triggers exist), and a WRONG RECORD is worse
+        // than either: the certificate is the dispute surface.
+        const decide = await anyAssigneeCanDecide(stage.id, orgId, approval.client_id)
+        if (!decide.any) {
+          const { error: blockErr } = await supabaseAdmin
+            .from('approval_stages')
+            .update({ status: 'blocked_on_permission' })
+            .eq('id', stage.id)
+            .eq('status', 'active')   // never clobber a stage that just moved
+          if (blockErr) throw new Error(`blocked_on_permission: ${blockErr.message}`)
+          blocked++
+          await recordActivity({
+            projectId: approval.project_id, clientId: approval.client_id, organizationId: orgId,
+            actorId: null, actorName: 'System', actorRole: null,
+            eventType: 'approval_blocked_on_permission',
+            title: `Review blocked: nobody assigned to “${approval.title}” can approve it`,
+            body: null,
+            meta: {
+              approval_id: approval.id, stage_id: stage.id, stage_seq: stage.seq,
+              assignees_examined: decide.examined, deadline_at: stage.deadline_at,
+            },
+          })
+          // Tell the STUDIO, not the client: this is the studio's configuration
+          // to fix, and telling a client their reviewer was locked out is both
+          // useless to them and an internal disclosure.
+          await createAdminNotification({
+            clientId: approval.client_id, projectId: approval.project_id,
+            type: 'task_updated',
+            title: 'A review is blocked by a permission change',
+            body: `Nobody assigned to “${approval.title}” can approve it. Restore their access or reassign the stage.`,
+          })
+          continue
+        }
+
         // advanceOnSilence writes 'auto_advanced' with NO actor and NO
         // approval_decisions row (AP-2), and its own ledger event carrying the
         // deadline it passed.
@@ -262,7 +402,7 @@ async function sweepOrg(orgId: string) {
     }
   }
 
-  return { reminded, lapsed, scanned: stages.length }
+  return { reminded, lapsed, blocked, scanned: stages.length }
 }
 
 export async function GET(req: NextRequest) {

@@ -38,6 +38,11 @@ export const EVENT_TYPES = [
   'approval_auto_advanced',
   'approval_withdrawn',
   'approval_reminded',
+  // R-11 (Batch 24 item 9). Deliberately NOT named anything like 'lapsed' or
+  // 'advanced': a stage blocked because nobody can decide is the OPPOSITE of
+  // silence, and the two must never share a value — the same rule
+  // approval_auto_advanced follows for the same reason (AP-2).
+  'approval_blocked_on_permission',
   // The PERMISSION ledger (Batch 24 item 8, S-R R-8). "A permission change is
   // precisely the fact you need a record of when something has gone wrong, and
   // it is the second table after approvals where 'the record is the product'

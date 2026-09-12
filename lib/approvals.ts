@@ -78,6 +78,9 @@ export type ApprovalStatus =
   | 'open' | 'approved' | 'rejected' | 'changes_requested' | 'auto_advanced' | 'withdrawn'
 export type StageStatus =
   | 'pending' | 'active' | 'complete' | 'auto_advanced' | 'blocked_on_changes'
+  // R-11 (0050): nobody assigned can decide. The OPPOSITE of silence — our
+  // configuration error, never the client's non-response.
+  | 'blocked_on_permission'
 export type StageMode = 'sequential' | 'parallel'
 export type DecisionOutcome = 'approved' | 'rejected' | 'changes_requested'
 

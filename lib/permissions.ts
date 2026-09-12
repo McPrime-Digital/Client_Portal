@@ -190,6 +190,26 @@ const CLIENT_APPROVAL_CAP: Record<ApprovalAction, ClientCap | 'never'> = {
   set_comment_permission: 'never',
 }
 
+/**
+ * The STORED capability an approval action resolves to, or 'never'.
+ *
+ * Exported because orgCanApproval/clientCanApproval cannot express a DENIAL:
+ * they OR the role baseline, by design, so subtracting a denial from the extras
+ * alone leaves the answer unchanged. Anything that has to honour a deny — the
+ * R-11 sweep, which exists precisely because someone LOST the ability to decide
+ * — must resolve the full set itself (baseline ∪ extras ∪ grants − denials) and
+ * then ask whether this cap is in it.
+ *
+ * Found by probe: the first version of that sweep check called
+ * clientCanApproval() and a denied assignee still read as able to decide,
+ * because `owner` carries portal.approve in its baseline.
+ */
+export function approvalActionCap(side: 'crew', action: ApprovalAction): OrgCap
+export function approvalActionCap(side: 'client', action: ApprovalAction): ClientCap | 'never'
+export function approvalActionCap(side: 'crew' | 'client', action: ApprovalAction): string {
+  return side === 'crew' ? ORG_APPROVAL_CAP[action] : CLIENT_APPROVAL_CAP[action]
+}
+
 /** May this crew member take this action on an approval? Default-deny. */
 export function orgCanApproval(
   role: OrgRole | OrgRole[] | null | undefined,

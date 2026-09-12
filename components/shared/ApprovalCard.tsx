@@ -28,7 +28,7 @@ type Stage = {
   id: string
   seq: number
   name: string
-  status: 'pending' | 'active' | 'complete' | 'auto_advanced' | 'blocked_on_changes'
+  status: 'pending' | 'active' | 'complete' | 'auto_advanced' | 'blocked_on_changes' | 'blocked_on_permission'
   deadline_at: string | null
   advanced_at: string | null
   assignees: { id: string; user_id: string | null; client_id: string | null; role: string | null; required: boolean }[]
@@ -270,6 +270,15 @@ export default function ApprovalCard({
                   {s.status === 'blocked_on_changes' && (
                     <span className="ml-1.5 text-[10px]" style={{ color: 'hsl(var(--status-amber, var(--destructive)))' }}>
                       · changes requested
+                    </span>
+                  )}
+                  {s.status === 'blocked_on_permission' && (
+                    // R-11. Says whose problem it is, because the alternative —
+                    // the window lapsing and the record reading "no response was
+                    // received" — would blame the reviewer for a lockout we
+                    // caused. The wording never implies the client was silent.
+                    <span className="ml-1.5 text-[10px] font-semibold text-destructive">
+                      · waiting on access, not on a reply
                     </span>
                   )}
                   {s.decisions.map((d) => (
