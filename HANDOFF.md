@@ -5,10 +5,11 @@ did not: the open list was kept outside the repo, drifted from the code with
 nothing able to contradict it, and four live defects fell off it entirely
 (recovered by Batch 6 item 0). Everything below was verified against the code
 and the live database on 2026-08-28 — nothing is quoted from memory of what a
-batch was supposed to do. Last corrected after **Batch 25** (the capability
-layer: money and people gated at the row, migrations 0050–0054, harness 28 → 35
-— 2026-09-12, with every rule proven as a real persona on the anon key);
-Batch 8 was the final foundation batch.
+batch was supposed to do. Last corrected after **Batch 26** (the rest of `S-R`: seat class, project roles,
+the scoping default and A-3's index — migrations 0055–0059, harness 35 → 40 —
+2026-09-13, with every rule proven as a real persona on the anon key and every
+new assertion run RED before it was trusted); Batch 8 was the final foundation
+batch.
 
 After this, read `docs/specs/` in order: S0 → S0-A → **S0-B** → S0-conformance
 → S1-P → S-V → **S-F** → S1 → S2 → **S-C** → **S3-core** → **S3-core-A** →
@@ -34,9 +35,10 @@ an amendment now live as 12 policies across eleven tables (0053). **Read it with
 `S-R-A` in hand — it is committed and settled:** four of S-R's statements are
 false against the code, one of its design decisions was superseded during the
 build, and its §10 index makes R-3 unreachable.
-Seat class, project roles and the scoping default are NOT built — that is the
-next batch, and until it lands a crew member still reads every project in the
-tenant. `S-R-A` (settled) supersedes the named sections of `S-R`, in the same
+Seat class, project roles and the scoping default **are built** (Batch 26,
+migrations 0055–0059), so a crew member no longer reads every project in the
+tenant: the predicate is on 14 policies and, since 0059, in **both USING and WITH
+CHECK**. `S-R-A` A-3's index widening landed with the assertion it named as owed. `S-R-A` (settled) supersedes the named sections of `S-R`, in the same
 relationship `S0-A` has to `S0` and `S3-core-A` to `S3-core` — **where they
 disagree, `S-R-A` wins.** It was written from the Batch 25 build: four of
 `S-R`'s claims are false, its capability vocabulary shipped one granularity
@@ -315,12 +317,31 @@ The audited era, each batch with what it *found*:
 | 24 (owner-directed, 2026-09-03) | **The spaces separate, and files stop being one-way.** SPACE SCOPING: the crew hub filtered `kind !== 'client'`, so a DM or channel with a client company's person landed on the studio's INTERNAL floor — the COMPANY COLUMN is the boundary now, everywhere. Crew · Chat = rooms with no company (directory: crew + seated collaborators). Client · Messages = rooms WITH a company, as chips beside the project chips, with a `+` scoped to that company. Portal = DMs and groups only, owner-initiated (tightened from owner-or-approver; RLS still admits an approver, so the route is the narrower gate and says so). A DM is stamped with the counterparty's company at creation, so routing is a column lookup. UPLOADS: real multipart above 8 MB (`/api/files/multipart` + four `lib/r2` helpers) — pause, resume, cancel, with the server aborting so abandoned parts are not billed. DELETION: `lib/fileDelete` — detach, row, then blob; `/api/files/[id]` widened from admin-only to "any admin of the file's own org, or its uploader"; a deleted chat message destroys its attachment NOW. Plus: the hover action bar stops eating neighbouring clicks, delete-during-upload cancels, pending captions are editable, Audio joins the attach menu, Save to device, attachments work in the new room kinds (`resolveUploadScope` grows a ROOM scope gated on membership), thread/search/pins pre-sign like the main list, and projects mint their chat on creation | **Four bugs whose cause was not where the symptom was.** (1) "Files cannot be deleted permanently" was true because the route was `isAdmin`-only — and while fixing it, that same route turned out to have NO TENANT PREDICATE, so an admin of studio B could delete studio A's file by id. (2) "The actions hide behind rather than in front" was `opacity-0`, which hides an element and keeps it CLICKABLE — the invisible bar at `-top-4` was swallowing the neighbouring message's clicks. (3) "I deleted a file that was still loading and it didn't work" — the delete route was being called with a `temp-` id, which 404s. (4) The obvious multipart design would have read ETags off each PUT response, which a cross-origin XHR cannot do unless the bucket's CORS names `ExposeHeaders` — a fourth silent CORS dependency of exactly the Batch 17 kind; completion asks R2 what it stored instead. Also found: `create-project` never stamped `organization_id`, so a second studio's project (and now its chat room) would have been minted in tenant zero |
 | 25 (the "Batch 24" brief, renumbered — the repo already had a 24; the COMMITS and code comments say 24, so a grep for either finds it) | **The capability layer: money and people.** 0050 (role vocabulary + `blocked_on_permission`), 0051 (grant tables + `has_cap()` + the 1→1 dot rename), 0052 (legacy aliases in SQL), 0053 (capability predicates on the nine S-R §9 tables), 0054 (G-1…G-4 as triggers) — **all applied and verified live as personas**. `lib/capabilities.ts` is the one vocabulary, generating `role_baseline()`/`valid_*_cap()` with `npm run check:caps` failing on drift in THREE phases; `lib/capabilities.server.ts` is the one resolver, on the USER client; `lib/grants.ts` the one grant write path; `components/shared/CapabilityGrants.tsx` the one surface, on all three team panels. Route gates on money and people, the claim-shaped grep across all 56 handlers (1 → 0), R-11 in the sweep, harness **28 → 35**. Two live holes closed first (item 1a) and the `org_role` claim deleted (item 1b) | **The brief over-warned once and under-warned four times.** Item 1 was called "the most dangerous item in this batch" and changed NO production row: the role column was already honest, because it HAS A WRITER. What it missed: (1) the seeder would have silently reverted 0050 on every re-seed, and the harness documents a re-seed between runs, so "silently" meant "always"; (2) making `coordinator`/`crew` invitable before `lib/permissions.ts` knew them would have sent an invited coordinator to an EMPTY STUDIO — `ORG_CAPS[r]?.includes()` returns false for an unknown role, with no error; (3) 0051's rename left `has_cap()` blind to the legacy aliases the TS resolver honoured, so the route said yes and the policy said no — a silent empty set, found by probe and fixed in 0052, and the parity check had gone GREEN through it because every harness persona has empty `extra_caps`; (4) the roster routes still gated on `canManageOrg` (role ∈ owner/admin) after 0053 widened the ROW to `has_cap('people.manage')`, so a *granted* people.manage was admitted by the database and refused by the route. Also: R-11's first implementation called `clientCanApproval()`, which ORs the role baseline, so a DENIED assignee still read as able to decide and the stage lapsed — the exact wrong record R-11 exists to prevent, produced by the code meant to prevent it. Ruling 1 itself was wrong and was superseded mid-batch: snake_case→dot is a GRANULARITY change, not a spelling one |
 
+| 26 (S-R's last three axes + S-R-A A-3) | **Seat class, project roles, and the scoping default — the decision that was missing rather than the mechanism.** 0055 (A-3's index widening), 0056 (`seat_class`), 0057 (`project_role` + `expires_at`, and `org_project_visible` learns expiry), 0058 (`project_role_baseline()` + `has_cap()` unions it), 0059 (the scoping gaps close in BOTH clauses across eleven policies) — **all applied and verified live as personas**. Item 8 came FIRST by owner ruling and deleted the four deny-blind oracles; `lib/assignments.ts` is the one staffing write path; harness **36 → 40** with a mutual-exclusion lock; invites now STATE seat class and the scope it implies | **THE ORACLES ERRED IN BOTH DIRECTIONS, and "deny-blindness" names only half of it.** `orgCan`/`clientCan`/`orgCanApproval`/`clientCanApproval` each answered `baseline(role) OR extra_caps`, and extra_caps carries GRANTS only — so a DENIAL was invisible at 28 call sites (every studio page guard, both rails, seven portal page guards, fourteen routes), while `organization/logo` passed NO extras at all and therefore REFUSED a granted `org.settings`. Proven both ways as personas: with money.invoices denied, the old answer said ALLOWED in all three states while the policy said 2 rows → 0 → 2. **Item 0's own audit was wrong about item 6**, and probing before writing the migration is what found it: both UPDATE paths it reported are already refused — a targeted UPDATE must FIND its row and the SELECT policy gates that, and a `FOR ALL` policy's USING applies to the NEW row (proven by control: moving to `project_id = NULL` succeeds). What is genuinely open is **INSERT**, and only INSERT, where USING cannot reach — a scoped member inserted a task onto a sibling production with no error and the row landed. **The probe advice itself has a trap:** §12 lesson 6 says ask for rows back, but `.select()` adds RETURNING, RETURNING needs SELECT, and where SELECT is narrower than the write a SUCCESSFUL write reads as a refusal. Also: `TeamManager` defaulted invites to the deprecated `member` and the route's `crew` default never fired because the form always sends a value — the select showed "Admin" while the state said `member`; and the two test surfaces MUTATE THE SAME ROW, which cost one false failure blamed on a migration |
+
 ## 7. Current state
 
 - **Branch:** `throughline` (main ⊆ throughline, fast-forward). Not renamed —
   S0-B §6 excludes the branch, and renaming it is a remote/CI change, not a
   code one.
-- **Migrations applied: 0000–0054, every one of them.** Verified live
+- **Migrations applied: 0000–0059, every one of them.** Verified live
+  2026-09-13. **0055–0059 are Batch 26's** and complete `S-R`'s four axes:
+  0055 widens both grant tables' live index to `(member_id, capability, mode)`
+  so a grant and a denial can coexist (`S-R-A` A-3 — R-3 was unreachable in the
+  schema written to implement it, confirmed by probe before the swap: the second
+  insert was refused by `org_member_cap_grants_live_idx` by name); 0056 adds
+  `organization_members.seat_class`; 0057 adds `project_role` + `expires_at` to
+  `organization_member_projects` **as an ALTER, because the table already
+  existed** (`S-R-A` A-1) and teaches `org_project_visible()` that an expired
+  assignment does not resolve; 0058 generates `project_role_baseline()` and has
+  `has_cap()` union it; 0059 closes the project-scoping gaps in **USING and WITH
+  CHECK together** across eleven policies.
+  **Live counts, read rather than quoted: 14 policies carry
+  `org_project_visible()`, 12 carry `has_cap()`, and both grant tables hold 0
+  rows.** Three functions matter to this batch — `has_cap`, `org_project_visible`
+  and the new `project_role_baseline`.
+  The pre-Batch-26 line, kept because it is what this file claimed:
+  **Migrations applied: 0000–0054, every one of them.** Verified live
   2026-09-12: the two grant tables exist with RLS; ten new functions
   (`has_cap`, `role_baseline`, `client_role_baseline`, `valid_org_cap`,
   `valid_client_cap`, `normalize_cap{,_org,_client}`, `actor_is_org_owner`,
@@ -378,7 +399,33 @@ The audited era, each batch with what it *found*:
 - **Access token hook:** enabled in production, verified from a live JWT. 0026
   changes its body; step 2 (verify a client's token still carries
   `organization_id`) is the check that matters after applying it.
-- **Harness:** `npm run test:rls` → **35 pass / 0 fail / 0 vacuous / 0 error**
+- **Harness:** `npm run test:rls` → **40 pass / 0 fail / 0 vacuous / 0 error**,
+  numbered 1–41 with **21 RESERVED** for the retention-purge assertion. 37 is
+  `S-R-A` A-3's owed one (a grant and a deny held at once, deny wins, with the
+  grant alone as control — reached by REVOKING the deny, so the control asserts
+  the reason the index is shaped that way rather than merely making the zero
+  mean something). 38–41 are the scoped seat: a contractor with no assignments
+  reads nothing, a scoped member cannot reach a sibling production, an expired
+  assignment stops resolving **without being deleted**, and a project role grants
+  its baseline while widening no rows.
+  **All five were run RED before being trusted.** 37 fails under the narrow index
+  while 31 passes identically in both states — which is A-3's argument
+  demonstrated rather than asserted. 38 fails when the contractor is given
+  `scope_mode='all'`; 39, 40 and 41 all fail when the scoped member is
+  additionally assigned to the sibling production, which was not planned and is
+  the more useful result: it shows all three are coupled to the scoping predicate
+  rather than passing incidentally.
+  **THE TWO TEST SURFACES NOW REFUSE TO RUN CONCURRENTLY**
+  (`scripts/harness-lock.ts`). `check:caps` phase 3 writes
+  `extra_caps = ['client_money']` onto the harness CREW member and reverts it in
+  a `finally`; that normalizes to `money.invoices`, which is exactly what
+  assertion 30 asserts the member does not hold. Run together, assertion 30 FAILS
+  **pointing at whatever was just changed**, with the `finally` erasing the
+  evidence. It cost one false suspicion of migration 0056 in this batch. The lock
+  names the other surface rather than saying "busy", and releases on the crash
+  path too — a lock that survives a crash turns a guard into an outage.
+  The pre-Batch-26 line:
+  `npm run test:rls` → **35 pass / 0 fail / 0 vacuous / 0 error**
   (30–36 added in Batch 25 from S-R §11: the money boundary, a denial beating a
   role baseline, and the four delegation rules that no route test can prove.
   A new `finance` persona exists so assertion 30's positive control is a role
@@ -882,39 +929,71 @@ Re-run the grep, do not quote this list: the script is
 
 ## 9. What to do next
 
-**THE NEXT BATCH IS THE REST OF S-R: seat class, project roles, and the scoping
-default** (S-R §12's migration 1, minus what Batch 25 took). Specifically:
-`organization_members.seat_class` with its backfill; `project_role` and
-`expires_at` on `organization_member_projects`; and the thing that makes seat
-class mean anything — **a stated `scope_mode` at invite time** (S3-b §4.1, §11
-q2). Until then every crew member is invited with the permissive default because
-nothing chooses otherwise: *the mechanism is not missing, the decision is.*
+**`S-R` IS BUILT. All four axes exist, are enforced at the row, and are
+asserted.** Batch 26 landed seat class, project roles, individual grants-and-
+denials (the index that makes them coexist), and the scoping default — on top of
+Batch 25's company-role half. What that means concretely:
 
-**THE RESIDUAL EXPOSURE, NAMED PLAINLY: a crew member still reads every project
-in the tenant.** Batch 25 closed money and people. It did NOT close `work.*` or
-`client.*`, which S-R §9 leaves app-layer and filters by PROJECT SCOPE — and the
-scope filter is the next batch. So today a `crew` or `coordinator` member reads
-every project, file, task and message in the organization that is not narrowed by
-`scope_mode`, and `scope_mode` is `'all'` on every live row. That is not a
-regression and it is not a hole this batch skipped; it is the boundary the batch
-drew, and it is the reason the next one matters.
+- **A crew member no longer reads every project in the tenant.** The predicate is
+  on 14 policies and, since 0059, in **both USING and WITH CHECK** — which
+  matters because INSERT is the one command USING cannot reach, and it was open:
+  a scoped member could insert a task onto a production they could not see.
+- **`scope_mode` is STATED at invite time**, derived once from seat class through
+  `SEAT_CLASS_SCOPE_MODE` and never re-derived. The invite default is
+  `contractor`; the COLUMN default is `staff`, and the difference is deliberate —
+  a column default backfills rows that already exist.
+- **Capability is answered in exactly one place.** `orgCan`, `clientCan`,
+  `orgCanApproval` and `clientCanApproval` are DELETED, and
+  `NO_BASELINE_AS_ORACLE` in `eslint.config.mjs` bans importing a role baseline
+  outside three named readers.
 
-Two corrections carried into it: **`organization_member_projects` ALREADY
-EXISTS** (from the B1–B4 scoping work — S-R §2 and §10 both say it does not, which
-is one of the three errors owed to `S-R-A`), so only `project_role` and
-`expires_at` are additive. And **the seeder must be updated in the same commit as
-any roster change** — Batch 25's 0050 would otherwise have been silently reverted
-by the next `seed:harness`, and the harness documents a re-seed between runs, so
-"silently" would have meant "always".
+**WHAT IS STILL OPEN ON ACCESS AND PERMISSIONS — and this list is exhaustive as
+of 2026-09-13, not a sample.**
 
-**The A-3 index widening.** `S-R` §10 specifies
-`unique (member_id, capability) where revoked_at is null` on both grant tables,
-which permits one active row per person per capability — so a grant and a deny
-cannot coexist and R-3's "deny beats grant" has nothing to resolve between.
-**Harness assertion 31 tests a state the tables cannot hold.** Widens to
-`unique (member_id, capability, mode) where revoked_at is null`. Batch 26, and
-its item 0 reports the live row count on both grant tables before the swap —
-cheapest while grants are few.
+1. **The three PARENTLESS tables.** `document_versions`, `document_comments` and
+   `storyboard_shots` have **no `project_id` column**, so 0059's shape cannot
+   apply to them and a migration pretending otherwise would report success and
+   narrow nothing. They need a join through the parent `documents` /
+   `storyboards` row — a different predicate with different performance
+   characteristics. Nothing is exposed while it waits: `documents` holds 1 row
+   and `storyboards` 0. Owner ruling 3; do NOT improvise the join predicate.
+2. **`message_rooms` keeps its policy, and this is a DECISION, not a gap.**
+   `org_project_visible()` is false by construction for an MD-4 external
+   collaborator — roster-less by definition — so adding the predicate to
+   `message_rooms_member_read` would hide a project-tagged room from the very
+   person invited into it. `is_room_member()` is already the right authority: a
+   room's membership is STATED, not derived from project scope.
+   `messages_member_read` carries the predicate at the MESSAGE level, which is
+   the right layer. Owner ruling 4. **Do not "fix" this.**
+3. **The `access &&` precondition on the portal page guards.** A session with no
+   `client_members` row SKIPS those guards entirely. Pre-existing, and untouched
+   by item 8 deliberately: closing it starts REDIRECTING people, which is a
+   different blast radius from hiding a control. Decide it on its own.
+4. **The approval sweep is a legitimate THIRD resolution site.**
+   `app/api/cron/approval-sweep/route.ts` resolves baseline ∪ extras ∪ grants −
+   denials by hand, because it answers about SOMEBODY ELSE with no session.
+   Extracting it needs a service-role path into the capability layer — a decision
+   rather than a cleanup.
+5. **`extra_caps` is NOT yet the projection `S-R` §10 calls it.** Gabby holds
+   four dot-form caps with ZERO grant rows behind them, because those caps
+   predate the grant tables. Nothing breaks — `has_cap()` unions `extra_caps`
+   directly — but the word "projection" is false of the live data, and the
+   eventual drop of `extra_caps` has to reconcile them first.
+6. **Neither grant table is in `supabase_realtime`.** A GRANT is observable via
+   the roster row's `extra_caps` UPDATE; a DENY is not. Adding both tables to the
+   publication is a one-line migration and costs no channel — do it only if the
+   `memberId` problem resolves cleanly (the browser does not know its own
+   `member_id`, and a realtime filter must be a literal). Otherwise
+   navigation-based reshape is ACCEPTED (owner, 2026-09-12) and the listener
+   waits.
+7. **Client-side project roles do not exist and should not**, per `S-R` §14 q4 —
+   recorded so the asymmetry reads as a decision.
+
+**NOT COMPLETE, and the honest boundary:** `S-R`'s axes are built and asserted;
+the **surfaces** half of §8 is not. A dashboard is still a set of pages that check
+capabilities, not `S-1`'s "projection of a capability set". And the client-side
+capability ceiling (§8's "one ceiling lower") is still untouched —
+`client_members_team_read` is ungated by design and remains so.
 
 **`S-R-A` IS COMMITTED AND SETTLED** (it was the item below until 2026-09-12;
 kept as an entry because its A-3 amendment is owed as a migration) (S-R is settled at `b8cf4aa` and is
@@ -1205,6 +1284,15 @@ one is recognised rather than rediscovered.
    specific tenant," the correct fallback is neutral — or no name at all, and
    a sentence rewritten to not need one.
 
+   **NAMED INSTANCE — REACT PROP DEFAULTS (Batch 26 item 8).** This lesson was
+   written about fallbacks in SQL and app config. It reaches PROP DEFAULTS, where
+   nobody greps for it: `StudioSidebar({ orgRoles = ['owner'] })` and
+   `Sidebar({ memberRole = 'owner' })` asserted the most powerful role in the
+   tenant whenever the prop was omitted — precisely the moment identity could not
+   be resolved. Four `access?.role ?? 'owner'` fallbacks in the portal pages did
+   the same. All are now `caps = []` or an explicit resolve. A default in a
+   component signature reads as a convenience and is a policy.
+
 4. **A commit message is a claim, and the next document inherits it.**
    Batch 10.3's message said `lib/email/send.ts` was "the single place a message
    reaches Resend, extracted from `notify.ts`." It was not extracted — `send.ts`
@@ -1304,3 +1392,51 @@ one is recognised rather than rediscovered.
    The general form is the harness's own VACUOUS category, one level up: an
    assertion whose precondition is unconstructible proves nothing and looks like
    a pass.
+
+10. **A guard whose failure mode is silence is not a guard.** (Batch 26 item 8.)
+
+    `eslint.config.mjs`'s exemption blocks RE-LISTED the rules they keep, so
+    every new rule was a four-place edit whose failure mode was silence: omit one
+    line and the rule is simply OFF for 69 files, with lint fully green. The
+    `getSession` comment on the allowlist block already warned about that hazard
+    in prose, which is not the same as preventing it.
+
+    Distinct from lesson 2 — "a guard proves what it looks at" — because the
+    failure here is not that the guard looked at the wrong thing. It is that the
+    guard **was not running and nothing said so**. `except()` is the fix: subtract
+    what you exempt, never re-list what you keep. The lesson is the shape.
+
+    **The corollary, and it is the expensive half (Batch 26 item 2).** A guard
+    that produces a CONFIDENT WRONG ANSWER is worse than one that is merely off.
+    `npm run check:caps` and `npm run test:rls` mutate the same harness row —
+    phase 3 writes `extra_caps = ['client_money']` onto the crew member that
+    assertion 30 asserts is empty — so a concurrent run fails assertion 30
+    **pointing at whatever was just changed**, and the `finally` erases the
+    evidence before the row can be inspected. It cost one false suspicion of a
+    migration that was correct. They now hold a mutual-exclusion lock
+    (`scripts/harness-lock.ts`) that names the other surface. **When two checks
+    share mutable fixtures, make them refuse to overlap; a shared fixture turns
+    one test's green into another's lie.**
+
+11. **"Ask for rows back" has a caveat, and it fires exactly where you are
+    probing.** (Batch 26 item 6.)
+
+    Lesson 6's second half says a write probe must ask for rows back, because RLS
+    refuses by matching zero rows and PostgREST returns no error. But `.select()`
+    adds `RETURNING`, `RETURNING` requires SELECT, and on a table where **SELECT
+    is narrower than the write** a SUCCESSFUL write comes back as zero rows and
+    reads as a refusal.
+
+    That is the advice defeated by the very asymmetry being probed. The first
+    `approvals` probe in item 6 reported "refused" for this reason, and taken at
+    face value it would have had the batch close a hole it had never found. **The
+    only trustworthy witness is the ROW, read back through a client that can see
+    it.**
+
+    The same item produced the other half of the correction: a `FOR ALL` policy's
+    USING expression is applied to the NEW row as well as the old, so USING
+    already governs where a row may MOVE — proven by control, not by reading the
+    docs, because `project_id = NULL` succeeded where a sibling production
+    failed. **INSERT is the one command USING cannot reach**, which is why WITH
+    CHECK is not a redundant copy of it. An audit that reads policies without
+    probing them gets this backwards in both directions, as item 0 did.

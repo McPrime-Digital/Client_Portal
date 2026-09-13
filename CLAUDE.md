@@ -42,6 +42,9 @@ order:
 | 14 | `S3-c-approvals-review-live-artifacts.md` | **DRAFT** — **Supersedes `S3-core` §2 (approvals tables), `S3-core` §9.2, and `S-F` §3.3 where they disagree**; approval is a record not a gate — auto-advance on silence, live minted artifacts, anchored review comments; sequenced after `S3-core` migrations 1–7 |
 | 15 | `S3-d-messaging-rooms-groups-broadcast.md` | **LANDED (Batch 23, migrations 0043–0049)** — **Supersedes `S3-core` §1.2 (the room table) and §9.1** where they disagree. Membership is a ROW (`room_members`); channels, groups, DMs, broadcast; the message RLS runs on membership (`is_room_member` + `room_can_post` + per-seat `history_from`), with ONE recorded deviation: the project-visibility conjunct stays (a live scoped crew member made §5.2's drop an access-widening). Rooms API: `lib/rooms.ts` + `/api/rooms*`; crew Chat hub; portal DMs. Open remainder in HANDOFF §9 |
 
+| 16 | `S-R-roles-and-capabilities.md` | Roles, capabilities, surfaces — **settled**; amends `S0` AD-001 at §9. **BUILT: Batch 25 (money + people) and Batch 26 (seat class, project roles, scoping default)** |
+| 17 | `S-R-A-amendments.md` | **Supersedes named `S-R` sections.** A-1 (`organization_member_projects` already exists), A-3 (the index widening — landed as 0055), A-4 (the vocabulary is COARSE). **Batch 26 adds one more the document does not carry: `seat_class`'s values are `staff`/`contractor`, not §2's `crew`/`collaborator`, because both of those words were already taken** |
+
 **Where S0 and S0-A disagree, S0-A wins** — and the same rule binds `S3-core`
 and `S3-core-A`. S0 entries were not edited in place — the original
 text stands as the record of what was believed at the time, and reading S0 alone will give you
@@ -80,6 +83,8 @@ Accurate notes on the dependency list — several packages are installed but not
   `app/api/activity/route.ts:1` (Batch 6.1, so the activity ledger stops accepting forged
   entries) and `app/api/admin/erase-person/route.ts` (Batch 12.2). **[VIOLATES S0 I-7 — two
   of 44 route handlers validate against a schema; the rest do not.]**
+- **`zod` is used at nine sites** since Batch 26 — `app/api/admin/assignments/route.ts`
+  joined the eight below.
 - **`zod` is used at eight sites** since Batch 22 — the six approvals routes
   joined `app/api/admin/erase-person/route.ts`. `app/api/activity/route.ts`,
   which this file used to name as the first I-7 boundary, is DELETED (Batch 22
@@ -110,9 +115,14 @@ Note: dynamic-route `params` and `next/headers` `cookies()` are async (Promises)
 There is no unit-test framework configured. There are now TWO test surfaces, and both must
 be run after anything touching policies, auth, capabilities or tenancy:
 
-- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **35 assertions**, every one
-  with a positive control, seeded by `npm run seed:harness -- --apply`). Seed, then run ONCE:
+- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **40 assertions**, numbered
+  1–41 with 21 reserved, every one with a positive control, seeded by
+  `npm run seed:harness -- --apply`). Seed, then run ONCE:
   assertion 17 is single-use and reports VACUOUS on a second run without a re-seed.
+  **THE TWO TEST SURFACES REFUSE TO RUN CONCURRENTLY** (`scripts/harness-lock.ts`):
+  `check:caps` phase 3 writes `extra_caps` onto the same crew member assertion 30
+  asserts is empty, so a concurrent run produces a FALSE FAILURE pointing at
+  whatever you just changed. Run them one after the other.
 - `npm run check:caps` — the capability table vs the generated SQL vs the TS resolver, in
   three phases (`npm run gen:caps` prints the SQL to apply). It has been seen to FAIL on
   three real defects, which is the only reason its green tick means anything.
@@ -208,9 +218,24 @@ service-role access is an enumerated allowlist. Today the opposite is true:
   both `*_member_projects`, both `*_cap_grants`. ANDed onto tenancy, never substituted.
   **Self-read is never gated** — `resolveCaps()` depends on it, so gating it would make the
   capability layer unable to resolve the capability that would ungate it.
-- **`work.*` and `client.*` stay app-layer** and are filtered by PROJECT SCOPE, which is not
-  built: **a crew member still reads every project in the tenant.** Do not treat the
-  capability layer as finished.
+- **`work.*` and `client.*` stay app-layer** and are filtered by PROJECT SCOPE, **which is
+  now built** (Batch 26, 0057–0059): a crew member reads only the productions their
+  `scope_mode` and assignments admit. `org_project_visible()` appears in **14 policies**,
+  and since 0059 in **both USING and WITH CHECK** — INSERT is the one command USING cannot
+  reach, and until 0059 a scoped member could insert onto a production they could not see.
+- **A PROJECT ROLE CARRIES A CAPABILITY BASELINE** (S-R R-10, 0058).
+  `PROJECT_ROLE_BASELINE` in `lib/capabilities.ts` generates `project_role_baseline()`, and
+  `has_cap()` unions it for the caller's live, unexpired assignments. A NULL `project_role`
+  and an `observer` both grant nothing, and they are different facts: the first is the
+  absence of a decision, the second is a decision that somebody writes nothing.
+- **SEAT CLASS CHOOSES THE SCOPE, AT INVITE TIME, AS A WRITTEN VALUE.**
+  `SEAT_CLASS_SCOPE_MODE` says what to WRITE (`staff` → `all`, `contractor` → `selected`);
+  it must never be consulted to decide what an EXISTING row MEANS — that is what
+  `scope_mode` on the row is for, and inferring it would reintroduce B1's footgun one axis
+  up. Values are `staff`/`contractor` because both of the specs' words were already taken
+  (0056's header). **`lib/assignments.ts` is the ONE staffing write path**, on the user
+  client, and every assignment, role change, removal, seat-class and scope change writes an
+  `activity_log` row (R-8).
 
 Before changing a query or a table's schema, check the relevant policies in
 `supabase/migrations/`. When you add a *new* surface, follow AD-001 (user client + RLS), not
@@ -291,8 +316,8 @@ Walk each of these paths mentally before saving an edit to `proxy.ts`.
 - `app/api/` — route handlers for files, portal, admin, studio, rooms, cron,
   presence, push, and the Stripe webhook. This entry was off by one twice when
   it carried a number — count it (`find app/api -name route.ts | wc -l`),
-  don't quote it (56 at Batch 25's end — unchanged by that batch, which added
-  capability gates to existing handlers rather than new ones). `app/api/rooms*` (Batch 23) is the
+  don't quote it (**57** at Batch 26's end — `app/api/admin/assignments` is the
+  one this batch added). `app/api/rooms*` (Batch 23) is the
   S3-d surface: room list/create (channels, groups, broadcast, DMs), seating,
   and room-addressed messages — zod-validated, and the WRITES run on the user
   client so the 0046 policies are the authorization (AD-001 as written; the
@@ -385,8 +410,20 @@ into new code.
 
 `supabase/migrations/` holds one numbering scheme (`00NN`); the retired `2026*` scheme is fenced in `_archive/`:
 
-- `0000_baseline_schema.sql` … `0054_delegation_triggers.sql` — the current
-  source of truth, **all applied** (verified live 2026-09-12; 0048 included —
+- `0000_baseline_schema.sql` … `0059_scoping_gaps.sql` — the current
+  source of truth, **all applied** (verified live 2026-09-13). **0055–0059 are
+  Batch 26**, completing S-R's four axes: 0055 widens both grant tables' live
+  index to `(member_id, capability, mode)` so a grant and a deny can COEXIST
+  (S-R-A A-3 — R-3 was unreachable in the schema written for it); 0056
+  `organization_members.seat_class` (`staff`/`contractor` — NOT the specs'
+  `crew`/`collaborator`, both of which were already taken: `collaborator` is
+  S3-d MD-4's roster-less room seat and `crew` is a value of this table's own
+  `role`); 0057 `project_role` + `expires_at` on `organization_member_projects`
+  as an **ALTER** (the table already existed — S-R-A A-1) plus expiry in
+  `org_project_visible()`; 0058 `project_role_baseline()` and `has_cap()`
+  unioning it; 0059 the scoping predicate in **USING and WITH CHECK together**
+  across eleven policies — INSERT is the one command USING cannot reach, and it
+  was open. Earlier verification (2026-09-12; 0048 included —
   the "gated" claim was stale in both this file and HANDOFF §7). 0038–0041 are
   the approvals engine; 0043–0047 + 0049 are S3-d; **0050–0054 are the
   capability layer (S-R)**: the role vocabulary and
