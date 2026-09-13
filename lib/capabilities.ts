@@ -76,6 +76,63 @@ export const ORG_ROLES_ASSIGNABLE: readonly OrgRole[] = [
   'admin', 'producer', 'coordinator', 'finance', 'crew',
 ] as const
 
+// ── seat class: S-R §2's first axis, S3-b §4.1's column (0056) ───────────────
+
+/**
+ * THE FOURTH AXIS, and the one S-R §2 calls load-bearing for this product:
+ * "A permanent producer joining should see the studio. A freelance colorist
+ * joining should see the one job they were hired for. Those are opposite
+ * defaults, and today there is one default: everything."
+ *
+ * VALUES ARE 'staff' AND 'contractor', not S-R §2 / S3-b §4.1's
+ * `crew` / `collaborator`. Both spec words were already taken, in two different
+ * ways, and 0056's header carries the full argument:
+ *   · `collaborator` names S3-d MD-4's roster-LESS room seat — the opposite shape
+ *     from a property of a roster row;
+ *   · `crew` is already a value of `organization_members.role`, so
+ *     seat_class='crew' and role='crew' would mean unrelated things on one row.
+ */
+export type SeatClass = 'staff' | 'contractor'
+
+export const SEAT_CLASSES: readonly SeatClass[] = ['staff', 'contractor'] as const
+
+/**
+ * THE SCOPE A SEAT CLASS IMPLIES — and the point is that it is written to the
+ * row, never re-derived from it.
+ *
+ * S3-b §4.1 and S-R §2: the scoping default splits by class. This table says
+ * WHAT TO WRITE at invite time (item 4). It must never be consulted to decide
+ * what an EXISTING row means — that is what `scope_mode` on the row is for, and
+ * the difference is B1's whole lesson restated at S-R §10:
+ *
+ *   no rows + scope_mode 'all'      → EVERY project
+ *   no rows + scope_mode 'selected' → NO projects
+ *
+ * so an empty project set means opposite things depending on a value that must
+ * therefore be STATED. A reader that inferred scope from seat class would
+ * reintroduce the footgun one axis up: change somebody's seat class and their
+ * access silently changes with it, with no record of the decision.
+ *
+ * Typed as a total Record so adding a seat class without deciding its scope is a
+ * tsc error rather than an undefined that writes `undefined` to the column.
+ */
+export const SEAT_CLASS_SCOPE_MODE: Readonly<Record<SeatClass, 'all' | 'selected'>> = {
+  staff: 'all',
+  contractor: 'selected',
+} as const
+
+/** Invite-form copy. Says what the choice DOES, because the consequence is
+ *  invisible until the person signs in and sees an empty studio (S-R §8 S-3). */
+export const SEAT_CLASS_HELP: Readonly<Record<SeatClass, string>> = {
+  staff: 'Permanent team. Sees every production in the studio.',
+  contractor: 'Freelance. Sees only the productions they are assigned to — none until you assign one.',
+} as const
+
+export const SEAT_CLASS_LABEL: Readonly<Record<SeatClass, string>> = {
+  staff: 'Staff',
+  contractor: 'Contractor',
+} as const
+
 // ── the stored (coarse) vocabulary ───────────────────────────────────────────
 
 /**

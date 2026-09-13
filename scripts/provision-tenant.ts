@@ -291,6 +291,11 @@ async function main() {
       role: 'owner',
       roles: [],
       status: 'active',
+      // STATED, like every other crew row since Batch 26 item 4. A studio's
+      // founding owner is permanent staff by definition, and this is the one
+      // invite path where 'staff' rather than 'contractor' is the right default —
+      // the person being provisioned IS the studio.
+      seat_class: 'staff',
       scope_mode: 'all',
       accepted_at: new Date().toISOString(),
     }, orgId, 'user_id')

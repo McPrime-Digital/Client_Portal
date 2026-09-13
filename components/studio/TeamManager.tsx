@@ -4,7 +4,10 @@ import { useCallback, useEffect, useState } from 'react'
 import { UsersRound, UserPlus, ShieldCheck, Loader2, Pause, Play, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { ORG_GRANTABLE, ORG_ROLE_HELP } from '@/lib/permissions'
-import { ORG_ROLES_ASSIGNABLE, type OrgRole } from '@/lib/capabilities'
+import {
+  ORG_ROLES_ASSIGNABLE, SEAT_CLASSES, SEAT_CLASS_HELP, SEAT_CLASS_LABEL,
+  SEAT_CLASS_SCOPE_MODE, type OrgRole, type SeatClass,
+} from '@/lib/capabilities'
 import CapabilityGrants, { GrantSummary, type Grant } from '@/components/shared/CapabilityGrants'
 
 // THREE LOCAL COPIES OF THE VOCABULARY LIVED HERE and all three were stale: a
@@ -21,6 +24,7 @@ type Member = {
   roles?: string[]
   extra_caps?: string[]
   title?: string | null
+  seat_class?: SeatClass
   status: 'invited' | 'active' | 'paused' | 'revoked'
   invited_at: string
   accepted_at: string | null
@@ -45,7 +49,22 @@ export default function TeamManager() {
   const [openCaps, setOpenCaps] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [form, setForm] = useState({ name: '', email: '', role: 'member' })
+  // TWO DEFAULTS, AND THE FIRST ONE WAS A BUG (Batch 26 item 4).
+  //
+  // `role` defaulted to 'member' — the DEPRECATED alias S-R §3.1 retires. The
+  // route defaults to 'crew' and its comment says why ("a default is the surest
+  // way to keep a retired name alive"), but the route's default never fired,
+  // because this form always SENDS a value. So every invite from the studio
+  // created a `member`, and the route was right about the danger and wrong about
+  // where it lived. It is not in ASSIGNABLE either, so the select could not even
+  // display it — the field showed 'Admin' while the state said 'member'.
+  //
+  // `seatClass` defaults to 'contractor', matching the route: S1-P's archetypes
+  // are defined by a rotating freelance bench, so the freelance seat is the common
+  // case AND the one that grants less. Where those agree there is no trade.
+  const [form, setForm] = useState<{ name: string; email: string; role: OrgRole; seatClass: SeatClass }>(
+    { name: '', email: '', role: 'crew', seatClass: 'contractor' },
+  )
   const [sending, setSending] = useState(false)
 
   const load = useCallback(async () => {
@@ -87,7 +106,7 @@ export default function TeamManager() {
       if (!res.ok) setError(json.error ?? 'Invite failed.')
       else {
         setNotice(json.message)
-        setForm({ name: '', email: '', role: 'member' })
+        setForm({ name: '', email: '', role: 'crew', seatClass: 'contractor' })
         load()
       }
     } catch { setError('Invite failed.') }
@@ -219,7 +238,7 @@ export default function TeamManager() {
           <p className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
             <UserPlus size={15} className="text-primary" /> Invite a teammate
           </p>
-          <div className="grid gap-3 sm:grid-cols-[1fr_1.2fr_auto_auto]">
+          <div className="grid gap-3 sm:grid-cols-[1fr_1.2fr_auto_auto_auto]">
             <input
               required value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
@@ -234,11 +253,26 @@ export default function TeamManager() {
             />
             <select
               value={form.role}
-              onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
+              onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as OrgRole }))}
+              aria-label="Company role"
               className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
             >
               {ASSIGNABLE.map((r) => (
                 <option key={r} value={r}>{r[0].toUpperCase() + r.slice(1)}</option>
+              ))}
+            </select>
+            {/* THE SEAT CLASS — S-R §2's first axis, and the decision that was
+                missing rather than the mechanism. It chooses the scope_mode
+                WRITTEN to the row (SEAT_CLASS_SCOPE_MODE); nothing re-derives it
+                afterwards. */}
+            <select
+              value={form.seatClass}
+              onChange={(e) => setForm((f) => ({ ...f, seatClass: e.target.value as SeatClass }))}
+              aria-label="Seat class"
+              className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
+            >
+              {SEAT_CLASSES.map((sc) => (
+                <option key={sc} value={sc}>{SEAT_CLASS_LABEL[sc]}</option>
               ))}
             </select>
             <button
@@ -249,7 +283,19 @@ export default function TeamManager() {
               Invite
             </button>
           </div>
+          {/* BOTH consequences, in words, before the invite is sent.
+              The seat-class one has to be said out loud: choosing Contractor
+              writes scope_mode 'selected' with no assignments yet, so the person
+              signs in to an EMPTY studio until someone puts them on a production.
+              S-R §8 S-3 forbids an empty state that names what is missing — which
+              means the explaining has to happen HERE, to the admin who can act on
+              it, rather than there, to the person who cannot. */}
           <p className="mt-2 text-xs text-faint">{ROLE_HELP[form.role]}</p>
+          <p className="mt-1 text-xs text-faint">
+            <span className="font-semibold text-muted-foreground">{SEAT_CLASS_LABEL[form.seatClass]}</span>
+            {' · '}{SEAT_CLASS_HELP[form.seatClass]}
+            {' '}<span className="text-faint">(scope: {SEAT_CLASS_SCOPE_MODE[form.seatClass]})</span>
+          </p>
         </form>
       )}
 
@@ -286,6 +332,14 @@ export default function TeamManager() {
                       )
                     })}
                   </div>
+                )}
+                {/* The seat, beside the role. An admin looking at a roster needs to
+                    see WHY somebody reads one production rather than all of them,
+                    and the seat class is the first half of that answer. */}
+                {m.seat_class === 'contractor' && (
+                  <span className="ml-1.5 rounded-md border border-border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {SEAT_CLASS_LABEL.contractor}
+                  </span>
                 )}
                 {!canManage && (m.roles?.length ?? 0) > 0 && (
                   <p className="mt-0.5 text-[10px] text-faint">also: {m.roles!.join(', ')}</p>

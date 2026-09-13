@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { orgRolesOf, canManageOrg } from '@/lib/team'
 import { ORG_GRANTABLE } from '@/lib/permissions'
+import { SEAT_CLASSES, SEAT_CLASS_SCOPE_MODE, type SeatClass } from '@/lib/capabilities'
 import { can, resolveCaps } from '@/lib/capabilities.server'
 import { setMemberGrants, recordRoleChange, listMemberGrants, type DesiredGrant } from '@/lib/grants'
 import { rosterName } from '@/lib/team'
@@ -64,8 +65,12 @@ export async function GET() {
     .from('organization_members')
     .select(
       full
-        ? 'id, user_id, name, email, role, roles, extra_caps, title, status, invited_at, accepted_at, invited_by'
-        : 'id, name, role',
+        ? 'id, user_id, name, email, role, roles, extra_caps, title, seat_class, scope_mode, status, invited_at, accepted_at, invited_by'
+        // seat_class rides the NARROW payload too. It is not administrative
+        // disclosure — "staff or freelance" is visible in any room they are in —
+        // and the roster panel needs it to render the seat pill for a crew member
+        // who cannot read the full record.
+        : 'id, name, role, seat_class',
     )
     .eq('organization_id', userOrgId(user))
     .neq('status', 'revoked')
@@ -102,7 +107,7 @@ export async function POST(req: NextRequest) {
   if ('error' in gate) return gate.error
   const { user } = gate
 
-  const { name, email, role, roles: extraRoles } = await req.json().catch(() => ({}))
+  const { name, email, role, roles: extraRoles, seatClass } = await req.json().catch(() => ({}))
   const cleanEmail = String(email ?? '').trim().toLowerCase()
   // S-R §3.1's assignable roles plus the two deprecated aliases, which stay
   // ACCEPTED so the existing team UI (which still sends 'member') keeps working
@@ -123,6 +128,33 @@ export async function POST(req: NextRequest) {
   const memberRole = VALID.includes(role) ? role : 'crew'
   const additional = Array.isArray(extraRoles) ? extraRoles.filter((r) => VALID.includes(r) && r !== memberRole) : []
   if (!cleanEmail || !name?.trim()) return NextResponse.json({ error: 'Name and email are required.' }, { status: 400 })
+
+  // ── SEAT CLASS, AND THE SCOPE IT IMPLIES, BOTH STATED ON THE ROW ──────────
+  //
+  // THIS IS THE WHOLE REASON BATCH 26 EXISTS. S-R §2: "`scope_mode` exists from
+  // B1–B4 and the machinery works. What was never built is the thing that STATES
+  // the value at invite time… The mechanism is not missing. The decision is."
+  //
+  // Until this line, every crew member invited through the studio landed on the
+  // column default `scope_mode = 'all'` — not because anyone chose it, but because
+  // nothing chose anything. That is why a crew member reads every project in the
+  // tenant (HANDOFF §9's named residual exposure).
+  //
+  // THE DEFAULT IS `contractor`, WHICH GRANTS LESS. S1-P's O-1/O-2 archetypes are
+  // defined by a large rotating freelance bench, so the freelance seat is the
+  // COMMON case, and where the common case and the safe case agree there is no
+  // trade to make. An unrecognised value falls to `contractor` for the same
+  // reason: a body that arrives without a seat class must not be read as a
+  // request for studio-wide access.
+  //
+  // STATED, NEVER INFERRED (B1's lesson, S-R §10). `scope_mode` is written here
+  // from SEAT_CLASS_SCOPE_MODE and then never re-derived: an empty project set
+  // means EVERY project under 'all' and NO project under 'selected', so a reader
+  // that recomputed scope from seat class would silently change somebody's access
+  // the moment an admin corrected their seat class, with no record of the
+  // decision. The row is the record.
+  const seat: SeatClass = SEAT_CLASSES.includes(seatClass) ? seatClass : 'contractor'
+  const scopeMode = SEAT_CLASS_SCOPE_MODE[seat]
 
   // Per-tenant, not global. Unscoped this is the T-2 disclosure in a second
   // place: "already on the team" for an address that is actually on ANOTHER
@@ -181,6 +213,11 @@ export async function POST(req: NextRequest) {
       email: cleanEmail,
       role: memberRole,
       roles: additional,
+      // Both stated, in the same insert, by the decision above. Nothing here
+      // reads a column default — which is the difference between this row and
+      // every crew row that preceded it.
+      seat_class: seat,
+      scope_mode: scopeMode,
       status: 'invited',
       invited_by: user.id,
     })
