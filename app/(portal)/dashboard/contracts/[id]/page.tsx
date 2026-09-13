@@ -3,8 +3,10 @@ import { redirect } from 'next/navigation'
 import { ArrowLeft, ShieldCheck, Check } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { can } from '@/lib/capabilities.server'
-import { readContract, isSignersTurn, STATUS_LABEL, CONSENT_TEXT } from '@/lib/contracts'
+import { readContract, listFields, isSignersTurn, STATUS_LABEL, CONSENT_TEXT } from '@/lib/contracts'
+import { getSignedDownloadUrl } from '@/lib/r2'
 import SignContract from '@/components/portal/SignContract'
+import FieldFiller from '@/components/portal/FieldFiller'
 
 /**
  * Read it, then sign it.
@@ -32,6 +34,18 @@ export default async function PortalContractPage(
 
   const { contract, signers, events } = detail
   const me = signers.find((s) => s.user_id === user.id) ?? null
+
+  // The PDF path: what the signer actually signs, with their own boxes live.
+  const fields = await listFields(supabase, contract.id)
+  let pdfUrl: string | null = null
+  if (contract.source_file_id) {
+    const { data: f } = await supabase
+      .from('files').select('file_path, bucket').eq('id', contract.source_file_id).maybeSingle()
+    const row = f as { file_path: string; bucket: string } | null
+    if (row?.bucket === 'r2') {
+      pdfUrl = await getSignedDownloadUrl(row.file_path, 3600, { disposition: 'inline' })
+    }
+  }
 
   const alreadyConsented = !!me && events.some(
     (e) => e.event === 'consented' && e.signer_id === me.id
@@ -71,11 +85,26 @@ export default async function PortalContractPage(
         </p>
       )}
 
-      <section className="squircle mt-6 border border-border bg-card p-5">
-        <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-foreground">
-          {contract.body?.text ?? ''}
-        </pre>
-      </section>
+      {pdfUrl ? (
+        <section className="mt-6">
+          <FieldFiller
+            pdfUrl={pdfUrl}
+            mySignerId={me?.id ?? null}
+            endpoint="/api/portal/contracts"
+            identity={{ contractId: contract.id }}
+            fields={fields.map((f) => ({
+              id: f.id, signer_id: f.signer_id, kind: f.kind, page: f.page,
+              x: f.x, y: f.y, w: f.w, h: f.h, required: f.required, value: f.value,
+            }))}
+          />
+        </section>
+      ) : (
+        <section className="squircle mt-6 border border-border bg-card p-5">
+          <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-foreground">
+            {contract.body?.text ?? ''}
+          </pre>
+        </section>
+      )}
 
       <div className="mt-6">
         {me?.status === 'signed' ? (

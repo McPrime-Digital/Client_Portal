@@ -38,6 +38,12 @@ const Body = z.discriminatedUnion('action', [
   z.object({ action: z.literal('consent'), token: z.string().min(20).max(200) }),
   z.object({ action: z.literal('sign'), token: z.string().min(20).max(200) }),
   z.object({
+    action: z.literal('fill-field'),
+    token: z.string().min(20).max(200),
+    fieldId: z.uuid(),
+    value: z.string().max(500).nullable(),
+  }),
+  z.object({
     action: z.literal('decline'),
     token: z.string().min(20).max(200),
     reason: z.string().trim().max(1000).nullish(),
@@ -74,6 +80,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
+    if (b.action === 'fill-field') {
+      // Scoped to the signer the TOKEN resolved to, and to this contract. The
+      // caller supplies a field id and nothing else that could widen it.
+      const { data } = await supabaseAdmin.from('contract_fields')
+        .update({ value: b.value, filled_at: new Date().toISOString() })
+        .eq('id', b.fieldId)
+        .eq('contract_id', link.contract.id)
+        .eq('signer_id', link.signer.id)
+        .select('id')
+      if ((data ?? []).length === 0) {
+        return NextResponse.json({ error: 'That field is not yours.' }, { status: 403 })
+      }
+      return NextResponse.json({ ok: true })
+    }
+
     if (b.action === 'decline') {
       if (link.alreadySigned) {
         return NextResponse.json({ error: 'You have already signed this.' }, { status: 409 })
@@ -104,6 +125,20 @@ export async function POST(req: NextRequest) {
     }
     if (!link.consented) {
       return NextResponse.json({ error: 'Agree to sign electronically first.' }, { status: 409 })
+    }
+
+    // Same rule as the session path: a signature that leaves a required box
+    // empty is an incomplete document that looks complete.
+    const { data: myFields } = await supabaseAdmin
+      .from('contract_fields').select('value, required')
+      .eq('contract_id', link.contract.id).eq('signer_id', link.signer.id)
+    const outstanding = (myFields ?? []).filter(
+      (f) => (f as { required: boolean }).required && !(f as { value: string | null }).value
+    ).length
+    if (outstanding > 0) {
+      return NextResponse.json(
+        { error: 'Fill in every required box before signing.' }, { status: 409 }
+      )
     }
 
     // Signing ORDER still applies to a link signer. The whole roster is read to

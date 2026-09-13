@@ -8,7 +8,11 @@ import {
   createMeeting, readMeeting, startMeeting, endMeeting, cancelMeeting,
   joinMeeting, leaveMeeting, setSyncState,
 } from '@/lib/meetings'
-import { mintJoinToken, livekitConfigured, livekitUrl } from '@/lib/livekit'
+import {
+  mintJoinToken, livekitConfigured, livekitUrl,
+  startRoomRecording, stopRoomRecording, recordingConfigured,
+} from '@/lib/livekit'
+import { createAnnotation, normaliseStrokes } from '@/lib/annotations'
 import { recordUsage } from '@/lib/usage'
 import { captureError } from '@/lib/errors'
 
@@ -58,7 +62,24 @@ const Sync = z.object({
   fileId: z.uuid().nullish(),
 })
 
-const Body = z.discriminatedUnion('action', [Create, Join, Leave, End, Cancel, Sync])
+const RecordStart = z.object({ action: z.literal('record-start'), meetingId: z.uuid() })
+const RecordStop = z.object({ action: z.literal('record-stop'), meetingId: z.uuid() })
+
+const Annotate = z.object({
+  action: z.literal('annotate'),
+  meetingId: z.uuid(),
+  fileId: z.uuid(),
+  anchorMs: z.number().int().min(0).max(86_400_000),
+  // Validated and clamped in normaliseStrokes — a point at x=40 would render
+  // off-screen everywhere except the machine that drew it.
+  strokes: z.array(z.array(z.object({ x: z.number(), y: z.number() }))).max(200),
+  note: z.string().trim().max(2000).nullish(),
+  colour: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+})
+
+const Body = z.discriminatedUnion('action', [
+  Create, Join, Leave, End, Cancel, Sync, RecordStart, RecordStop, Annotate,
+])
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
@@ -147,6 +168,57 @@ export async function POST(req: NextRequest) {
         )
       }
       return NextResponse.json({ ok: true, seconds })
+    }
+
+    if (b.action === 'record-start') {
+      if (!recordingConfigured()) {
+        return NextResponse.json({
+          error: 'Recording needs LiveKit plus R2 credentials on this deployment.',
+        }, { status: 503 })
+      }
+      if (detail.meeting.recording_egress_id) {
+        return NextResponse.json({ error: 'Already recording.' }, { status: 409 })
+      }
+      // Egress writes to R2 itself, so the bytes never pass through here.
+      const path = `recordings/${detail.meeting.organization_id}/${b.meetingId}/${Date.now()}.mp4`
+      const started = await startRoomRecording(detail.meeting.provider_room_name, path)
+      if (!started) {
+        return NextResponse.json({ error: 'Could not start recording.' }, { status: 503 })
+      }
+      await supabase.from('meetings').update({
+        recording_egress_id: started.egressId,
+        recording_status: 'active',
+        recording_started_at: new Date().toISOString(),
+      }).eq('id', b.meetingId)
+      return NextResponse.json({ ok: true })
+    }
+
+    if (b.action === 'record-stop') {
+      const id = detail.meeting.recording_egress_id
+      if (!id) return NextResponse.json({ error: 'Not recording.' }, { status: 409 })
+      await stopRoomRecording(id)
+      // PROCESSING, not ready: Egress finishes the file after the room closes,
+      // and claiming otherwise would put a broken link in front of somebody.
+      await supabase.from('meetings')
+        .update({ recording_status: 'processing' }).eq('id', b.meetingId)
+      return NextResponse.json({ ok: true })
+    }
+
+    if (b.action === 'annotate') {
+      const annotation = await createAnnotation(supabase, {
+        organizationId: detail.meeting.organization_id,
+        fileId: b.fileId,
+        anchorMs: b.anchorMs,
+        strokes: normaliseStrokes(b.strokes),
+        note: b.note ?? null,
+        colour: b.colour,
+        meetingId: b.meetingId,
+      createdBy: user.id,
+      })
+      if (!annotation) {
+        return NextResponse.json({ error: 'That asset is not in your scope.' }, { status: 403 })
+      }
+      return NextResponse.json({ annotation })
     }
 
     if (b.action === 'end') {

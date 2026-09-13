@@ -1,5 +1,7 @@
 import 'server-only'
-import { AccessToken } from 'livekit-server-sdk'
+import {
+  AccessToken, EgressClient, EncodedFileType, EncodedFileOutput, S3Upload,
+} from 'livekit-server-sdk'
 
 /**
  * LiveKit access tokens — minted server-side, per participant, per room.
@@ -81,4 +83,97 @@ export async function mintJoinToken(g: JoinGrant): Promise<string | null> {
     canSubscribe: true,
   })
   return at.toJwt()
+}
+
+// ── recording ───────────────────────────────────────────────────────────────
+
+/**
+ * RECORDING GOES STRAIGHT FROM LIVEKIT TO R2, and that is the whole design.
+ *
+ * Egress composites the room server-side and uploads the finished MP4 to an
+ * S3-compatible bucket itself. The bytes never pass through this application —
+ * no serverless function holds a multi-gigabyte recording in memory, no
+ * 4.5MB Vercel body limit applies, and nothing has to be resumed if a deploy
+ * restarts mid-call. The same reasoning that made uploads direct-to-R2
+ * (AD-004-R) applies with more force to a two-hour dailies session.
+ *
+ * R2 IS S3-COMPATIBLE, which is why this works at all: Egress speaks S3, and R2
+ * answers. `region: 'auto'` is R2's requirement, not a placeholder.
+ *
+ * IT IS ASYNCHRONOUS AND THE SCHEMA ADMITS IT. Requesting a recording returns an
+ * egress id, not a file. 0080 stores that id and a status so the surface can say
+ * "processing" honestly rather than inferring readiness from whether an object
+ * has appeared.
+ */
+function egress(): EgressClient | null {
+  const c = creds()
+  if (!c) return null
+  // The HTTP API lives on the same host as the websocket endpoint.
+  const httpUrl = c.url.replace(/^ws/, 'http')
+  return new EgressClient(httpUrl, c.key, c.secret)
+}
+
+export function recordingConfigured(): boolean {
+  return (
+    livekitConfigured() &&
+    !!process.env.R2_ACCESS_KEY_ID &&
+    !!process.env.R2_SECRET_ACCESS_KEY &&
+    !!process.env.R2_BUCKET_NAME &&
+    !!process.env.R2_ACCOUNT_ID
+  )
+}
+
+export type StartedRecording = { egressId: string; path: string }
+
+export async function startRoomRecording(
+  roomName: string, path: string
+): Promise<StartedRecording | null> {
+  const client = egress()
+  if (!client || !recordingConfigured()) return null
+
+  // Protobuf message instances, not plain objects — the SDK's generated types
+  // reject a structural lookalike, which is the one place TypeScript saves you
+  // from a runtime shape error at a vendor boundary.
+  const output = new EncodedFileOutput({
+    fileType: EncodedFileType.MP4,
+    filepath: path,
+    output: {
+      case: 's3',
+      value: new S3Upload({
+        accessKey: process.env.R2_ACCESS_KEY_ID!,
+        secret: process.env.R2_SECRET_ACCESS_KEY!,
+        bucket: process.env.R2_BUCKET_NAME!,
+        // R2's requirement, not a placeholder.
+        region: 'auto',
+        endpoint: `https://${process.env.R2_ACCOUNT_ID!}.r2.cloudflarestorage.com`,
+        forcePathStyle: true,
+      }),
+    },
+  })
+
+  const info = await client.startRoomCompositeEgress(
+    roomName,
+    output,
+    {
+      // `speaker` follows whoever is talking, which is wrong for a review
+      // session: the thing being discussed is the picture, not the face of the
+      // person discussing it. A grid keeps every reaction in frame.
+      layout: 'grid',
+    }
+  )
+
+  return { egressId: info.egressId, path }
+}
+
+export async function stopRoomRecording(egressId: string): Promise<boolean> {
+  const client = egress()
+  if (!client) return false
+  try {
+    await client.stopEgress(egressId)
+    return true
+  } catch {
+    // Already stopped, or the room died first. Not an error worth failing a
+    // request over — the status column is corrected by the next poll.
+    return false
+  }
 }

@@ -1,8 +1,11 @@
 import { ShieldCheck, Check } from 'lucide-react'
 import { resolveSigningLink } from '@/lib/signingLinks'
 import { CONSENT_TEXT, STATUS_LABEL } from '@/lib/contracts'
+import { supabaseAdmin } from '@/lib/supabase/admin'
+import { getSignedDownloadUrl } from '@/lib/r2'
 import { tenantBrand } from '@/lib/tenantBrand'
 import SignViaLink from '@/components/portal/SignViaLink'
+import FieldFiller from '@/components/portal/FieldFiller'
 
 /**
  * THE ONLY PAGE IN THIS APPLICATION WITH NO SESSION.
@@ -48,6 +51,23 @@ export default async function SignPage(
   const brand = await tenantBrand(link.contract.organization_id)
   const { contract, signer } = link
 
+  // Same service-role justification as the rest of this path: there is no
+  // session, and everything read is reached only through the resolved token.
+  const { data: fieldRows } = await supabaseAdmin
+    .from('contract_fields')
+    .select('id, signer_id, kind, page, x, y, w, h, required, value')
+    .eq('contract_id', contract.id).order('page').order('y').limit(500)
+
+  let pdfUrl: string | null = null
+  if (contract.source_file_id) {
+    const { data: f } = await supabaseAdmin
+      .from('files').select('file_path, bucket').eq('id', contract.source_file_id).maybeSingle()
+    const row = f as { file_path: string; bucket: string } | null
+    if (row?.bucket === 'r2') {
+      pdfUrl = await getSignedDownloadUrl(row.file_path, 3600, { disposition: 'inline' })
+    }
+  }
+
   return (
     <div className="mx-auto max-w-2xl px-6 py-12">
       <p className="text-[12px] font-medium uppercase tracking-wider text-faint">
@@ -67,11 +87,23 @@ export default async function SignPage(
         </p>
       )}
 
-      <section className="squircle mt-6 border border-border bg-card p-5">
-        <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-foreground">
-          {contract.body?.text ?? ''}
-        </pre>
-      </section>
+      {pdfUrl ? (
+        <section className="mt-6">
+          <FieldFiller
+            pdfUrl={pdfUrl}
+            mySignerId={signer.id}
+            endpoint="/api/sign"
+            identity={{ token }}
+            fields={(fieldRows ?? []) as never}
+          />
+        </section>
+      ) : (
+        <section className="squircle mt-6 border border-border bg-card p-5">
+          <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-foreground">
+            {contract.body?.text ?? ''}
+          </pre>
+        </section>
+      )}
 
       <div className="mt-6">
         {link.alreadySigned ? (

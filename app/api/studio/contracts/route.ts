@@ -7,6 +7,7 @@ import { rosterName } from '@/lib/team'
 import {
   createContract, addSigner, sendContract, voidContract, actorFromHeaders,
 } from '@/lib/contracts'
+import { replaceFields, type FieldKind } from '@/lib/contracts'
 import { mintSigningLink, revokeSigningLinks } from '@/lib/signingLinks'
 import { appUrl } from '@/lib/appOrigin'
 import { captureError } from '@/lib/errors'
@@ -69,11 +70,36 @@ const MintLink = z.object({
 
 const RevokeLinks = z.object({ action: z.literal('revoke-links'), contractId: z.uuid() })
 
+/** Point the contract at a PDF already in the vault. Reusing a vault file rather
+ *  than inventing a second upload path means the scope rules that already govern
+ *  every file govern this one too. */
+const SetSource = z.object({
+  action: z.literal('set-source'),
+  contractId: z.uuid(),
+  fileId: z.uuid().nullable(),
+})
+
+const SaveFields = z.object({
+  action: z.literal('save-fields'),
+  contractId: z.uuid(),
+  // Fractions of the page, top-left origin. See lib/contracts.ts.
+  fields: z.array(z.object({
+    signerId: z.uuid().nullable(),
+    kind: z.enum(['signature', 'initials', 'date', 'text', 'checkbox']),
+    page: z.number().int().min(1).max(500),
+    x: z.number().min(0).max(1),
+    y: z.number().min(0).max(1),
+    w: z.number().min(0.01).max(1),
+    h: z.number().min(0.005).max(1),
+    required: z.boolean().optional(),
+  })).max(300),
+})
+
 const Send = z.object({ action: z.literal('send'), contractId: z.uuid() })
 const Void = z.object({ action: z.literal('void'), contractId: z.uuid() })
 
 const Body = z.discriminatedUnion('action', [
-  Create, AddSigner, Send, Void, MintLink, RevokeLinks,
+  Create, AddSigner, Send, Void, MintLink, RevokeLinks, SetSource, SaveFields,
 ])
 
 export async function POST(req: NextRequest) {
@@ -118,6 +144,50 @@ export async function POST(req: NextRequest) {
         )
       }
       return NextResponse.json({ id: contract.id })
+    }
+
+    if (b.action === 'set-source') {
+      if (b.fileId) {
+        // Read it on the USER client: a caller cannot attach a PDF they cannot
+        // already see, and RLS is what says so.
+        const { data: f } = await supabase
+          .from('files').select('id, mime_type').eq('id', b.fileId).maybeSingle()
+        const row = f as { mime_type: string | null } | null
+        if (!row) return NextResponse.json({ error: 'No such file.' }, { status: 404 })
+        if (row.mime_type !== 'application/pdf') {
+          return NextResponse.json(
+            { error: 'Fields can only be placed on a PDF.' }, { status: 400 }
+          )
+        }
+      }
+      const { data } = await supabase.from('contracts')
+        .update({ source_file_id: b.fileId })
+        .eq('id', b.contractId).eq('status', 'draft').select('id')
+      if ((data ?? []).length === 0) {
+        return NextResponse.json(
+          { error: 'Only a draft can change its document.' }, { status: 409 }
+        )
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    if (b.action === 'save-fields') {
+      const out = await replaceFields(supabase, b.contractId, b.fields.map((f) => ({
+        signer_id: f.signerId,
+        kind: f.kind as FieldKind,
+        page: f.page, x: f.x, y: f.y, w: f.w, h: f.h,
+        required: f.required ?? true,
+      })))
+      if (!out.ok) {
+        return NextResponse.json({
+          error: out.reason === 'NOT_DRAFT'
+            // Moving a field after sending changes the document without changing
+            // its hash, which is the one edit a signed record cannot survive.
+            ? 'Fields are fixed once a contract is sent.'
+            : 'No such contract.',
+        }, { status: out.reason === 'GONE' ? 404 : 409 })
+      }
+      return NextResponse.json({ ok: true })
     }
 
     if (b.action === 'mint-link') {

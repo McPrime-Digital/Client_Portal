@@ -7,6 +7,8 @@ import {
 } from '@livekit/components-react'
 import '@livekit/components-styles'
 import { Loader2 } from 'lucide-react'
+import AnnotationLayer from './AnnotationLayer'
+import MediaEnhancements from './MediaEnhancements'
 
 /**
  * THE ROOM.
@@ -84,10 +86,11 @@ const NUDGE_CEILING_MS = 250
 const MAX_RATE_TRIM = 0.03
 
 function ReviewPlayer({
-  meetingId, fileUrl, initial,
+  meetingId, fileUrl, fileId, initial,
 }: {
   meetingId: string
   fileUrl: string
+  fileId: string | null
   initial: { positionMs: number; playing: boolean } | null
 }) {
   const video = useRef<HTMLVideoElement | null>(null)
@@ -220,16 +223,19 @@ function ReviewPlayer({
 
   return (
     <div className="mb-3">
-      <video
-        ref={video}
-        src={fileUrl}
-        controls
-        playsInline
-        className="squircle w-full bg-black"
-        onPlay={(e) => broadcast(e.currentTarget.currentTime * 1000, true)}
-        onPause={(e) => broadcast(e.currentTarget.currentTime * 1000, false)}
-        onSeeked={(e) => broadcast(e.currentTarget.currentTime * 1000, !e.currentTarget.paused)}
-      />
+      <div className="squircle relative overflow-hidden bg-black">
+        <video
+          ref={video}
+          src={fileUrl}
+          controls
+          playsInline
+          className="block w-full bg-black"
+          onPlay={(e) => broadcast(e.currentTarget.currentTime * 1000, true)}
+          onPause={(e) => broadcast(e.currentTarget.currentTime * 1000, false)}
+          onSeeked={(e) => broadcast(e.currentTarget.currentTime * 1000, !e.currentTarget.paused)}
+        />
+        <AnnotationLayer meetingId={meetingId} fileId={fileId} video={video} />
+      </div>
       <p className="mt-1.5 text-[11px] text-faint">
         Everyone in this room is on the same frame. Play, pause and scrub are shared,
         and small drift is corrected by running fractionally slow rather than jumping.
@@ -239,11 +245,12 @@ function ReviewPlayer({
 }
 
 export default function MeetingRoom({
-  meetingId, mode, fileUrl,
+  meetingId, mode, fileUrl, fileId,
 }: {
   meetingId: string
   mode: 'call' | 'review_session'
   fileUrl: string | null
+  fileId: string | null
 }) {
   const router = useRouter()
   const [conn, setConn] = useState<
@@ -319,10 +326,12 @@ export default function MeetingRoom({
         <ReviewPlayer
           meetingId={meetingId}
           fileUrl={fileUrl}
+          fileId={fileId}
           initial={conn.sync ? { positionMs: conn.sync.position_ms, playing: conn.sync.playing } : null}
         />
       )}
-      <div style={{ height: mode === 'review_session' ? '48vh' : '72vh' }}>
+      <MediaEnhancements />
+      <div style={{ height: mode === 'review_session' ? '44vh' : '70vh' }}>
         <VideoConference />
       </div>
     </LiveKitRoom>

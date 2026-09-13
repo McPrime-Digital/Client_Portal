@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { isAdmin } from '@/lib/auth/role'
 import { requireOrgFeature } from '@/lib/studio/guard'
 import { readMeeting, MODE_LABEL, STATUS_LABEL, participantMinutes } from '@/lib/meetings'
-import { livekitConfigured } from '@/lib/livekit'
+import { livekitConfigured, recordingConfigured } from '@/lib/livekit'
 import { getSignedDownloadUrl } from '@/lib/r2'
 import MeetingRoom from '@/components/studio/MeetingRoom'
 import PickReviewFile from '@/components/studio/PickReviewFile'
@@ -92,6 +92,13 @@ export default async function MeetingPage(
             {participants.length > 0 && (
               <span>{participants.length} {participants.length === 1 ? 'person' : 'people'}</span>
             )}
+            {meeting.recording_status && (
+              <span className={meeting.recording_status === 'active' ? 'text-destructive' : undefined}>
+                {meeting.recording_status === 'active' ? 'Recording' :
+                 meeting.recording_status === 'processing' ? 'Recording processing' :
+                 meeting.recording_status === 'ready' ? 'Recording ready' : meeting.recording_status}
+              </span>
+            )}
             {minutes > 0 && (
               <span className="inline-flex items-center gap-1">
                 <Clock size={11} /> {minutes} participant-minute{minutes === 1 ? '' : 's'}
@@ -99,15 +106,34 @@ export default async function MeetingPage(
             )}
           </p>
         </div>
-        {!over && (
-          <ActionButton
-            endpoint="/api/studio/meetings"
-            body={{ action: 'end', meetingId: meeting.id }}
-            label="End meeting"
-            tone="danger"
-            confirm="End this for everybody?"
-          />
-        )}
+        <div className="flex flex-wrap items-center gap-4">
+          {!over && recordingConfigured() && (
+            meeting.recording_egress_id ? (
+              <ActionButton
+                endpoint="/api/studio/meetings"
+                body={{ action: 'record-stop', meetingId: meeting.id }}
+                label="Stop recording"
+                tone="danger"
+              />
+            ) : (
+              <ActionButton
+                endpoint="/api/studio/meetings"
+                body={{ action: 'record-start', meetingId: meeting.id }}
+                label="Record session"
+                confirm="Record this session? Everyone in the room should know."
+              />
+            )
+          )}
+          {!over && (
+            <ActionButton
+              endpoint="/api/studio/meetings"
+              body={{ action: 'end', meetingId: meeting.id }}
+              label="End meeting"
+              tone="danger"
+              confirm="End this for everybody?"
+            />
+          )}
+        </div>
       </div>
 
       {isReview && !over && (
@@ -131,7 +157,7 @@ export default async function MeetingPage(
           Video is not configured on this deployment, so there is no room to join yet.
         </p>
       ) : (
-        <MeetingRoom meetingId={meeting.id} mode={meeting.mode} fileUrl={fileUrl} />
+        <MeetingRoom meetingId={meeting.id} mode={meeting.mode} fileUrl={fileUrl} fileId={sync?.file_id ?? null} />
       )}
 
       {participants.length > 0 && (

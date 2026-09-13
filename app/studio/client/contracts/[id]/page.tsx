@@ -5,10 +5,13 @@ import { createClient } from '@/lib/supabase/server'
 import { isAdmin } from '@/lib/auth/role'
 import { requireOrgFeature } from '@/lib/studio/guard'
 import { capGate } from '@/lib/capabilities.server'
-import { readContract, STATUS_LABEL } from '@/lib/contracts'
+import { readContract, listFields, STATUS_LABEL } from '@/lib/contracts'
+import { getSignedDownloadUrl } from '@/lib/r2'
 import ActionButton from '@/components/studio/ActionButton'
 import AddSigner from '@/components/studio/AddSigner'
 import SigningLink from '@/components/studio/SigningLink'
+import PickContractPdf from '@/components/studio/PickContractPdf'
+import FieldPlacer from '@/components/studio/FieldPlacer'
 
 /**
  * ONE CONTRACT, and its certificate of completion.
@@ -65,6 +68,23 @@ export default async function ContractRecordPage(
   const isDraft = contract.status === 'draft'
   const signedCount = signers.filter((s) => s.status === 'signed').length
 
+  // The PDF path (S3-b §3.2's second option) and the fields placed on it.
+  const fields = await listFields(supabase, contract.id)
+  let pdfUrl: string | null = null
+  if (contract.source_file_id) {
+    const { data: f } = await supabase
+      .from('files').select('file_path, bucket').eq('id', contract.source_file_id).maybeSingle()
+    const row = f as { file_path: string; bucket: string } | null
+    if (row?.bucket === 'r2') {
+      pdfUrl = await getSignedDownloadUrl(row.file_path, 3600, { disposition: 'inline' })
+    }
+  }
+  const { data: pdfFiles } = isDraft
+    ? await supabase.from('files').select('id, file_name')
+        .is('deleted_at', null).eq('mime_type', 'application/pdf')
+        .order('created_at', { ascending: false }).limit(50)
+    : { data: [] }
+
   return (
     <div className="mx-auto max-w-3xl">
       <Link
@@ -92,11 +112,43 @@ export default async function ContractRecordPage(
         </p>
       )}
 
-      <section className="squircle mt-6 border border-border bg-card p-5">
-        <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-foreground">
-          {contract.body?.text ?? ''}
-        </pre>
-      </section>
+      {isDraft && (
+        <div className="squircle mt-6 border border-border bg-card px-4 py-3">
+          <PickContractPdf
+            contractId={contract.id}
+            current={contract.source_file_id}
+            files={(pdfFiles ?? []).map((f) => ({ id: f.id as string, name: f.file_name as string }))}
+          />
+        </div>
+      )}
+
+      {pdfUrl ? (
+        <section className="mt-4">
+          {isDraft ? (
+            <FieldPlacer
+              contractId={contract.id}
+              pdfUrl={pdfUrl}
+              signers={signers.map((s) => ({ id: s.id, name: s.name }))}
+              initial={fields.map((f) => ({
+                signerId: f.signer_id, kind: f.kind, page: f.page,
+                x: f.x, y: f.y, w: f.w, h: f.h, required: f.required,
+              }))}
+            />
+          ) : (
+            <p className="squircle border border-border bg-card px-4 py-3 text-[13px] text-muted-foreground">
+              {fields.length} field{fields.length === 1 ? '' : 's'} placed on this document.
+              They are fixed now it has been sent — moving one would change the
+              document without changing its hash.
+            </p>
+          )}
+        </section>
+      ) : (
+        <section className="squircle mt-6 border border-border bg-card p-5">
+          <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-foreground">
+            {contract.body?.text ?? ''}
+          </pre>
+        </section>
+      )}
 
       <section className="mt-8">
         <h2 className="mb-3 font-display text-sm font-semibold text-foreground">Signers</h2>

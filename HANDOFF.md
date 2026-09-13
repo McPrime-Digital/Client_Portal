@@ -324,7 +324,15 @@ The audited era, each batch with what it *found*:
 - **Branch:** `throughline` (main ⊆ throughline, fast-forward). Not renamed —
   S0-B §6 excludes the branch, and renaming it is a remote/CI change, not a
   code one.
-- **Migrations applied: 0000–0079, every one of them.** Verified live
+- **Migrations applied: 0000–0080, every one of them.** Verified live
+  2026-09-13. **0080** adds session recording (an Egress id plus a STATUS,
+  because Egress is asynchronous and "processing" is not "ready") and
+  `review_annotations` — a mark drawn on a frame during a live review, persisted
+  against the asset at a timecode. That table is the join the market does not
+  make: Frame.io has frame-accurate annotation and no conferencing, Evercast has
+  conferencing and annotations that die with the session.
+  The pre-0080 line, kept because it is what this file claimed:
+  **Migrations applied: 0000–0079, every one of them.** Verified live
   2026-09-13. **0076 REMOVES bookings** on the owner's decision (zero rows in
   all three tables, so nothing was lost); **0077** is the review session's shared
   playhead and the meeting→calendar projection; **0078** is single-use signing

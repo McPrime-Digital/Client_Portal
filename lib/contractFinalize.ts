@@ -1,8 +1,8 @@
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { readContract } from '@/lib/contracts'
-import { renderContractPdf, signContractPdf } from '@/lib/contractPdf'
-import { uploadToR2 } from '@/lib/r2'
+import { readContract, listFields } from '@/lib/contracts'
+import { renderContractPdf, signContractPdf, stampFieldsIntoPdf } from '@/lib/contractPdf'
+import { uploadToR2, getSignedDownloadUrl } from '@/lib/r2'
 
 /**
  * FINALISE — turn a fully-signed contract into a self-contained artifact.
@@ -50,8 +50,38 @@ export async function finalizeContract(
       return { ok: true, fileId: detail.contract.final_file_id, sealed: true }
     }
 
-    const rendered = await renderContractPdf(detail, studioName)
-    const seal = await signContractPdf(rendered)
+    // TWO PATHS, and which one is taken is decided by what was SENT.
+    //
+    //   · An uploaded PDF (source_file_id) is the document people signed, so the
+    //     filled fields are burned into THAT file. Re-rendering it from our own
+    //     template would produce a different document from the one presented,
+    //     which is the one thing a signed artifact must never do.
+    //   · A typed body is rendered from the text whose hash was fixed at send.
+    //
+    // Either way the certificate of completion is appended before sealing.
+    let base: Uint8Array
+    const sourceFileId = detail.contract.source_file_id
+    if (sourceFileId) {
+      const { data: src } = await db
+        .from('files').select('file_path, bucket').eq('id', sourceFileId).maybeSingle()
+      const row = src as { file_path: string; bucket: string } | null
+      if (!row || row.bucket !== 'r2') {
+        return { ok: false, reason: 'The source document is missing from the vault.' }
+      }
+      const url = await getSignedDownloadUrl(row.file_path, 300, { disposition: 'inline' })
+      const res = await fetch(url)
+      if (!res.ok) return { ok: false, reason: 'Could not read the source document.' }
+      const original = new Uint8Array(await res.arrayBuffer())
+
+      const fields = await listFields(db, contractId)
+      base = await stampFieldsIntoPdf(original, fields.map((f) => ({
+        kind: f.kind, page: f.page, x: f.x, y: f.y, w: f.w, h: f.h, value: f.value,
+      })))
+    } else {
+      base = await renderContractPdf(detail, studioName)
+    }
+
+    const seal = await signContractPdf(base)
 
     const safe = detail.contract.title.replace(/[^a-zA-Z0-9-_ ]/g, '').slice(0, 60).trim()
     const fileName = `${safe || 'contract'} (signed).pdf`

@@ -635,6 +635,75 @@ does NOT assert a person's likeness.
 - **Meeting recording.** v1.5, and a storage-curve decision before a schema one
   (`S3-b` §7 answer 3).
 
+### 6.8 Phase H — the rest of the named-and-skipped, and the market bar
+
+The owner's note: *"they don't seem too advanced at all for a future AI hybrid
+production OS."* Fair. §6.7 shipped the shapes; this is the substance.
+
+#### Where the market actually is (researched, not assumed)
+
+| Tool | Has | Lacks |
+|---|---|---|
+| Frame.io | frame-accurate drawn annotation, timecoded comments | **no live conferencing at all** |
+| SyncSketch | synced sessions, drawing, shot review | weaker on edit review |
+| Evercast | live conferencing + frame-to-frame annotation + colour-accurate 4K | annotations are a property of the SESSION and die with it |
+| Documenso / DocuSeal | PKCS#12 signed PDFs, audit trail, field placement | **AGPL-3.0** — unusable in a commercial SaaS; audit trail stays on their side |
+
+**The gap is the join.** Every one of these makes you choose between a durable
+mark and a live conversation, or between a signature and the rights it grants.
+
+#### What was built on top
+
+**Annotations that outlive the session** (`review_annotations`, 0080). Drawn
+live over the shared playhead, stored in NORMALISED coordinates at an
+`anchor_ms` — the same unit as `messages.anchor_value->>'ms'` (0038) and
+`meeting_sync_state.position_ms` (0077). Drawing PAUSES the shared playhead,
+which parks the whole room on the frame being argued about. Frame.io cannot do
+this because there is nobody in the room; Evercast cannot because the mark is
+session state.
+
+**Playback sync beyond Syncplay.** Its latency compensation is the right idea and
+the first draft here lacked it entirely. Added on top: a clock-offset handshake
+over the data channel (two browsers do not share a clock; Syncplay gets this
+from a central server it has and this does not), and rate nudging instead of
+seeking — drift under 250ms closes at 0.97×–1.03×, because the frame-sync
+literature is consistent that a few frames a second is imperceptible while a
+seek is not.
+
+**Recording through Egress, straight to R2.** The bytes never pass through the
+application — AD-004-R's argument applied to a two-hour dailies session. The
+schema stores an Egress id and a STATUS because Egress is asynchronous, so the
+surface says "processing" rather than inferring readiness from whether an object
+has appeared.
+
+**Blur and Krisp noise suppression as LOCAL track processors**, so the raw camera
+frame never leaves the machine and the recording gets the cleaned signal free.
+Both dynamically imported: they ship megabytes of WASM and most people never turn
+them on.
+
+**PDF field placement**, the DocuSign gesture that was missing. The source is a
+PDF ALREADY IN THE VAULT rather than a new upload path — uploads already have
+presigning, multipart, scope resolution and metering, and a contract-only
+uploader would be a fourth copy of all of it. Positions are fractions with a
+top-left origin so a field lands identically on a phone, a reference monitor and
+a 595pt page; PDF's bottom-left origin is converted in exactly one place.
+Fields freeze on send, because moving one afterwards changes the document
+without changing its hash.
+
+**A signature field is a typed name and there is no drawing canvas**, on purpose.
+What carries enforceability is intent, consent and association with the record —
+none of which is a picture. A squiggle would imply the drawing is the legally
+operative part, which is the misconception the whole design avoids.
+
+#### Still not built
+
+- **Colour-accurate streaming.** Evercast sells on it and it is a real gap for
+  grading sessions. It is a media-pipeline problem (10-bit, HDR, calibrated
+  transforms), not a schema one.
+- **Annotations surfaced outside the room.** The rows exist and carry their
+  anchor; a reviewer's timeline that lists them next to the approval record is
+  the obvious next surface.
+
 ### 6.2 Owner answers to §5
 
 1. Unbuilt stays "coming soon" — built surfaces lead, held-but-unbuilt sit behind
@@ -647,5 +716,5 @@ does NOT assert a person's likeness.
 
 ---
 
-*End of S-S. Phases A–G built, plus allowance (§6.1.1). Governs what a surface contains; `S-R` §8
+*End of S-S. Phases A–H built, plus allowance (§6.1.1). Governs what a surface contains; `S-R` §8
 governs what it may show to whom.*

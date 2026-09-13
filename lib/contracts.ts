@@ -310,7 +310,11 @@ export async function markViewed(
 
 export type SignOutcome =
   | { ok: true; completed: boolean }
-  | { ok: false; reason: 'NOT_YOUR_TURN' | 'NO_CONSENT' | 'ALREADY' | 'GONE' | 'NOT_SENT' }
+  | {
+      ok: false
+      reason: 'NOT_YOUR_TURN' | 'NO_CONSENT' | 'ALREADY' | 'GONE' | 'NOT_SENT'
+        | 'FIELDS_OUTSTANDING'
+    }
 
 /**
  * The signature itself.
@@ -339,6 +343,13 @@ export async function sign(
     (e) => e.event === 'consented' && e.signer_id === p.signerId
   )
   if (!consented) return { ok: false, reason: 'NO_CONSENT' }
+
+  // A signature that leaves a required box empty is an incomplete document that
+  // LOOKS complete — the one failure mode worse than refusing to sign.
+  const fields = await listFields(db, p.contractId)
+  if (outstandingFor(fields, p.signerId).length > 0) {
+    return { ok: false, reason: 'FIELDS_OUTSTANDING' }
+  }
 
   const now = new Date().toISOString()
   const { data } = await db.from('contract_signers')
@@ -406,3 +417,103 @@ export const STATUS_LABEL: Record<ContractStatus, string> = {
  *  text is recorded on the `consented` event. */
 export const CONSENT_TEXT =
   'I agree to sign this document electronically, and I understand that my electronic signature is as binding as a handwritten one. This is not legal advice — review the document, and take independent advice before signing if you are unsure.'
+
+// ── fields on a PDF (S3-b §3.3) ─────────────────────────────────────────────
+
+/**
+ * A box on a page that somebody has to fill.
+ *
+ * POSITIONS ARE FRACTIONS OF THE PAGE, not points. §3.3 says positions are
+ * stored "so the field renders identically on every device and in the final
+ * PDF" — which only holds if the unit survives a change of page size. A field at
+ * x=0.62 is 62% across whether it is rendered in a browser at 900px wide or
+ * stamped into a 595pt A4 page; a field at x=370 is correct on exactly one of
+ * those.
+ *
+ * The origin is TOP-LEFT, because that is what every browser and every canvas
+ * uses. PDF's own origin is bottom-left, and the conversion happens once, at the
+ * stamping edge, rather than at every call site that ever touches a coordinate.
+ */
+export type FieldKind = 'signature' | 'initials' | 'date' | 'text' | 'checkbox'
+
+export type ContractField = {
+  id: string
+  contract_id: string
+  signer_id: string | null
+  kind: FieldKind
+  page: number
+  x: number
+  y: number
+  w: number
+  h: number
+  required: boolean
+  value: string | null
+  filled_at: string | null
+}
+
+const FIELD_COLUMNS =
+  'id, contract_id, signer_id, kind, page, x, y, w, h, required, value, filled_at'
+
+export async function listFields(
+  db: SupabaseClient, contractId: string
+): Promise<ContractField[]> {
+  const { data, error } = await db
+    .from('contract_fields').select(FIELD_COLUMNS)
+    .eq('contract_id', contractId)
+    .order('page').order('y')
+    .limit(500)
+  if (error) throw new Error(`listFields: ${error.message}`)
+  return (data ?? []) as unknown as ContractField[]
+}
+
+/**
+ * Replace the whole field set for a contract.
+ *
+ * REPLACE, not merge — the placer shows every field at once, so a field the
+ * person deleted is absent from what it sends, and a merge would make deletion
+ * impossible. Same reasoning the availability editor used before it was removed.
+ *
+ * Refused once the contract has left draft: fields are part of what a signer was
+ * shown, so moving one after sending changes the document without changing its
+ * hash.
+ */
+export async function replaceFields(
+  db: SupabaseClient,
+  contractId: string,
+  fields: Omit<ContractField, 'id' | 'contract_id' | 'value' | 'filled_at'>[]
+): Promise<{ ok: boolean; reason?: 'NOT_DRAFT' | 'GONE' }> {
+  const { data: contract } = await db
+    .from('contracts').select('id, status').eq('id', contractId).maybeSingle()
+  if (!contract) return { ok: false, reason: 'GONE' }
+  if ((contract as { status: string }).status !== 'draft') {
+    return { ok: false, reason: 'NOT_DRAFT' }
+  }
+
+  const { error: delErr } = await db
+    .from('contract_fields').delete().eq('contract_id', contractId)
+  if (delErr) throw new Error(`replaceFields: ${delErr.message}`)
+
+  if (fields.length === 0) return { ok: true }
+
+  const { error } = await db.from('contract_fields').insert(
+    fields.map((f) => ({
+      contract_id: contractId,
+      signer_id: f.signer_id,
+      kind: f.kind,
+      page: f.page,
+      x: f.x, y: f.y, w: f.w, h: f.h,
+      required: f.required,
+    }))
+  )
+  if (error) throw new Error(`replaceFields: ${error.message}`)
+  return { ok: true }
+}
+
+/** Every required field belonging to this signer, answered. A signature that
+ *  leaves a required initials box empty is an incomplete document that looks
+ *  complete, which is the failure this check exists to prevent. */
+export function outstandingFor(fields: ContractField[], signerId: string): ContractField[] {
+  return fields.filter(
+    (f) => f.signer_id === signerId && f.required && (f.value === null || f.value === '')
+  )
+}

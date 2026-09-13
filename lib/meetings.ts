@@ -53,6 +53,10 @@ export type Meeting = {
   scheduled_for: string | null
   started_at: string | null
   ended_at: string | null
+  recording_egress_id: string | null
+  recording_status: 'requested' | 'active' | 'processing' | 'ready' | 'failed' | null
+  recording_file_id: string | null
+  recording_started_at: string | null
   created_by: string | null
   created_at: string
 }
@@ -77,7 +81,7 @@ export type SyncState = {
 }
 
 const COLUMNS =
-  'id, organization_id, room_id, project_id, client_id, mode, provider, provider_room_name, status, scheduled_for, started_at, ended_at, created_by, created_at'
+  'id, organization_id, room_id, project_id, client_id, mode, provider, provider_room_name, status, scheduled_for, started_at, ended_at, recording_egress_id, recording_status, recording_file_id, recording_started_at, created_by, created_at'
 
 /** A room name that is unique, opaque and NOT the meeting id.
  *

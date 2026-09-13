@@ -45,6 +45,12 @@ const Body = z.discriminatedUnion('action', [
   z.object({ action: z.literal('consent'), contractId: z.uuid() }),
   z.object({ action: z.literal('sign'), contractId: z.uuid() }),
   z.object({
+    action: z.literal('fill-field'),
+    contractId: z.uuid(),
+    fieldId: z.uuid(),
+    value: z.string().max(500).nullable(),
+  }),
+  z.object({
     action: z.literal('decline'),
     contractId: z.uuid(),
     reason: z.string().trim().max(1000).nullish(),
@@ -99,6 +105,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
+    if (b.action === 'fill-field') {
+      // The field must belong to THIS signer. 0068's
+      // contract_fields_signer_update enforces it on the row; this is the
+      // message, not the control.
+      const { data } = await supabase.from('contract_fields')
+        .update({ value: b.value, filled_at: new Date().toISOString() })
+        .eq('id', b.fieldId).eq('signer_id', me.id).select('id')
+      if ((data ?? []).length === 0) {
+        return NextResponse.json({ error: 'That field is not yours.' }, { status: 403 })
+      }
+      return NextResponse.json({ ok: true })
+    }
+
     if (b.action === 'sign') {
       const out = await sign(supabase, { contractId: b.contractId, signerId: me.id }, actor)
       if (!out.ok) {
@@ -108,6 +127,7 @@ export async function POST(req: NextRequest) {
           ALREADY: 'You have already signed this.',
           NOT_SENT: 'This document is not open for signature.',
           GONE: 'No such contract.',
+          FIELDS_OUTSTANDING: 'Fill in every required box before signing.',
         }[out.reason]
         return NextResponse.json({ error: message }, { status: out.reason === 'GONE' ? 404 : 409 })
       }

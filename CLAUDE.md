@@ -470,6 +470,33 @@ CASCADE. That guard closed a live defect — `activity_log.project_id` and
 `.client_id` were `ON DELETE CASCADE`, so deleting a client company destroyed
 its ledger silently. Both are `SET NULL` now.
 
+## Meetings — what makes it not a Zoom link
+
+`review_session` is the mode that justifies building rather than pasting a link.
+Three things sit on top of LiveKit's prebuilt `VideoConference`:
+
+- **A shared playhead with latency compensation.** Syncplay's insight (studied,
+  not copied — it is GPL): a play command arriving 180ms late lands 180ms behind.
+  On top of it, a **clock-offset handshake** over the data channel (two browsers
+  do not share a clock, and Syncplay gets this from a central server it has and
+  we do not), and **rate nudging instead of seeking** — drift under 250ms is
+  closed at 0.97×–1.03× because a few frames a second is imperceptible and a
+  seek is not.
+- **Annotations that outlive the session** (`review_annotations`, 0080). Frame.io
+  has frame-accurate drawing and no conferencing; Evercast has conferencing and
+  its annotations die with the call. Drawing pauses the shared playhead, which
+  parks the whole room on the frame being discussed, and the mark is stored in
+  NORMALISED coordinates at an `anchor_ms` — the same unit as
+  `messages.anchor_value->>'ms'` and `meeting_sync_state.position_ms`. One
+  representation of a timecode, forever.
+- **Recording via Egress straight to R2.** The bytes never pass through this
+  application, which is AD-004-R's argument applied to a two-hour dailies
+  session.
+
+`MediaEnhancements` adds background blur and Krisp noise suppression as LOCAL
+track processors — the raw camera frame never leaves the machine, and both are
+dynamically imported because they ship megabytes of WASM.
+
 ## The release → rights chain (0079) — the hybrid-film join
 
 `rights.talent_consent` used to be a boolean somebody typed. 0079 makes it a
@@ -538,7 +565,27 @@ the I-8 justification. Every failure returns one answer so a probe cannot
 enumerate, and the request has exactly one degree of freedom: the body carries a
 token and nothing else.
 
-NOT BUILT: drag-and-drop PDF field placement. `contract_fields` has the schema.
+**PDF FIELD PLACEMENT IS BUILT.** A contract can point at a PDF already in the
+vault (`source_file_id`) rather than a typed body — deliberately NOT a second
+upload path, because uploads already have presigning, multipart, scope
+resolution and metering, and a contract-only uploader would be a fourth copy of
+all of it. `FieldPlacer` drags boxes onto a pdf.js canvas; `FieldFiller` lets a
+signer fill only their own; `stampFieldsIntoPdf` burns the values in before the
+seal.
+
+Two rules that are not style preferences:
+- **Positions are FRACTIONS of the page with a top-left origin.** A field at
+  x=0.62 is 62% across on a phone, a 4K monitor and a 595pt A4 page. Pixels
+  would be correct exactly once. PDF's own origin is bottom-left, and the flip
+  happens in ONE place — `stampFieldsIntoPdf` — not at every call site.
+- **Fields are frozen once sent.** Moving one afterwards changes the document
+  without changing its hash, which is the single edit a signed record cannot
+  survive. `replaceFields` refuses it and the editor is draft-only.
+
+A signature field is a TYPED NAME, and there is no drawing canvas on purpose:
+what carries enforceability is intent, consent and association with the record,
+none of which is a picture. A squiggle would imply the drawing is the legally
+operative part.
 
 ## Provenance — the disclosure a studio can be asked for
 
@@ -563,8 +610,12 @@ generations. `lib/provenance.ts` is the one write path and
 
 `supabase/migrations/` holds one numbering scheme (`00NN`); the retired `2026*` scheme is fenced in `_archive/`:
 
-- `0000_baseline_schema.sql` … `0079_release_to_rights.sql` — the current
-  source of truth, **all applied** (verified live 2026-09-13).
+- `0000_baseline_schema.sql` … `0080_recordings_and_annotations.sql` — the
+  current source of truth, **all applied** (verified live 2026-09-13).
+  **0080** adds session recording (`meetings.recording_*` — an Egress id and a
+  STATUS, because Egress is asynchronous and "processing" is not "ready") and
+  `review_annotations`: a mark drawn on a frame during a live review, persisted
+  against the asset at a timecode.
   **0076 DROPS bookings** (`bookings`, `booking_types`, `availability_rules`) on
   the owner's decision — all three held zero rows, so nothing was lost. If a
   contended resource ever appears, the part worth bringing back is 0066's

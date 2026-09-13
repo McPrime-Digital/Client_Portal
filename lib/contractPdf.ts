@@ -227,3 +227,94 @@ export async function signContractPdf(bytes: Uint8Array): Promise<SealResult> {
     }
   }
 }
+
+// ── stamping placed fields into an uploaded PDF ─────────────────────────────
+
+export type StampField = {
+  kind: 'signature' | 'initials' | 'date' | 'text' | 'checkbox'
+  page: number
+  x: number
+  y: number
+  w: number
+  h: number
+  value: string | null
+}
+
+/**
+ * Burn the filled fields into the document that was actually presented.
+ *
+ * ── THE COORDINATE FLIP HAPPENS EXACTLY HERE ─────────────────────────────
+ *
+ * Fields are stored as fractions with a TOP-LEFT origin, because that is what
+ * browsers and canvases use and what the placer measured. PDF's origin is
+ * BOTTOM-LEFT. Converting once, at this edge, is the difference between one
+ * subtraction and a bug that puts every signature upside-down on the page for
+ * whoever forgets it next.
+ *
+ * ── THE STAMP IS NOT THE SIGNATURE ───────────────────────────────────────
+ *
+ * What makes this enforceable is the PAdES seal applied afterwards, the consent
+ * event recorded before it, and the content hash fixed at send. The drawn text
+ * is how a human reads the page. Treating the glyphs as the legally operative
+ * part is the mistake a signature-canvas UI encourages, and it is why there
+ * isn't one.
+ */
+export async function stampFieldsIntoPdf(
+  source: Uint8Array,
+  fields: StampField[]
+): Promise<Uint8Array> {
+  const pdf = await PDFDocument.load(source)
+  const font = await pdf.embedFont(StandardFonts.Helvetica)
+  const pages = pdf.getPages()
+
+  for (const f of fields) {
+    const page = pages[f.page - 1]
+    if (!page) continue
+    const { width, height } = page.getSize()
+
+    const boxW = f.w * width
+    const boxH = f.h * height
+    const left = f.x * width
+    // TOP-LEFT fraction → PDF's bottom-left origin. The one flip.
+    const bottom = height - (f.y * height) - boxH
+
+    if (f.kind === 'checkbox') {
+      page.drawRectangle({
+        x: left, y: bottom, width: boxH, height: boxH,
+        borderColor: rgb(0.2, 0.2, 0.25), borderWidth: 1,
+      })
+      if (f.value === 'true') {
+        page.drawText('X', {
+          x: left + boxH * 0.22, y: bottom + boxH * 0.18,
+          size: boxH * 0.7, font, color: rgb(0.05, 0.05, 0.08),
+        })
+      }
+      continue
+    }
+
+    const text = f.value ?? ''
+    if (!text) continue
+
+    // Fit to the box rather than clipping: a name that overflows its field is a
+    // document that looks wrong in exactly the place people look first.
+    let size = Math.min(boxH * 0.62, 18)
+    while (size > 5 && font.widthOfTextAtSize(text, size) > boxW * 0.96) size -= 0.5
+
+    page.drawText(text, {
+      x: left + 2,
+      y: bottom + (boxH - size) / 2 + size * 0.12,
+      size, font, color: rgb(0.05, 0.05, 0.08),
+    })
+
+    // A signature or initials gets a rule under it, the way a paper form does.
+    if (f.kind === 'signature' || f.kind === 'initials') {
+      page.drawLine({
+        start: { x: left, y: bottom + 1 },
+        end: { x: left + boxW, y: bottom + 1 },
+        thickness: 0.75, color: rgb(0.45, 0.45, 0.5),
+      })
+    }
+  }
+
+  return pdf.save()
+}
