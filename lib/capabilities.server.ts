@@ -6,8 +6,9 @@ import { createClient } from '@/lib/supabase/server'
 import { userOrgId } from '@/lib/auth/role'
 import {
   CAP_RESOLUTION, ORG_ROLE_BASELINE, CLIENT_ROLE_BASELINE,
-  LEGACY_ORG_CAP, LEGACY_CLIENT_CAP, OWNER_ONLY, UNMAPPED,
+  LEGACY_ORG_CAP, LEGACY_CLIENT_CAP, OWNER_ONLY, UNMAPPED, PROJECT_ROLE_BASELINE,
   type Capability, type OrgRole, type ClientRole, type OrgCap, type ClientCap,
+  type ProjectRole,
 } from '@/lib/capabilities'
 // The ACTION→capability maps. lib/permissions.ts is client-safe and holds no
 // authority since item 8; importing it here is a lookup, not a second oracle.
@@ -101,6 +102,17 @@ export type ResolvedCaps = {
   /** Step 7's filter, not a capability. null = all projects (the footgun:
    *  no rows means ALL, which is why scope_mode states it — S-R §10). */
   projectIds: string[] | null
+  /** What this person IS on each production they are assigned to, live and
+   *  unexpired. Empty crew-side when they hold no assignments, and always empty
+   *  portal-side (S-R §14 q4: no client-side project roles in v1).
+   *
+   *  NOTHING AUTHORIZES ON THIS YET. It is exposed because the flat `caps` set
+   *  cannot express per-project precision — a colorist on A and an observer on B
+   *  holds work.suite on both, which is S-R §5's own model (one capability set,
+   *  then a row filter) and the cost R-10 names in its own text. A surface that
+   *  wants the exact answer can ask here; making the MODEL exact is a different
+   *  shape from §5 and a decision rather than a cleanup. */
+  projectRoles: ReadonlyMap<string, ProjectRole | null>
   /** True only for an active roster row whose role is owner. platform.* keys
    *  are owner-only and ungrantable (G-2), so they are answered from this and
    *  never from the cap set. */
@@ -109,7 +121,7 @@ export type ResolvedCaps = {
 
 const DENIED: ResolvedCaps = {
   side: null, roles: [], clientRole: null, caps: new Set<string>(),
-  memberId: null, projectIds: null, isOwner: false,
+  memberId: null, projectIds: null, projectRoles: new Map(), isOwner: false,
 }
 
 /** Accept a legacy snake_case value on read for one release (0051's alias
@@ -155,19 +167,56 @@ export const resolveCaps = cache(async (
     // DENY LAST.
     for (const g of live) if (g.mode === 'deny') caps.delete(normalizeOrgCap(g.capability))
 
-    let projectIds: string[] | null = null
-    if (om.scope_mode === 'selected') {
-      // G-5 (0057): an expired assignment does not resolve, and nothing is
-      // deleted. Mirrors org_project_visible()'s `expires_at is null or > now()`
-      // — the third copy of that predicate, and the reason 0057's header
-      // enumerates all three readers rather than trusting a future grep.
-      const { data: scoped } = await sb
-        .from('organization_member_projects').select('project_id').eq('member_id', om.id)
-        .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
-      projectIds = (scoped ?? []).map((r) => r.project_id as string)
+    // ── ASSIGNMENTS: the scope FILTER and the project-role BASELINES ────────
+    //
+    // Read unconditionally now, not only when scope_mode is 'selected'. Those are
+    // two different questions and conflating them was the bug waiting to happen:
+    // scope_mode decides which PROJECTS this person's rows are filtered to (step
+    // 7, R-5a), while project_role decides which CAPABILITIES they hold (step 4,
+    // R-10). A staff member on scope_mode 'all' can still be a `colorist` on one
+    // production and must still get work.suite from it — under the old
+    // conditional read their assignment rows were never even fetched.
+    //
+    // G-5 (0057): an expired assignment resolves to nothing, and nothing is
+    // deleted. Mirrors org_project_visible()'s `expires_at is null or > now()`
+    // and has_cap()'s — the same predicate in the three places 0057's header
+    // enumerates, rather than trusting a future grep.
+    const { data: assigned } = await sb
+      .from('organization_member_projects')
+      .select('project_id, project_role')
+      .eq('member_id', om.id)
+      .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
+    const assignments = (assigned ?? []) as { project_id: string; project_role: string | null }[]
+
+    // R-10 (0058) — a project role carries a capability baseline. Added HERE,
+    // beside extra_caps and before the grant/deny loops above would have run, so
+    // that DENY still subtracts last and still beats a project-role baseline
+    // exactly as it beats a company-role one (R-3).
+    //
+    // A null project_role and an `observer` both contribute nothing: the first is
+    // the absence of a decision (0057), the second is a decision that somebody
+    // writes nothing (S-R §3.2). They agree on the answer and differ on the
+    // record.
+    //
+    // This MIRRORS public.has_cap()'s project-role union, and the mirror is the
+    // liability this file's header already describes — kept honest by
+    // `npm run check:caps` phase 2, which is the reason 0058 exists in SQL at all.
+    const projectCaps = new Set<string>()
+    for (const a of assignments) {
+      for (const c of PROJECT_ROLE_BASELINE[a.project_role as ProjectRole] ?? []) projectCaps.add(c)
     }
+    for (const c of projectCaps) caps.add(c)
+    // Re-apply the denials, because the project-role union above ran after them.
+    // Cheaper and clearer than reordering the whole block, and it keeps R-3's
+    // "deny subtracts last" literally true rather than approximately.
+    for (const g of live) if (g.mode === 'deny') caps.delete(normalizeOrgCap(g.capability))
+
+    const projectIds: string[] | null =
+      om.scope_mode === 'selected' ? assignments.map((a) => a.project_id) : null
+
     return {
       side: 'crew', roles, clientRole: null, caps, memberId: om.id, projectIds,
+      projectRoles: new Map(assignments.map((a) => [a.project_id, a.project_role as ProjectRole | null])),
       isOwner: roles.includes('owner'),
     }
   }
@@ -205,6 +254,10 @@ export const resolveCaps = cache(async (
   }
   return {
     side: 'portal', roles: [], clientRole, caps, memberId: cm.id, projectIds,
+    // Always empty portal-side: S-R §14 q4 recommends no client-side project
+    // roles for v1 ("a client company's people are not staffed per production the
+    // way a crew is"), and client_member_projects has no project_role column.
+    projectRoles: new Map(),
     isOwner: clientRole === 'owner',
   }
 })

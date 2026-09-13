@@ -14,7 +14,8 @@
  */
 import { readFileSync } from 'fs'
 import {
-  ORG_ROLE_BASELINE, CLIENT_ROLE_BASELINE, ORG_CAPS_ALL, CLIENT_CAPS_ALL,
+  ORG_ROLE_BASELINE, CLIENT_ROLE_BASELINE, PROJECT_ROLE_BASELINE,
+  ORG_CAPS_ALL, CLIENT_CAPS_ALL, type ProjectRole,
   type OrgRole, type ClientRole,
 } from '../lib/capabilities'
 
@@ -59,6 +60,44 @@ as $fn$
   -- GENERATED from lib/capabilities.ts CLIENT_ROLE_BASELINE. See above.
   -- NOTE: 'member' here is a LIVE S-R §8 role, unlike organization_members.role
   -- 'member' which 0050 deprecates. Same word, opposite fates, two tables.
+  select case p_role
+${arms}
+    else array[]::text[]
+  end
+$fn$;`
+}
+
+/**
+ * `project_role_baseline(text) → text[]`, generated from PROJECT_ROLE_BASELINE.
+ *
+ * WHY THIS EXISTS IN SQL AT ALL, when no policy reads it yet: the PARITY CHECK
+ * demands it. Phase 2 signs in as each persona and asserts that resolveCaps()
+ * and has_cap() agree on every coarse cap. Item 5 teaches resolveCaps() to union
+ * project-role baselines (S-R §5 step 4), so the moment a persona holds a project
+ * role — item 9 seeds exactly that — the two sides would disagree and phase 2
+ * would fail. Generating the function and teaching has_cap() to use it is what
+ * keeps "one resolver" true rather than aspirational.
+ *
+ * That is a stronger reason than the house style, and it is worth stating,
+ * because a generated function with no consumer is `is_admin()` — which has had
+ * zero database consumers since 0021 and survives only as a trap.
+ */
+export function projectRoleBaselineSql(): string {
+  const arms = (Object.keys(PROJECT_ROLE_BASELINE) as ProjectRole[])
+    .map((r) => `    when ${lit(r)} then array[${PROJECT_ROLE_BASELINE[r].map(lit).join(', ')}]::text[]`)
+    .join('\n')
+  return `create or replace function public.project_role_baseline(p_role text)
+returns text[]
+language sql
+immutable
+set search_path = public
+as $fn$
+  -- GENERATED from lib/capabilities.ts PROJECT_ROLE_BASELINE. See role_baseline
+  -- above for the drift rule. An unknown role — and a NULL project_role, which
+  -- 0057 admits and which means "on the production, no stated role" — both return
+  -- the EMPTY array. \`observer\` also returns empty, deliberately: S-R §3.2 has it
+  -- exist so somebody can be put on a production read-only without inventing a
+  -- denial for every write capability.
   select case p_role
 ${arms}
     else array[]::text[]
@@ -115,6 +154,7 @@ async function check(): Promise<number> {
   for (const [fn, table] of [
     ['role_baseline', ORG_ROLE_BASELINE],
     ['client_role_baseline', CLIENT_ROLE_BASELINE],
+    ['project_role_baseline', PROJECT_ROLE_BASELINE],
   ] as const) {
     for (const role of Object.keys(table)) {
       const rows = await query(`select public.${fn}(${lit(role)}) as caps;`)
@@ -157,7 +197,10 @@ async function check(): Promise<number> {
   // Every cap a baseline names must be a declared coarse cap. A typo in a
   // baseline is otherwise a capability nothing can ever grant.
   const declared = new Set<string>([...ORG_CAPS_ALL, ...CLIENT_CAPS_ALL])
-  for (const [label, table] of [['org', ORG_ROLE_BASELINE], ['client', CLIENT_ROLE_BASELINE]] as const) {
+  for (const [label, table] of [
+    ['org', ORG_ROLE_BASELINE], ['client', CLIENT_ROLE_BASELINE],
+    ['project', PROJECT_ROLE_BASELINE],
+  ] as const) {
     for (const [role, caps] of Object.entries(table as Record<string, readonly string[]>)) {
       for (const c of caps) {
         if (!declared.has(c)) { console.error(`✗ ${label} baseline ${role} names undeclared cap ${c}`); bad++ }
@@ -304,10 +347,12 @@ async function main() {
     console.log()
     console.log(clientBaselineSql())
     console.log()
+    console.log(projectRoleBaselineSql())
+    console.log()
     console.log(validCapSql())
     return
   }
-  console.log('1/3 · live role_baseline()/client_role_baseline() vs lib/capabilities.ts …')
+  console.log('1/3 · live role_baseline()/client_role_baseline()/project_role_baseline() vs lib/capabilities.ts …')
   let bad = await check()
   const env = loadEnv()
   console.log('\n2/3 · TS resolveCaps() vs SQL has_cap(), as each persona …')

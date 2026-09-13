@@ -218,6 +218,134 @@ export const ORG_ROLE_BASELINE: Readonly<Record<OrgRole, readonly OrgCap[]>> = {
   member: ['work.projects', 'work.suite'],
 } as const
 
+// ── project roles: S-R §3.2's axis, R-10's baselines (0057, 0058) ───────────
+
+/**
+ * WHAT SOMEBODY IS ON A PRODUCTION, as opposed to that they are on it.
+ * `organization_member_projects.project_role`, CHECK-constrained by 0057 to
+ * exactly this list. Film's thirteen and agency's three, one vocabulary.
+ *
+ * S-R §3.2 keeps both sets because `S1-P` targets O-2 (creative agencies) as a
+ * FIRST-CLASS archetype rather than a variant of O-1: "a person invited into a
+ * tool that calls them the wrong thing stops trusting the tool." An agency's
+ * `account_director` resolves to the same baseline as a `producer`; the words
+ * differ because the studios do.
+ */
+export type ProjectRole =
+  // film
+  | 'director' | 'producer' | 'line_producer' | 'writer' | 'coordinator'
+  | 'post_supervisor' | 'editor' | 'assistant_editor' | 'colorist' | 'sound'
+  | 'vfx' | 'motion' | 'observer'
+  // agency
+  | 'account_director' | 'creative_director' | 'strategist'
+
+export const PROJECT_ROLES: readonly ProjectRole[] = [
+  'director', 'producer', 'line_producer', 'writer', 'coordinator',
+  'post_supervisor', 'editor', 'assistant_editor', 'colorist', 'sound',
+  'vfx', 'motion', 'observer',
+  'account_director', 'creative_director', 'strategist',
+] as const
+
+/**
+ * R-10 — A PROJECT ROLE CARRIES A CAPABILITY BASELINE, overridable per person.
+ * Approved by the owner 2026-09-12.
+ *
+ * "A `colorist` on a production gets the Suite surfaces for colour without an
+ * admin granting four keys by hand; an `observer` gets read-only without four
+ * denials. The alternative is administratively hopeless at bench scale, and what
+ * a studio does instead is make everyone an admin — which is the state this
+ * document exists to fix."
+ *
+ * ── IT RESOLVES AGAINST THE COARSE VOCABULARY (S-R-A A-4) ──────────────────
+ * Not §4's 38 fine keys. Those are the vocabulary of QUESTIONS; these 8 are what
+ * is STORED and GRANTED. A baseline naming fine keys would be a second stored
+ * vocabulary, which is precisely the re-granulation A-4 refused.
+ *
+ * ── observer IS AN EMPTY ARRAY, AND THAT IS THE WHOLE POINT ────────────────
+ * S-R §3.2: observer "exists so there is a way to put someone on a production
+ * read-only without inventing a denial for every write capability." It grants
+ * NOTHING. Read-only then falls out of the row policies — an assigned project is
+ * visible through org_project_visible(), and every WRITE needs a capability the
+ * observer does not hold.
+ *
+ * NOT THE SAME AS A NULL project_role, which 0057's comment insists on: null is
+ * the ABSENCE of a decision and also resolves to nothing. They agree on the
+ * answer and differ on the record, and only one of them is something an admin
+ * chose.
+ *
+ * ── THE KNOWN IMPRECISION, RECORDED RATHER THAN HIDDEN ─────────────────────
+ * S-R §5 produces ONE capability set (steps 4-6) and then filters ROWS (step 7,
+ * R-5a: "Holding work.file.read says you may read files. Your project scope says
+ * WHICH"). So these baselines UNION into the flat set. A person who is a
+ * `colorist` on production A and an `observer` on production B therefore holds
+ * work.suite on both — the model has one capability set and a row filter, not a
+ * capability set per row.
+ *
+ * That is the spec's model and R-10 names the cost in its own text: "the cost is
+ * that capabilities resolve from two places… Recorded as a cost, not waved away."
+ * Making it exact needs per-project capability resolution, which is a different
+ * shape from §5 and a decision rather than a cleanup. `resolveCaps()` exposes
+ * `projectRoles` so a surface that wants precision can ask; nothing authorizes on
+ * it yet.
+ */
+export const PROJECT_ROLE_BASELINE: Readonly<Record<ProjectRole, readonly OrgCap[]>> = {
+  // Runs the production: the work, the client relationship, the terms of an
+  // approval. Mirrors the `producer` COMPANY role minus the company's books —
+  // S-R §3.1 gives a producer "budget on their own productions, not the
+  // company's books", and money.costs is a studio-wide cap, so it is not here.
+  director: ['work.projects', 'work.suite', 'record.approval_policy'],
+  producer: ['work.projects', 'work.suite', 'record.approval_policy'],
+  line_producer: ['work.projects', 'record.approval_policy'],
+  // Agency equivalents (S-R §3.2): account_director ≡ producer,
+  // creative_director ≡ director.
+  account_director: ['work.projects', 'work.suite', 'record.approval_policy'],
+  creative_director: ['work.projects', 'work.suite', 'record.approval_policy'],
+
+  // Coordinates it: schedule, tasks, files, client messaging. No Suite — S-R
+  // §3.1's coordinator "puts the craft floor elsewhere", and one who needs a
+  // Suite seat gets it as a grant.
+  coordinator: ['work.projects'],
+  post_supervisor: ['work.projects', 'work.suite'],
+
+  // The craft floor. work.suite is the craft tool; work.projects is the files,
+  // tasks and room of the job they are on.
+  writer: ['work.projects', 'work.suite'],
+  editor: ['work.projects', 'work.suite'],
+  assistant_editor: ['work.projects', 'work.suite'],
+  colorist: ['work.projects', 'work.suite'],
+  sound: ['work.projects', 'work.suite'],
+  vfx: ['work.projects', 'work.suite'],
+  motion: ['work.projects', 'work.suite'],
+
+  // Reads and comments, writes nothing.
+  observer: [],
+  // S-R §3.2: "a `strategist` to observer plus comment." Commenting rides
+  // work.projects today (A-8 records that work.projects is by a distance the
+  // broadest coarse cap, and messaging is inside it), so a strategist who may
+  // comment necessarily holds more than an observer. Mapped to the truth rather
+  // than to the sentence, and named as the place the first split lands.
+  strategist: ['work.projects'],
+} as const
+
+export const PROJECT_ROLE_LABEL: Readonly<Record<ProjectRole, string>> = {
+  director: 'Director',
+  producer: 'Producer',
+  line_producer: 'Line Producer',
+  writer: 'Writer',
+  coordinator: 'Coordinator',
+  post_supervisor: 'Post Supervisor',
+  editor: 'Editor',
+  assistant_editor: 'Assistant Editor',
+  colorist: 'Colorist',
+  sound: 'Sound',
+  vfx: 'VFX',
+  motion: 'Motion',
+  observer: 'Observer',
+  account_director: 'Account Director',
+  creative_director: 'Creative Director',
+  strategist: 'Strategist',
+} as const
+
 export const CLIENT_ROLE_BASELINE: Readonly<Record<ClientRole, readonly ClientCap[]>> = {
   owner: ['portal.view', 'portal.message', 'portal.upload', 'portal.approve',
           'portal.invoices', 'portal.team'],

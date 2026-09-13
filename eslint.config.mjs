@@ -141,6 +141,14 @@ const NO_BASELINE_AS_ORACLE = [
     message:
       'Do not resolve capability from a role baseline — it cannot see a DENIAL (extra_caps carries grants only). Ask can()/hasCap() from @/lib/capabilities.server, the one resolver (S-R §5, R-3).',
   },
+  {
+    // Added with R-10's baselines (Batch 26 item 5). Same hazard, one axis over:
+    // a project role grants capabilities too, so reading this table to answer a
+    // permission question skips the denial subtraction in exactly the same way.
+    selector: "ImportSpecifier[imported.name='PROJECT_ROLE_BASELINE']",
+    message:
+      'Do not resolve capability from a project-role baseline — it cannot see a DENIAL. Ask can()/hasCap() from @/lib/capabilities.server, the one resolver (S-R §5, R-3, R-10).',
+  },
 ]
 
 /**
