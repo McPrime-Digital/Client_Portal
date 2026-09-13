@@ -108,10 +108,19 @@ export const orgAccessOf = cache(async (user: User): Promise<OrgAccess> => {
     .single()
   let projectIds: string[] | null = null
   if (data?.scope_mode === 'selected') {
+    // G-5: AN EXPIRED ASSIGNMENT DOES NOT RESOLVE (0057). Filtered here rather
+    // than pruned in the table, so the record of who was on what and when
+    // survives — the same shape as an expired GRANT and as AD-003 for people.
+    //
+    // `.or()` rather than two queries because `expires_at is null` is the common
+    // case and must not be excluded by a naive `.gt()`. This is one of exactly
+    // three readers of this table; the others are resolveCaps() and
+    // org_project_visible() in SQL, and all three carry the filter as of 0057.
     const { data: scoped } = await supabaseAdmin
       .from('organization_member_projects')
       .select('project_id')
       .eq('member_id', data.id)
+      .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
     projectIds = (scoped ?? []).map((r) => r.project_id)
   }
   return {

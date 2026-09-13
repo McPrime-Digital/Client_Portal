@@ -157,8 +157,13 @@ export const resolveCaps = cache(async (
 
     let projectIds: string[] | null = null
     if (om.scope_mode === 'selected') {
+      // G-5 (0057): an expired assignment does not resolve, and nothing is
+      // deleted. Mirrors org_project_visible()'s `expires_at is null or > now()`
+      // — the third copy of that predicate, and the reason 0057's header
+      // enumerates all three readers rather than trusting a future grep.
       const { data: scoped } = await sb
         .from('organization_member_projects').select('project_id').eq('member_id', om.id)
+        .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
       projectIds = (scoped ?? []).map((r) => r.project_id as string)
     }
     return {
