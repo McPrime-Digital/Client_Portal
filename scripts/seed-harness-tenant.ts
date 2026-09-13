@@ -301,24 +301,40 @@ async function main() {
   // These values must match 0050, or `npm run seed:harness` silently reverts the
   // migration on the next run — and the harness documents a re-seed between runs
   // (assertions 17 and 24 are single-use), so "silently" would mean "always".
+  // SEAT CLASS IS STATED, like scope_mode and for the same reason (0056, item 2).
+  //
+  // It would not be reverted if omitted — PostgREST's upsert writes only the
+  // columns in the payload, so an absent seat_class keeps its value on UPDATE and
+  // takes the column default on INSERT. Stated anyway, on two grounds. One:
+  // CLAUDE.md's rule is that a migration touching a roster row changes the seeder
+  // in the same commit, and 0056's column default touched all six. Two, and it is
+  // the substantive one: these fixtures are what the harness asserts ABOUT, so a
+  // fixture whose seat class comes from a default is a fixture nobody chose — the
+  // §12 lesson 5 shape in the test data, where it would be hardest to see.
+  //
+  // 'staff' is the specs' `crew` and 'contractor' is their `collaborator`; both
+  // were renamed because both words were already taken on this very table (see
+  // 0056's header). Item 9 adds the CONTRACTOR persona — assertions 38, 39 and 41
+  // cannot be proven without one, and a control that cannot be constructed
+  // reports nothing and looks like a pass (§12 lesson 9).
   record(`\n-- ═══ crew roster ═══`)
   await seedRows(admin, 'organization_members', [
     { id: OM_OWNER_ID, organization_id: HARNESS_ORG_ID, user_id: userIds.owner,
       name: 'Harness Owner', email: PERSONAS.owner.email, role: 'owner', status: 'active',
-      scope_mode: 'all', accepted_at: at(0) },
+      seat_class: 'staff', scope_mode: 'all', accepted_at: at(0) },
     { id: OM_CREW_ID, organization_id: HARNESS_ORG_ID, user_id: userIds.crew,
       name: 'Harness Crew', email: PERSONAS.crew.email, role: 'crew', status: 'active',
-      scope_mode: 'selected', accepted_at: at(0) },
+      seat_class: 'staff', scope_mode: 'selected', accepted_at: at(0) },
     { id: OM_REVOKED_ID, organization_id: HARNESS_ORG_ID, user_id: userIds.revoked,
       name: 'Harness Revoked', email: PERSONAS.revoked.email, role: 'crew', status: 'revoked',
-      scope_mode: 'all' },
+      seat_class: 'staff', scope_mode: 'all' },
     // S-R §3.1's `finance`: money across every production, the craft floor
     // absent. It exists so assertion 30's positive control is a role that holds
     // money.invoices and nothing else — an owner control would prove only that
     // invoices are readable by somebody.
     { id: OM_FINANCE_ID, organization_id: HARNESS_ORG_ID, user_id: userIds.finance,
       name: 'Harness Finance', email: PERSONAS.finance.email, role: 'finance', status: 'active',
-      scope_mode: 'all', accepted_at: at(0) },
+      seat_class: 'staff', scope_mode: 'all', accepted_at: at(0) },
   ])
 
   record(`\n-- ═══ client rosters ═══`)
