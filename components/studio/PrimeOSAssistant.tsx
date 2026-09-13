@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useCurrentProjectId } from '@/lib/studio/currentProject'
+import { useCurrentProjectId, useCurrentDocId } from '@/lib/studio/currentProject'
 import {
   ChevronDown, X, CornerDownLeft, Replace, CornerDownRight, Copy, Check,
   GripHorizontal, Wand2, Bookmark, RotateCcw, Pencil, Square, Plus, Sparkles,
@@ -38,6 +38,9 @@ export default function PrimeOSAssistant({
 }) {
   // The production on screen, for cost allocation (0062).
   const projectId = useCurrentProjectId()
+  // The document on screen, for CONTENT PROVENANCE (0064).
+  const docId = useCurrentDocId()
+  const [provWarn, setProvWarn] = useState<string | null>(null)
   const textModels = useMemo(() => modelsByModality('text'), [])
   const [model, setModelState] = useState(textModels[1]?.id ?? textModels[0]?.id ?? 'anthropic/claude-sonnet')
   // Remember the last-used model across sessions.
@@ -197,6 +200,59 @@ export default function PrimeOSAssistant({
   }, [turns, loading])
 
   const modelLabel = textModels.find((m) => m.id === model)?.label ?? model
+
+  /**
+   * ACCEPTING A GENERATION IS THE MOMENT THAT GETS RECORDED (0064).
+   *
+   * Not the generation. A model's answer the writer reads and discards is a
+   * draft nobody kept; the same answer INSERTED into the screenplay is a fact
+   * about the screenplay, and it is the one a studio can be asked to declare to
+   * a union, a broadcaster or a financier.
+   *
+   * The apply happens FIRST and unconditionally — a network failure must never
+   * cost the writer their text. But the failure is SHOWN rather than swallowed:
+   * a disclosure that silently did not record is worse than none, because the
+   * document then looks clean. That is the whole reason `catch {}` is banned
+   * here (I-10), and it is not a general principle in this case, it is the
+   * feature.
+   *
+   * `prompt` is the nearest preceding user turn — what was actually asked for.
+   */
+  async function applyAndRecord(text: string, mode: 'replace' | 'after', turnIndex: number) {
+    onApply(text, mode)
+    if (!docId || !text) return
+
+    let prompt: string | null = null
+    for (let j = turnIndex - 1; j >= 0; j--) {
+      if (turns[j]?.role === 'user') { prompt = turns[j].text; break }
+    }
+
+    try {
+      const res = await fetch('/api/studio/provenance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          documentId: docId,
+          model,
+          prompt,
+          chars: text.length,
+          // Both Replace and Insert PLACE generated content into an existing
+          // asset — C2PA's c2pa.placed. How it landed is a parameter, not a
+          // different action.
+          action: 'c2pa.placed',
+          params: { mode, project_id: projectId ?? null },
+        }),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        setProvWarn(j?.error ?? 'This passage was inserted but not recorded in the AI disclosure.')
+      } else {
+        setProvWarn(null)
+      }
+    } catch {
+      setProvWarn('This passage was inserted but not recorded in the AI disclosure.')
+    }
+  }
 
   async function send(instruction: string) {
     const text = instruction.trim()
@@ -465,10 +521,10 @@ export default function PrimeOSAssistant({
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   {canApply && (
                     <>
-                      <button onClick={() => onApply(t.text, 'replace')} className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline">
+                      <button onClick={() => void applyAndRecord(t.text, 'replace', i)} className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline">
                         <Replace size={12} /> {hasSel ? 'Replace selection' : 'Insert at cursor'}
                       </button>
-                      <button onClick={() => onApply(t.text, 'after')} className={`inline-flex items-center gap-1 text-[11px] font-medium ${subtle} hover:text-foreground`}>
+                      <button onClick={() => void applyAndRecord(t.text, 'after', i)} className={`inline-flex items-center gap-1 text-[11px] font-medium ${subtle} hover:text-foreground`}>
                         <CornerDownRight size={12} /> Insert below
                       </button>
                     </>
@@ -494,6 +550,18 @@ export default function PrimeOSAssistant({
           )}
         </div>
       </div>
+
+      {/* A disclosure that failed to record is NOT silent (I-10). The text is
+          already in the document, so the writer must know the record does not
+          yet say so — a clean-looking script is the dangerous outcome. */}
+      {provWarn && (
+        <div
+          role="status"
+          className={`border-t px-3 py-2 text-[11px] ${isLight ? 'border-black/10 text-amber-700' : 'border-white/10 text-amber-400'}`}
+        >
+          {provWarn}
+        </div>
+      )}
 
       {/* input — one unified, mature composer bar */}
       <div className={`border-t p-2.5 ${isLight ? 'border-black/10' : 'border-white/10'}`}>

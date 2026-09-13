@@ -1,7 +1,7 @@
 /**
  * scripts/test-rls.ts — S2 §6, Part B. The RLS test harness.
  *
- * FORTY-TWO assertions, numbered 1–43 with 21 RESERVED (the retention-purge
+ * FORTY-FOUR assertions, numbered 1–45 with 21 RESERVED (the retention-purge
  * assertion, which cannot be written against a function that does not exist —
  * HANDOFF §9). This count was "Twenty-nine" until Batch 26 item 1 and had been
  * stale since Batch 25 added seven; a header that miscounts the thing it heads is
@@ -23,6 +23,8 @@
  *          baseline, and the four delegation rules no route test can prove
  *   37     S-R-A A-3 (Batch 26 item 1) — a grant and a deny held at once, which
  *          the tables could not hold before migration 0055
+ *   44–45  0064 — content provenance cannot be forged: a disclosure can only
+ *          be written by somebody who can see the script it is about
  *   42–43  0063 — per-member AI spend limits: a member sees their own cap and
  *          cannot raise it
  *   38–41  S-R §2, §3.2, R-10, G-5 (Batch 26 item 9) — the SCOPED seat: a
@@ -49,7 +51,7 @@
  * rows that persona SHOULD see. Control zero → the assertion is reported
  * VACUOUS, not PASS, and the run does not exit clean.
  *
- * WHAT TO EXPECT NOW: all 42 green on a freshly seeded tenant. This paragraph
+ * WHAT TO EXPECT NOW: all 44 green on a freshly seeded tenant. This paragraph
  * used to read "expect most of this to be RED today" — true when S2 §6 asked for
  * a failing baseline, and false since the policy classes landed. Left as written
  * it tells the next reader that red output is normal, which is the one thing a
@@ -82,6 +84,7 @@ import {
   GA_MSG_OLD_ID, GA_MSG_NEW_ID, GA_MSG_CREW_ID,
   ALL_TABLES, readManifest, loadEnv, requireEnv,
   OM_OWNER_ID, OM_CREW_ID, OM_FINANCE_ID,
+  DOC_P1_ID, DOC_P2_ID,
 } from './harness-constants'
 
 // ── result model ────────────────────────────────────────────────────────────
@@ -1072,6 +1075,44 @@ async function main() {
       if (stillScoped > 0) leaks.push(`the role widened row visibility: sibling tasks=${stillScoped}`)
       judge(41, 'a project role grants its baseline on the assigned production and widens no rows (control: an observer on the same production gets none)',
         leaks, withRole === true ? 1 : 0)
+    }
+
+    // ── 44-45 · 0064: content provenance cannot be forged ──────────────────
+    //
+    // A provenance record is a disclosure a studio may have to stand behind in
+    // front of a union, a broadcaster or a financier. Its whole value is that
+    // it could only have been written by somebody who could see the script —
+    // so the assertion that matters is not "can a member write one" but "can
+    // they write one against a production they are scoped out of".
+    {
+      const prov = (docId: string) => ({
+        organization_id: HARNESS_ORG_ID,
+        document_id: docId,
+        action: 'c2pa.placed',
+        digital_source_type: 'http://cv.iptc.org/newscodes/digitalsourcetype/compositeWithTrainedAlgorithmicMedia',
+        model: 'anthropic/claude-sonnet',
+        prompt: 'harness',
+        chars: 120,
+        params: {},
+      })
+
+      // 44 · the scoped member writes against the production they HOLD, and is
+      // refused against its sibling. One assertion, both directions.
+      const inScope = await rowsOf(crew, 'asset_provenance', prov(DOC_P1_ID))
+      const sibling = await rowsOf(crew, 'asset_provenance', prov(DOC_P2_ID))
+      judge(44, 'a scoped member cannot record provenance against a sibling production\'s script (control: their own production\'s script accepts it)',
+        sibling.ok ? ['provenance written against a script outside the caller\'s scope'] : [],
+        inScope.ok ? 1 : 0)
+
+      // 45 · the contractor holds NO assignments, so every script is out of
+      // scope — including the one the crew member just wrote against.
+      const byContractor = await rowsOf(contractor, 'asset_provenance', prov(DOC_P1_ID))
+      const byOwner = await rowsOf(owner, 'asset_provenance', prov(DOC_P1_ID))
+      judge(45, 'an unassigned contractor records provenance against no script at all (control: the all-scope owner records one)',
+        byContractor.ok ? ['an unassigned seat forged a disclosure'] : [],
+        byOwner.ok ? 1 : 0)
+
+      await owner.from('asset_provenance').delete().eq('organization_id', HARNESS_ORG_ID)
     }
 
     // ── 42-43 · 0063: per-member AI spend limits ───────────────────────────

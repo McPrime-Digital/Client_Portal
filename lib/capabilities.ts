@@ -380,6 +380,7 @@ export type Capability =
   | 'work.suite.script' | 'work.suite.storyboard'
   // record.*
   | 'record.ledger.read' | 'record.certificate.export'
+  | 'record.provenance.read' | 'record.provenance.write'
   // org.*  — S-R-A A-5's own capability. §4 enumerates no business-settings
   // key; read and write are genuinely different questions here (the rail asks
   // read, the logo writer asks write), which is the only reason both exist.
@@ -494,6 +495,14 @@ export const CAP_RESOLUTION: Readonly<
   // exporting sign-off certificates. Owed in HANDOFF §9.
   'record.ledger.read': 'work.projects',
   'record.certificate.export': 'work.projects',
+  // Content provenance (0064). READING a document's AI disclosure is part of
+  // reading the work; WRITING one is a side effect of using the Suite's
+  // assistant, so it rides the Suite's cap rather than the project's — a
+  // coordinator who may read a script but not generate into it records nothing.
+  // Both are QUESTIONS resolving onto stored caps that already exist; neither
+  // adds a stored string that could land in an extra_caps row.
+  'record.provenance.read': 'work.projects',
+  'record.provenance.write': 'work.suite',
 
   // org — A-5. NOT platform.billing: billing is owner-only and ungrantable
   // under G-2, while the studio's business profile is legitimately an admin's.

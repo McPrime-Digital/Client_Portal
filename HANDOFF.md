@@ -324,7 +324,21 @@ The audited era, each batch with what it *found*:
 - **Branch:** `throughline` (main ⊆ throughline, fast-forward). Not renamed —
   S0-B §6 excludes the branch, and renaming it is a remote/CI change, not a
   code one.
-- **Migrations applied: 0000–0063, every one of them.** Verified live
+- **Migrations applied: 0000–0064, every one of them.** Verified live
+  2026-09-13. **0064 is `S-S` Phase D** and it wakes two tables that had been
+  asleep since migration 0001: `asset_provenance` and `rights` existed with
+  **zero code references anywhere in the repo** and zero rows — the dormant
+  engine `S-S` §2.1 called "an engine away". It aligns both to **C2PA** (spec
+  2.4) and the **CAWG `cawg.training-mining` assertion**, adds `document_id`
+  (every AI call this product makes produces TEXT, so a file-only table would
+  have stayed empty for the same reason it already had), and gives both policies
+  the project scope 0059/0060 built — via `org_document_visible()` and a new
+  `org_file_visible()` cut to the same SECURITY DEFINER pattern. `rights` gains
+  the permission triple defaulting to `notAllowed`, because consent is granted
+  and never assumed. Harness **42 → 44**: a disclosure can only be written by
+  somebody who can see the script it is about.
+  The pre-0064 line, kept because it is what this file claimed:
+  **Migrations applied: 0000–0063, every one of them.** Verified live
   2026-09-13. **0060–0063 are the S-S surfaces work**, and each one exists
   because building the surface found the engine underneath it incomplete:
   0060 gives the three parentless tables (`document_versions`,

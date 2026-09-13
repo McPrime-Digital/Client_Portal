@@ -44,6 +44,7 @@ import {
   GA_MSG_OLD_ID, GA_MSG_NEW_ID, GA_MSG_CREW_ID, GB_MSG_ID, DM_MSG_ID,
   loadEnv, requireEnv, assertEnvLocalIgnored,
   OM_OWNER_ID, OM_CREW_ID, OM_REVOKED_ID, OM_FINANCE_ID, OM_CONTRACTOR_ID,
+  DOC_P1_ID, DOC_P2_ID,
   CM_C1OWN_ID, CM_C1MATE_ID, CM_C2OWN_ID,
 } from './harness-constants'
 
@@ -371,6 +372,17 @@ async function main() {
   await seedRows(admin, 'client_member_projects',
     [{ member_id: CM_C1MATE_ID, project_id: PROJECT_1_ID, organization_id: HARNESS_ORG_ID }],
     'member_id,project_id')
+
+  // Documents on two SIBLING productions, for the provenance assertions (0064).
+  // PROJECT_1 is the one OM_CREW is scoped to; PROJECT_2 is not, which is what
+  // makes assertion 44's control mean anything.
+  record(`\n-- ═══ documents (0064 provenance) ═══`)
+  await seedRows(admin, 'documents', [
+    { id: DOC_P1_ID, organization_id: HARNESS_ORG_ID, project_id: PROJECT_1_ID,
+      kind: 'screenplay', title: 'Harness · in-scope script' },
+    { id: DOC_P2_ID, organization_id: HARNESS_ORG_ID, project_id: PROJECT_2_ID,
+      kind: 'screenplay', title: 'Harness · sibling-production script' },
+  ])
 
   // 6 · work rows
   // Rooms are GET-OR-CREATE rather than fixed-id upserts, deliberately: the

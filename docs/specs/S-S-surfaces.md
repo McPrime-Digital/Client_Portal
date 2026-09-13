@@ -364,6 +364,66 @@ side effect of building a surface. The options are (a) refuse to lapse a stage
 with no reachable recipient and mark it blocked, (b) lapse it but have the
 certificate state the recipient count, or (c) leave it and rely on the grading.
 
+### 6.4 What Phase D shipped — provenance, and what it is NOT
+
+Phase D was scoped as "engines, not surfaces". Three candidates; only one was
+buildable, and the audit is what settled it:
+
+| candidate | state | verdict |
+|---|---|---|
+| `asset_provenance` + `rights` | tables exist, **zero code references**, 0 rows | BUILT (0064) |
+| `S3-b` calendar / meetings / contracts | migration 1 done (0056, 0063); **2, 3, 5, 6 never applied**; migration 4 deferred by the spec itself | a batch of its own — ~10 tables with RLS plus surfaces |
+| the Suite's nine AI features | need `S5`, **which does not exist** | a spec to write, not an engine to build |
+
+#### The finding that shaped it
+
+Provenance as specified is FILE-centric, and **every AI call this product makes
+produces text** — 15 `primeos` and 3 `ai.text.tokens` meters, not one image. A
+file-only writer would have written zero rows: the same dormant-engine outcome
+Phase D existed to end, rebuilt one layer up. `document_id` is a real column
+with a real FK for the reason 0061 and 0062 both gave about JSONB.
+
+#### What was taken from the world, and what was not
+
+**C2PA** (Coalition for Content Provenance and Authenticity, spec 2.4 — Adobe-led
+CAI) is the standard the industry converged on, with the **Creator Assertions
+Working Group's `cawg.training-mining`** assertion layered on it. The mapping to
+what already existed was near-exact: `parent_asset_id` IS C2PA's ingredient
+chain, `signature` IS the claim signature, `params` IS the action parameters.
+
+**The SDKs (`c2pa-rs`, `c2pa-js`, dual MIT/Apache-2.0) were audited and NOT
+adopted.** They embed a signed manifest into a BINARY asset; our AI output is
+text in a `documents` row, so there is nothing to sign. Taking the dependency
+would buy a Rust/WASM toolchain against a forecast. What was adopted is the DATA
+MODEL, so that emitting a real manifest when a generation pipeline exists is a
+serialization step and not a migration.
+
+#### The two decisions worth restating
+
+1. **The APPLY is the event, not the generation.** A model's answer the writer
+   reads and discards is a draft nobody kept. The same answer inserted into the
+   screenplay is a fact about the screenplay, and the only one a studio can be
+   asked to declare. This makes the table small, true, and about the document
+   rather than about the chat.
+2. **Proportion, not presence.** "Contains AI content" is equally true of a
+   script where a model fixed one line and one where a model wrote every scene.
+   Guild and broadcaster terms turn on how much, so `disclosure()` returns a
+   SHARE. The share is an upper bound that errs toward over-disclosure —
+   generated text later rewritten still counts as having entered, because erring
+   the other way would let a studio edit its way out of a declaration.
+
+The default on `rights` is `notAllowed` for all three CAWG purposes. CAWG treats
+an absent assertion as "no statement made"; a database is not a manifest, and
+the failure mode of a permissive default is a studio's unreleased dailies
+becoming training data because nobody filled in a form.
+
+#### Phase D remainder
+
+`S3-b` migrations 2, 3, 5 and 6 are the next engine batch and are NOT started.
+`rights` has a schema and no writer — a surface for it (per-file licence,
+talent consent, the training triple) is the smallest next step, and the file
+viewer is where it belongs.
+
 ### 6.2 Owner answers to §5
 
 1. Unbuilt stays "coming soon" — built surfaces lead, held-but-unbuilt sit behind
@@ -376,5 +436,5 @@ certificate state the recipient count, or (c) leave it and rely on the grading.
 
 ---
 
-*End of S-S. Phases A, B and C built, plus allowance (§6.1.1). Governs what a surface contains; `S-R` §8
+*End of S-S. Phases A–D built, plus allowance (§6.1.1). Governs what a surface contains; `S-R` §8
 governs what it may show to whom.*

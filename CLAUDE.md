@@ -322,8 +322,8 @@ Walk each of these paths mentally before saving an edit to `proxy.ts`.
 - `app/api/` — route handlers for files, portal, admin, studio, rooms, cron,
   presence, push, and the Stripe webhook. This entry was off by one twice when
   it carried a number — count it (`find app/api -name route.ts | wc -l`),
-  don't quote it (**57** at Batch 26's end — `app/api/admin/assignments` is the
-  one this batch added). `app/api/rooms*` (Batch 23) is the
+  don't quote it (**59** today — Batch 26 ended at 57; `app/api/admin/budgets`
+  and `app/api/studio/provenance` are the two added since). `app/api/rooms*` (Batch 23) is the
   S3-d surface: room list/create (channels, groups, broadcast, DMs), seating,
   and room-addressed messages — zod-validated, and the WRITES run on the user
   client so the 0046 policies are the authorization (AD-001 as written; the
@@ -447,12 +447,45 @@ Rules that are not style preferences:
   for the party that has to act on it, not for the party it may one day be used
   against.
 
+## Provenance — the disclosure a studio can be asked for
+
+`asset_provenance` (0001, dormant until 0064) records **accepted** AI
+generations. `lib/provenance.ts` is the one write path and
+`/api/studio/provenance` the one route, both on the user client.
+
+- **The APPLY is the event, not the generation.** Text a writer read and
+  discarded is a draft nobody kept; text inserted into the screenplay is a fact
+  about the screenplay. Nothing is written when the assistant answers — a row
+  lands in `applyAndRecord` in `PrimeOSAssistant` and nowhere else.
+- **Proportion, not presence.** `disclosure()` returns a SHARE, because a model
+  that fixed one line and a model that wrote every scene are not the same
+  declaration. A boolean would be the wrong answer shaped like the right one.
+- **A failed record is never silent** (I-10). The text is already in the
+  document, so the writer is told the disclosure did not save. A clean-looking
+  script is the dangerous outcome.
+- **The vocabulary is C2PA's, verbatim.** Do not invent action names or source
+  types; 0064's CHECKs hold the action set and the IPTC namespace.
+
 ## Migrations
 
 `supabase/migrations/` holds one numbering scheme (`00NN`); the retired `2026*` scheme is fenced in `_archive/`:
 
-- `0000_baseline_schema.sql` … `0063_member_budgets.sql` — the current
+- `0000_baseline_schema.sql` … `0064_provenance_c2pa.sql` — the current
   source of truth, **all applied** (verified live 2026-09-13).
+  **0064 wakes two tables that had been asleep since 0001.** `asset_provenance`
+  and `rights` existed with **zero code references anywhere in the repo** and
+  zero rows. It aligns them to **C2PA** (the Content Authenticity standard,
+  spec 2.4) and the **CAWG `cawg.training-mining` assertion**: `action`
+  (`c2pa.placed`/`c2pa.created`), `digital_source_type` (an IPTC
+  `digitalsourcetype` URL), `chars`, and `document_id` — because every AI call
+  this product makes produces TEXT, so a file-only table would have stayed
+  empty. `rights` gains the permission TRIPLE (`data_mining`, `ai_inference`,
+  `ai_generative_training`, each `allowed|notAllowed|constrained`), defaulting
+  to `notAllowed`: consent is granted, never assumed. Both policies gain project
+  scope via `org_document_visible()` (0060) and a new `org_file_visible()`.
+  **The CAI SDKs are deliberately NOT a dependency** — they embed manifests into
+  binary assets and there is no binary asset to sign; what was adopted is the
+  data model, so emitting a real manifest later is serialization, not migration.
   **0061–0063 are the metering half of the S-S surfaces work.** 0061 backfilled
   `usage_events.created_by` — every row that had cost money was unattributed and
   every free row was attributed, which is the inversion of what a cost surface

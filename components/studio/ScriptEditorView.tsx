@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import * as Y from 'yjs'
 import { ArrowLeft, Loader2, Sun, Moon, Plus, X, Share2, Copy, Check, Link2, Save, FileText, MoreVertical, PencilLine, Trash2 } from 'lucide-react'
+import AiDisclosure from './AiDisclosure'
 import { createClient } from '@/lib/supabase/client'
 import { SupabaseYjsProvider, toB64, fromB64 } from '@/lib/collab/supabaseYjs'
 import DocEditor from './DocEditor'
@@ -316,6 +317,11 @@ export default function ScriptEditorView({ docId, template }: { docId: string; t
           >
             {docTheme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
           </button>
+          {/* What a studio can be asked to declare about this script (0064).
+              Sits beside Save rather than inside a menu: a disclosure kept one
+              click deeper than the thing it discloses is a disclosure nobody
+              finds. */}
+          <AiDisclosure docId={docId} />
           {ready && <Presence provider={ready.provider} />}
           <button
             type="button"

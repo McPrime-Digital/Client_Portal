@@ -207,6 +207,13 @@ export const WORK_TABLES = [
 // Fixed ids so the harness can assert against them without a service-role
 // lookup — the same reason the manifest exists.
 /** Addressed to company 1, project 1. One ACTIVE stage assigned to c1own. */
+// ── documents, for CONTENT PROVENANCE (0064) ───────────────────────────────
+// Two, on SIBLING productions, because the assertion that matters is not "can a
+// member write provenance" but "can they write it against a script they cannot
+// see". One document would prove only the easy half.
+export const DOC_P1_ID = '0f0f0f0f-000d-4000-8000-000000000001' // on PROJECT_1
+export const DOC_P2_ID = '0f0f0f0f-000d-4000-8000-000000000002' // on PROJECT_2
+
 export const APPROVAL_CLIENT_ID = '0f0f0f0f-000a-4000-8000-000000000001'
 export const APPROVAL_CLIENT_STAGE_ID = '0f0f0f0f-000b-4000-8000-000000000001'
 /** INTERNAL — client_id null. Must be invisible to every client member. */
