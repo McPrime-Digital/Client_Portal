@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getCurrentUser } from '@/lib/auth/currentUser'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { orgAccessOf } from '@/lib/team'
+import { capList } from '@/lib/capabilities.server'
 import StudioSidebar from '@/components/studio/StudioSidebar'
 import StudioTopbar from '@/components/studio/StudioTopbar'
 import SessionDock from '@/components/studio/SessionDock'
@@ -51,7 +52,11 @@ export default async function StudioLayout({ children }: { children: React.React
   // above must precede them) — one parallel batch instead of three round
   // trips in sequence. This runs on every studio request, so it's the
   // difference the navigation timer feels.
-  const [brand, { data: crewRow }, orgAccess] = await Promise.all([
+  //
+  // `capList` joins the batch rather than being awaited in the JSX: this layout
+  // runs on every studio request and the comment above is about round trips, so
+  // adding a serial one to draw the rail would undo part of what 12.1 fixed.
+  const [brand, { data: crewRow }, orgAccess, caps] = await Promise.all([
     tenantBrand(userOrgId(user)),
     // A paused crew member sees a hold screen — nothing else in the studio.
     supabaseAdmin
@@ -60,6 +65,7 @@ export default async function StudioLayout({ children }: { children: React.React
       .eq('user_id', user.id)
       .maybeSingle(),
     orgAccessOf(user),
+    capList(user),
   ])
   const orgName = brand.name
   if (crewRow && crewRow.status === 'paused') {
@@ -110,8 +116,12 @@ export default async function StudioLayout({ children }: { children: React.React
         userName={userName}
         orgName={orgName}
         orgId={userOrgId(user)}
-        orgRoles={[...roles]}
-        orgExtra={orgAccess.extraCaps}
+        // THE RESOLVED SET, not a role list (Batch 26 item 8). capList() runs
+        // resolveCaps() — baseline ∪ extras ∪ live grants − live denials — on the
+        // user client, memoised per request. The rail filters on membership; it
+        // no longer re-derives authority in the browser, where it could not see a
+        // denial.
+        caps={caps}
         roleLabel={roleLabel}
         // Plan-gated rail entries (CRM · Pipeline, Lead-Gen) — resolved from the
         // org's plan, never from an org id (lib/billing/plans.ts). The server

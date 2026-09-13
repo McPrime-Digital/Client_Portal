@@ -8,7 +8,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { LogOut } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { SPACES, getSpace } from '@/lib/studio/spaces'
-import { orgFeatureAllowed, type OrgRole } from '@/lib/permissions'
+import { orgFeatureAllowed } from '@/lib/permissions'
 import { useSidebarStore } from '@/lib/stores/sidebar-store'
 import PrimeOSMark from './PrimeOSMark'
 
@@ -30,16 +30,29 @@ const FEATURE_COUNT: Record<string, keyof BadgeCounts> = {
 export default function StudioSidebar({
   userName,
   orgName,
-  orgRoles = ['owner'],
-  orgExtra = [],
+  caps = [],
   roleLabel = 'Owner',
   houseTools = false,
   orgId = null,
 }: {
   userName: string
   orgName: string
-  orgRoles?: OrgRole[]
-  orgExtra?: string[]
+  /** The RESOLVED coarse capability set, from `capList()` in the layout.
+   *
+   *  This replaced `orgRoles` + `orgExtra` in Batch 26 item 8. The rail used to
+   *  receive a role list and re-derive authority in the browser, which made it a
+   *  third copy of the resolution algorithm in the one place that cannot run the
+   *  resolver — and the copy that could not see a DENIAL, because `extra_caps`
+   *  carries grants only. A denied capability left its tile lit, and the tile
+   *  led to a page the guard also admitted.
+   *
+   *  The default is `[]`, NOT a permissive role list. It used to be
+   *  `orgRoles = ['owner']`, which asserted the most powerful role in the studio
+   *  whenever a caller forgot the prop — HANDOFF §12 lesson 3's shape, a default
+   *  that fires exactly when the answer could not be resolved. An empty set draws
+   *  the spaces and no features, which is what "we could not resolve this
+   *  person" should look like. */
+  caps?: string[]
   roleLabel?: string
   /** scopes the instant badge topic (`badges:org:<id>`) to this tenant */
   orgId?: string | null
@@ -167,7 +180,7 @@ export default function StudioSidebar({
           <nav className="glass-inset squircle mt-3 min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2 scrollbar-thin">
             {space.features
               .filter((f) => !f.planFeature || houseTools)
-              .filter((f) => orgFeatureAllowed(orgRoles, space.id, f.slug, orgExtra))
+              .filter((f) => orgFeatureAllowed(caps, space.id, f.slug))
               .map((f) => {
               const Icon = f.icon
               const active = f.slug === activeFeature

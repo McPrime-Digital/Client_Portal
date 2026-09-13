@@ -5,7 +5,8 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getBusinessSettings, upsertBusinessSettings } from '@/lib/businessSettings'
 import { tenantBrand } from '@/lib/tenantBrand'
 import { rosterName, orgAccessOf } from '@/lib/team'
-import { orgCan, type OrgCap } from '@/lib/permissions'
+import { type OrgCap } from '@/lib/permissions'
+import { hasCap } from '@/lib/capabilities.server'
 import type { User } from '@supabase/supabase-js'
 import { createNotification } from '@/lib/notify'
 
@@ -64,14 +65,22 @@ export async function POST(req: NextRequest) {
   if (!gate) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  const { user, access } = gate
+  const { user } = gate  // `access` was only orgCan's argument (item 8)
 
   const body = await req.json()
   const { action } = body
 
   // A clear 403 naming what is required, not a silent empty result (S-R R-5).
+  //
+  // RESOLVED, NOT DERIVED (Batch 26 item 8). This read `orgCan(access.roles,
+  // needed, access.extraCaps)` — which honoured a GRANT (extra_caps is the
+  // grant projection) and was blind to a DENIAL. So an owner could withdraw
+  // money.invoices from an admin and this route would keep issuing, sending and
+  // marking paid, while migration 0053's policy refused the same person through
+  // PostgREST. Route and row disagreeing is the state S-R §5 says makes neither
+  // trustworthy.
   const needed = capFor(String(action ?? ''))
-  if (!orgCan(access.roles, needed, access.extraCaps)) {
+  if (!(await hasCap(user, needed))) {
     return NextResponse.json(
       { error: `You do not have permission for this. Required: ${needed}.` },
       { status: 403 },

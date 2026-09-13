@@ -195,6 +195,22 @@ export type Capability =
   | 'work.suite.script' | 'work.suite.storyboard'
   // record.*
   | 'record.ledger.read' | 'record.certificate.export'
+  // org.*  — S-R-A A-5's own capability. §4 enumerates no business-settings
+  // key; read and write are genuinely different questions here (the rail asks
+  // read, the logo writer asks write), which is the only reason both exist.
+  | 'org.settings.read' | 'org.settings.write'
+  // portal.*  — THE PORTAL TREE, AND THESE ARE IDENTITY ENTRIES.
+  //
+  // Batch 26 item 8 brought the portal onto this table so ONE function answers
+  // every capability question on both rosters. The six keys are the six stored
+  // ClientCaps unchanged, not a finer re-spelling of them, and that is
+  // deliberate: S-R-A A-4 says §4's fine keys are the vocabulary of QUESTIONS,
+  // and a portal capability is ALREADY a question ('portal.message' IS "may
+  // they send messages"). Inventing 'portal.message.send' beside it would add a
+  // layer with no distinction in it — ceremony, and a second string per grant
+  // to keep honest. Where fine and coarse coincide, they coincide.
+  | 'portal.view' | 'portal.message' | 'portal.upload' | 'portal.approve'
+  | 'portal.invoices' | 'portal.team'
   // platform.*  — owner-only and UNGRANTABLE (S-R §6 G-2)
   | 'platform.billing' | 'platform.org.delete' | 'platform.erasure'
   | 'platform.grant'
@@ -225,7 +241,7 @@ export const UNMAPPED = 'unmapped' as const
  * decision here fails tsc.
  */
 export const CAP_RESOLUTION: Readonly<
-  Record<Capability, OrgCap | typeof OWNER_ONLY | typeof UNMAPPED>
+  Record<Capability, OrgCap | ClientCap | typeof OWNER_ONLY | typeof UNMAPPED>
 > = {
   // money — invoices are one authority; budgets, credits and usage another
   'money.invoice.read': 'money.invoices',
@@ -293,6 +309,22 @@ export const CAP_RESOLUTION: Readonly<
   // exporting sign-off certificates. Owed in HANDOFF §9.
   'record.ledger.read': 'work.projects',
   'record.certificate.export': 'work.projects',
+
+  // org — A-5. NOT platform.billing: billing is owner-only and ungrantable
+  // under G-2, while the studio's business profile is legitimately an admin's.
+  'org.settings.read': 'org.settings',
+  'org.settings.write': 'org.settings',
+
+  // portal — identity, per the note on the Capability union above. A crew
+  // session's resolved set holds OrgCaps only, so asking a portal key on the
+  // studio side answers false, and vice versa. That is the parallel-tree
+  // property S1 §0 states, falling out of default-deny rather than a branch.
+  'portal.view': 'portal.view',
+  'portal.message': 'portal.message',
+  'portal.upload': 'portal.upload',
+  'portal.approve': 'portal.approve',
+  'portal.invoices': 'portal.invoices',
+  'portal.team': 'portal.team',
 
   // platform — G-2: owner-only, and platform.grant is not itself grantable
   'platform.billing': OWNER_ONLY,

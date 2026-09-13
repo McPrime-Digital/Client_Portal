@@ -9,6 +9,9 @@ import {
   LEGACY_ORG_CAP, LEGACY_CLIENT_CAP, OWNER_ONLY, UNMAPPED,
   type Capability, type OrgRole, type ClientRole, type OrgCap, type ClientCap,
 } from '@/lib/capabilities'
+// The ACTION→capability maps. lib/permissions.ts is client-safe and holds no
+// authority since item 8; importing it here is a lookup, not a second oracle.
+import { approvalActionCap, type ApprovalAction } from '@/lib/permissions'
 
 /**
  * THE SINGLE RESOLVER — S-R §5 steps 0 and 4-6, server side.
@@ -26,6 +29,9 @@ import {
  *   step 4  role baseline                                → here
  *   step 5  ∪ individual grants                          → here
  *   step 6  − individual denials, DENY WINS              → here
+ *           └ ITEM 8's WHOLE POINT: this step has existed since Batch 25
+ *             and three quarters of the application asked a function that
+ *             skipped it. See lib/permissions.ts's header.
  *   step 7  project scope admits this ROW                → a FILTER, not a cap
  *                                                          (R-5a) — projectIds
  *
@@ -222,11 +228,60 @@ export async function can(user: User, cap: Capability, db?: SupabaseClient): Pro
 }
 
 /** Coarse form, for the surfaces that genuinely grant/deny by stored cap —
- *  item 8's grant picker and the feature rail. Prefer `can()` in routes: a fine
- *  key says what the route actually does. */
+ *  the grant picker. Prefer `can()` everywhere else: a fine key says what the
+ *  caller actually does, and since Batch 26 item 8 it answers portal keys too. */
 export async function hasCap(user: User, cap: OrgCap | ClientCap, db?: SupabaseClient): Promise<boolean> {
   const resolved = db ? await resolveCaps(user, db) : await resolveCaps(user)
   return resolved.side !== null && resolved.caps.has(cap)
+}
+
+/**
+ * APPROVAL ACTIONS, RESOLVED — the direct replacement for `orgCanApproval` and
+ * `clientCanApproval`, which Batch 26 item 8 deleted.
+ *
+ * Two questions, and keeping them apart is the whole point. `approvalActionCap`
+ * answers "which stored capability does this ACTION need" — a map, in
+ * lib/permissions.ts, and it was always right. This answers "does this PERSON
+ * hold it" — and that is the half the two deleted functions got wrong, because
+ * they ORed the role baseline with `extra_caps` and `extra_caps` carries grants
+ * only. A denied assignee read as able to decide.
+ *
+ * That defect is on the record twice already: the R-11 sweep's first
+ * implementation shipped it and was caught by probe (HANDOFF §6, Batch 25), and
+ * `approvalActionCap` was exported specifically so the sweep could resolve the
+ * set itself. Six other call sites went on asking the wrong function. This is
+ * that export's reasoning made available to all of them instead of one.
+ *
+ * The client side's `'never'` sentinel is answered here rather than at each call
+ * site: it means NO capability can grant the action (a client does not open an
+ * approval against the studio's work, or move the deadline the studio promised),
+ * which is a different fact from "this person lacks a capability" and must not be
+ * flattened into a cap lookup that happens to miss.
+ */
+export async function canApproval(
+  user: User, side: 'crew' | 'client', action: ApprovalAction,
+): Promise<boolean> {
+  const cap = side === 'crew' ? approvalActionCap('crew', action) : approvalActionCap('client', action)
+  if (cap === 'never') return false
+  return hasCap(user, cap)
+}
+
+/**
+ * THE RESOLVED SET, AS A PROP — for the two rails, which are client components.
+ *
+ * `StudioSidebar` and the portal `Sidebar` used to receive roles + extraCaps and
+ * re-derive authority in the browser through `orgCan`/`clientCan`. That put a
+ * third copy of the resolution algorithm in the one place that cannot run the
+ * resolver, and it was the copy that could not see a DENIAL: `extra_caps` is a
+ * projection of the GRANT rows only (lib/grants.ts:149-153), so a deny row was
+ * invisible to the rail and the tile stayed lit.
+ *
+ * Now the layout resolves once, server-side, and the rail filters on set
+ * membership — which is not a capability decision, it is a lookup. A `Set` does
+ * not cross the server/client boundary, so this returns an array.
+ */
+export async function capList(user: User): Promise<string[]> {
+  return [...(await resolveCaps(user)).caps]
 }
 
 /**

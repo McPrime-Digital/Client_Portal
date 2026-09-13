@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getSignedUploadUrl } from '@/lib/r2'
 import { resolveUploadScope } from '@/lib/uploadScope'
 import { clientMembershipOf } from '@/lib/team'
-import { clientCan } from '@/lib/permissions'
+import { can } from '@/lib/capabilities.server'
 import { NextRequest, NextResponse } from 'next/server'
 
 // Step 1 of the direct-to-R2 upload: authorize the caller and hand back
@@ -33,7 +33,10 @@ export async function POST(req: NextRequest) {
     // on a company capability would refuse the only surface they have.
     if (role === 'client' && !roomId) {
       const membership = await clientMembershipOf(user)
-      if (!membership || !clientCan(membership.role, 'portal.upload', membership.extraCaps)) {
+      // Resolved, not derived (Batch 26 item 8): can() subtracts DENIALS, so an
+      // owner withdrawing portal.upload now actually stops the upload rather
+      // than only hiding the button.
+      if (!membership || !(await can(user, 'portal.upload'))) {
         return NextResponse.json({ error: 'Your role is view-only — uploads are not available.' }, { status: 403 })
       }
     }

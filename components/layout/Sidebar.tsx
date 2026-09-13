@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useSidebarStore } from '@/lib/stores/sidebar-store'
-import { clientNavAllowed, type ClientRole } from '@/lib/permissions'
+import { clientNavAllowed } from '@/lib/permissions'
 
 type Props = {
   clientName: string
@@ -38,8 +38,19 @@ type Props = {
    * line whose removal is a paid entitlement.
    */
   showsAttribution: boolean
-  memberRole?: ClientRole
-  memberExtra?: string[]
+  /** The RESOLVED coarse capability set, from `capList()` in the layout.
+   *
+   *  This replaced `memberRole` + `memberExtra` in Batch 26 item 8, for the same
+   *  reason StudioSidebar's `caps` replaced `orgRoles`: the rail cannot run the
+   *  resolver, so it was re-deriving authority from a role and an `extra_caps`
+   *  array that carries GRANTS ONLY — a denied capability left its nav item
+   *  visible, and the page behind it admitted the click.
+   *
+   *  Default `[]`, not `'owner'`. The old default asserted the most powerful
+   *  portal role whenever the prop was omitted, which is the fallback that fires
+   *  precisely when nothing could be resolved (HANDOFF §12 lesson 3). An empty
+   *  set shows the three ungated items and nothing else. */
+  caps?: string[]
 }
 
 const navItems = [
@@ -73,7 +84,7 @@ const navItems = [
   },
 ]
 
-export default function Sidebar({ clientName, clientCompany, clientId, clientAvatar, orgName, orgLogoUrl = null, showsAttribution, memberRole = 'owner', memberExtra = [] }: Props) {
+export default function Sidebar({ clientName, clientCompany, clientId, clientAvatar, orgName, orgLogoUrl = null, showsAttribution, caps = [] }: Props) {
   // The portal is the client's own — brand it with their company (their logo if uploaded).
   const brandName = clientCompany || clientName || 'Client'
   const pathname = usePathname()
@@ -190,7 +201,7 @@ export default function Sidebar({ clientName, clientCompany, clientId, clientAva
               {section.section}
             </p>
             <div className="space-y-0.5">
-              {section.items.filter((item) => clientNavAllowed(memberRole, item.href, memberExtra)).map((item) => {
+              {section.items.filter((item) => clientNavAllowed(caps, item.href)).map((item) => {
                 const Icon = item.icon
                 const isActive =
                   pathname === item.href ||

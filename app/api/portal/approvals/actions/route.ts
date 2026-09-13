@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { portalAccess } from '@/lib/team'
-import { clientCanApproval } from '@/lib/permissions'
+import { canApproval } from '@/lib/capabilities.server'
 import { recordDecision } from '@/lib/approvals'
 import { captureError } from '@/lib/errors'
 
@@ -43,7 +43,9 @@ export async function POST(req: NextRequest) {
 
   const access = await portalAccess(user)
   if (!access) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (!clientCanApproval(access.role, 'decide', access.extraCaps)) {
+  // Resolved, not derived (Batch 26 item 8) — a denial now refuses the decision,
+  // which is the case R-11's sweep exists to REPORT rather than let lapse.
+  if (!(await canApproval(user, 'client', 'decide'))) {
     return NextResponse.json({ error: 'You cannot approve on this account.' }, { status: 403 })
   }
 

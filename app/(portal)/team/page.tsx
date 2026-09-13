@@ -1,4 +1,4 @@
-import { clientCan } from '@/lib/permissions'
+import { can } from '@/lib/capabilities.server'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { clientMembershipOf } from '@/lib/team'
@@ -11,8 +11,9 @@ export default async function ClientTeamPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  // Resolved, not derived (Batch 26 item 8) — a denial now withdraws this page.
   const membership = await clientMembershipOf(user)
-  if (!membership || !clientCan(membership.role, 'portal.team', membership.extraCaps)) redirect('/dashboard')
+  if (!membership || !(await can(user, 'portal.team'))) redirect('/dashboard')
 
   return <ClientTeamManager />
 }

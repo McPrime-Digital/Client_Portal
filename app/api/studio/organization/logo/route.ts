@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
-import { orgRolesOf } from '@/lib/team'
-import { orgCan } from '@/lib/permissions'
+import { can } from '@/lib/capabilities.server'
 import { captureError } from '@/lib/errors'
 
 // The studio's OWN logo — the mark its clients see (S0-B §2, S-C §6).
@@ -47,10 +46,17 @@ async function requireOrgSettingsAdmin() {
   if (!user || !isAdmin(user)) {
     return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
   }
-  // The roster decides, not the claim (S2). `org_settings` is the capability
+  // The roster decides, not the claim (S2). `org.settings` is the capability
   // that already governs business identity elsewhere in the matrix.
-  const roles = await orgRolesOf(user)
-  if (!orgCan(roles, 'org.settings')) {
+  //
+  // THIS ONE WAS WRONG IN THE OTHER DIRECTION (Batch 26 item 8). It called
+  // `orgCan(roles, 'org.settings')` with NO extras argument at all — so a person
+  // GRANTED org.settings was refused here, while the same grant was honoured by
+  // every other surface and by `has_cap()` in SQL. The mirror image of the Batch
+  // 25 roster-route defect: there the route was narrower than the row for a
+  // grant, here the route ignored the grant entirely. `can()` resolves the
+  // baseline, the extras, the live grants and the denials, in that order.
+  if (!(await can(user, 'org.settings.write'))) {
     return {
       error: NextResponse.json(
         { error: 'Only org owners and admins can change the studio logo.' },

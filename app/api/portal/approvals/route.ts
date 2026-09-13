@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { portalAccess } from '@/lib/team'
-import { clientCanApproval } from '@/lib/permissions'
+import { canApproval } from '@/lib/capabilities.server'
 import { listApprovals, type ApprovalStatus } from '@/lib/approvals'
 import { captureError } from '@/lib/errors'
 
@@ -32,7 +32,9 @@ export async function GET(req: NextRequest) {
 
   // Reading the approvals queue is the same right as acting on it — the portal
   // nav already gates /approvals on 'approve' (lib/permissions clientNavAllowed).
-  if (!clientCanApproval(access.role, 'decide', access.extraCaps)) {
+  // Resolved, not derived (Batch 26 item 8): canApproval() maps the action AND
+  // resolves the person, so a DENIED portal.approve now closes this queue.
+  if (!(await canApproval(user, 'client', 'decide'))) {
     return NextResponse.json({ error: 'Not available for your role.' }, { status: 403 })
   }
 

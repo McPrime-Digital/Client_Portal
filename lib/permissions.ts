@@ -7,6 +7,36 @@
 // dependency on spaces.ts (and drags no icon bundle into anything importing it).
 import type { FeatureKey } from '@/lib/studio/spaces'
 
+// ── AND IT ANSWERS NO CAPABILITY QUESTION AT ALL (Batch 26 item 8) ──────────
+// It stopped being a SOURCE in Batch 25. It has now stopped being an ORACLE.
+//
+// `orgCan`, `clientCan`, `orgCanApproval` and `clientCanApproval` are DELETED.
+// Every one of them answered `baseline(role) OR extra_caps.includes(cap)`, and
+// `extra_caps` is a projection of the GRANT rows only (lib/grants.ts:149-153) —
+// "a denial is not an absence". So none of the four could see a denial, and
+// between them they answered 28 call sites: every studio page guard, both rails,
+// all seven portal page guards, and fourteen route handlers.
+//
+// What that meant concretely, worked through with money.invoices denied on an
+// admin: the rail still drew the Invoices tile, requireOrgFeature still admitted
+// them, and the page read through supabaseAdmin — so the invoices rendered in
+// full. The deny row's only live effect was on the PostgREST door
+// (invoices_crew_all's has_cap predicate). A permission an owner had deliberately
+// withdrawn was decorative in the product that offered it.
+//
+// This is the THIRD instance of one shape. The first two are recorded in the
+// ORG_APPROVAL_CAP comment below and in HANDOFF §6's Batch 25 row: the R-11
+// sweep's first implementation called clientCanApproval() and a DENIED assignee
+// still read as able to decide, found by probe. That fix reached exactly one
+// consumer. This one fixes the shape: nothing in this file resolves authority
+// any more, and the only thing that does is lib/capabilities.server.ts.
+//
+// WHAT STAYS, and why it is not the same thing: the FEATURE MAP and the
+// APPROVAL-ACTION MAP. Those are lookups — "which stored capability answers this
+// feature / this action" — with no roster read, no baseline, and no union. They
+// take a RESOLVED set and test membership. A lookup that cannot answer yes on
+// its own cannot answer yes wrongly.
+//
 // ── THIS FILE IS A CONSUMER NOW (Batch 24 item 4) ───────────────────────────
 // It used to be a SECOND source of authorization: its own OrgRole, its own cap
 // unions, and its own role→capability matrices, maintained beside the ones in
@@ -21,26 +51,19 @@ import type { FeatureKey } from '@/lib/studio/spaces'
 // Still client-safe: no server imports, so 'use client' components may import
 // it. The server-side assertion is can() in lib/capabilities.server.ts.
 export type { OrgRole, ClientRole, OrgCap, ClientCap } from '@/lib/capabilities'
-import {
-  ORG_ROLE_BASELINE, CLIENT_ROLE_BASELINE, LEGACY_ORG_CAP, LEGACY_CLIENT_CAP,
-  type OrgRole, type ClientRole, type OrgCap, type ClientCap,
-} from '@/lib/capabilities'
+// ORG_ROLE_BASELINE / CLIENT_ROLE_BASELINE and the two LEGACY_* alias tables are
+// gone from this file's imports with the four functions that used them. The
+// aliases are not deleted — they are still honoured, in the ONE place that
+// resolves a capability (lib/capabilities.server.ts) and in SQL (0052). A second
+// copy of the alias path here was a second thing to remember to delete.
+import type { OrgRole, OrgCap, ClientCap } from '@/lib/capabilities'
 
-/** Role gives the DEFAULT capability set; `extra` holds per-member grants the
- *  owner added on top (custom access). Effective = union. */
-export function clientCan(
-  role: ClientRole | null | undefined,
-  cap: ClientCap,
-  extra?: readonly string[] | null
-): boolean {
-  // A stored row may still hold a pre-0051 snake_case value while a mid-deploy
-  // session is live, so extras are normalized on READ through the alias table
-  // (deletion owed — HANDOFF §9). Without this, the rename would silently
-  // strip granted access for the length of a rollout.
-  if (extra?.some((e) => (LEGACY_CLIENT_CAP[e] ?? e) === cap)) return true
-  if (!role) return false
-  return CLIENT_ROLE_BASELINE[role]?.includes(cap) ?? false
-}
+/* clientCan() WAS HERE. Deleted in Batch 26 item 8 — see this file's header.
+   Its replacement is `can(user, 'portal.upload')` in lib/capabilities.server.ts,
+   which resolves the same baseline and the same extra_caps and then subtracts
+   the denials this function could not see. The portal keys are identity entries
+   in CAP_RESOLUTION for exactly this reason: the call sites did not have to
+   learn a new vocabulary to stop being wrong. */
 
 /** Client-side capabilities an owner may grant individually, with UI labels. */
 export const CLIENT_GRANTABLE: { cap: ClientCap; label: string }[] = [
@@ -51,34 +74,59 @@ export const CLIENT_GRANTABLE: { cap: ClientCap; label: string }[] = [
   { cap: 'portal.team', label: 'Team management' },
 ]
 
-/** Portal nav hrefs this role may see — the SAME matrix gates each page
- *  server-side. Hidden, not just blocked:
+/**
+ * Which stored capability a portal nav href requires, or null for the three that
+ * every portal member reaches. A LOOKUP — no roster, no baseline, no union.
+ *
+ * Kept beside CLIENT_NAV_CAP rather than inlined in the rail so the page guard
+ * and the rail cannot disagree about which href needs what, which is the half of
+ * S-R §5's "one resolver" that is about the MAP rather than the resolution.
+ */
+const CLIENT_NAV_CAP: Readonly<Record<string, ClientCap | null>> = {
+  '/dashboard': null,
+  '/projects': null,
+  '/messages': null,
+  '/files': 'portal.upload',
+  '/approvals': 'portal.approve',
+  '/invoices': 'portal.invoices',
+  '/team': 'portal.team',
+  '/dashboard/settings': 'portal.team',
+}
+
+export function clientNavCap(href: string): ClientCap | null | undefined {
+  return CLIENT_NAV_CAP[href]
+}
+
+/**
+ * Portal nav hrefs a RESOLVED capability set may see — the SAME map gates each
+ * page server-side. Hidden, not just blocked:
  *    viewer   → overview, projects, messages (read-only). Nothing else.
  *    member   → + files vault, uploads
  *    approver → + review & approvals, invoices
- *    owner    → + team, settings (company & owner information is owner-only) */
-export function clientNavAllowed(
-  role: ClientRole | null | undefined,
-  href: string,
-  extra?: readonly string[] | null
-): boolean {
-  switch (href) {
-    case '/dashboard':
-    case '/projects':
-    case '/messages':
-      return true
-    case '/files':
-      return clientCan(role, 'portal.upload', extra)
-    case '/approvals':
-      return clientCan(role, 'portal.approve', extra)
-    case '/invoices':
-      return clientCan(role, 'portal.invoices', extra)
-    case '/team':
-    case '/dashboard/settings':
-      return clientCan(role, 'portal.team', extra)
-    default:
-      return true
-  }
+ *    owner    → + team, settings (company & owner information is owner-only)
+ *
+ * TAKES THE RESOLVED SET, NOT A ROLE (Batch 26 item 8). The rail is a client
+ * component and cannot run the resolver; the layout runs it once and passes the
+ * array through `capList()`. Set membership is not a capability decision.
+ *
+ * An href this map does not know returns TRUE, unchanged from the `default:`
+ * that preceded it — the portal rail's sections are a fixed list in
+ * components/layout/Sidebar.tsx, not URL input, so an unknown href here is a
+ * link somebody added to that list and not an attack surface. This is the
+ * OPPOSITE of orgFeatureAllowed's unmapped→deny, and the difference is exactly
+ * that one takes a URL segment and this one does not.
+ */
+export function clientNavAllowed(caps: readonly string[] | ReadonlySet<string>, href: string): boolean {
+  const cap = CLIENT_NAV_CAP[href]
+  if (cap === undefined) return true
+  if (cap === null) return true
+  return holds(caps, cap)
+}
+
+/** Set-or-array membership. The rails receive an array (props do not carry a
+ *  Set); server callers hold the ReadonlySet resolveCaps returns. */
+function holds(caps: readonly string[] | ReadonlySet<string>, cap: string): boolean {
+  return Array.isArray(caps) ? caps.includes(cap) : (caps as ReadonlySet<string>).has(cap)
 }
 
 // ── organization side (studio) ──────────────────────────────────────────────
@@ -103,19 +151,14 @@ export const ORG_ROLE_HELP: Record<OrgRole, string> = {
 }
 
 
-/** Union-of-roles capability check, plus per-member grants on top. */
-export function orgCan(
-  role: OrgRole | OrgRole[] | null | undefined,
-  cap: OrgCap,
-  extra?: readonly string[] | null
-): boolean {
-  // Extras are normalized on READ through 0051's alias table, so a row still
-  // holding a pre-rename snake_case value keeps resolving for the length of a
-  // rollout. Without it the rename would silently strip granted access.
-  if (extra?.some((e) => (LEGACY_ORG_CAP[e] ?? e) === cap)) return true
-  const list = Array.isArray(role) ? role : role ? [role] : []
-  return list.some((r) => ORG_ROLE_BASELINE[r]?.includes(cap))
-}
+/* orgCan() WAS HERE. Deleted in Batch 26 item 8 — see this file's header.
+   Its replacement is `can(user, 'money.invoice.send')` / `hasCap(user, cap)`.
+   Two of its four call sites are worth recording because they were wrong in
+   DIFFERENT ways: app/api/admin/invoice-actions/route.ts passed extra_caps and
+   so honoured grants but not denials, while
+   app/api/studio/organization/logo/route.ts passed NO extras at all — so a
+   GRANTED org.settings was refused there, the mirror image of the Batch 25
+   roster-route defect, in the route that writes the studio's own logo. */
 
 /** Org-side capabilities an owner/admin may grant individually, with labels. */
 export const ORG_GRANTABLE: { cap: OrgCap; label: string }[] = [
@@ -210,33 +253,29 @@ export function approvalActionCap(side: 'crew' | 'client', action: ApprovalActio
   return side === 'crew' ? ORG_APPROVAL_CAP[action] : CLIENT_APPROVAL_CAP[action]
 }
 
-/** May this crew member take this action on an approval? Default-deny. */
-export function orgCanApproval(
-  role: OrgRole | OrgRole[] | null | undefined,
-  action: ApprovalAction,
-  extra?: readonly string[] | null
-): boolean {
-  const cap = ORG_APPROVAL_CAP[action]
-  if (!cap) return false // unmapped action → denied
-  return orgCan(role, cap, extra)
-}
+/* orgCanApproval() WAS HERE, and clientCanApproval() below it. Both deleted in
+   Batch 26 item 8. `approvalActionCap()` above already exposes the stored cap an
+   action resolves to — which is what the R-11 sweep uses, and it is the ONE
+   consumer that was already correct — so a caller now writes
+   `hasCap(user, approvalActionCap('crew', 'create'))` and gets the denial
+   subtracted. The comment on approvalActionCap explains why it had to be
+   exported; item 8 is that reasoning applied to every other caller instead of
+   one. */
 
 /**
- * May this portal member take this action on an approval? Default-deny.
+ * The stored capability a portal approval action needs, or the `'never'`
+ * sentinel. `approvalActionCap('client', action)` is the same answer through the
+ * overloaded accessor; this exists because 'never' is not a ClientCap and a
+ * caller must be able to tell "no capability can grant this" from "resolve this
+ * capability".
  *
  * This answers ROLE authority only. Whether a given person may decide on a
  * given STAGE is a question about assignment, and it is answered by 0038's
  * approval_decisions INSERT policy (can_decide_on_stage) — in the database,
  * where a direct write cannot route around it.
  */
-export function clientCanApproval(
-  role: ClientRole | null | undefined,
-  action: ApprovalAction,
-  extra?: readonly string[] | null
-): boolean {
-  const cap = CLIENT_APPROVAL_CAP[action]
-  if (!cap || cap === 'never') return false
-  return clientCan(role, cap, extra)
+export function clientApprovalCapOrNever(action: ApprovalAction): ClientCap | 'never' {
+  return CLIENT_APPROVAL_CAP[action]
 }
 
 /**
@@ -304,15 +343,29 @@ const ORG_FEATURE_CAP: Record<FeatureKey, OrgCap | null> = {
  *               would make the map unable to express "everyone".
  *   a cap     → allowed iff the role or an extra_caps grant carries it.
  */
+export function orgFeatureCap(spaceId: string, slug: string): OrgCap | null | undefined {
+  return ORG_FEATURE_CAP[`${spaceId}/${slug}` as FeatureKey]
+}
+
+/**
+ * TAKES THE RESOLVED SET, NOT A ROLE (Batch 26 item 8). Both callers —
+ * lib/studio/guard.ts for a typed URL and components/studio/StudioSidebar.tsx
+ * for the rail — now pass the set `resolveCaps()` produced, so a denial hides
+ * the tile and refuses the URL in the same tick. Before this, neither could see
+ * one: the rail drew every tile the ROLE carried and the guard admitted every
+ * URL the role carried, whatever an owner had withdrawn.
+ *
+ * The three outcomes are unchanged, and the unmapped→deny one is why this
+ * function still exists rather than collapsing into a set lookup at the call
+ * site: spaceId and slug arrive from the URL.
+ */
 export function orgFeatureAllowed(
-  role: OrgRole | OrgRole[] | null | undefined,
+  caps: readonly string[] | ReadonlySet<string>,
   spaceId: string,
   slug: string,
-  extra?: readonly string[] | null
 ): boolean {
-  const cap: OrgCap | null | undefined =
-    ORG_FEATURE_CAP[`${spaceId}/${slug}` as FeatureKey]
+  const cap = orgFeatureCap(spaceId, slug)
   if (cap === undefined) return false // unmapped → denied
   if (cap === null) return true // explicitly public, deliberate
-  return orgCan(role, cap, extra)
+  return holds(caps, cap)
 }

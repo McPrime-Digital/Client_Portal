@@ -2,7 +2,7 @@ import { userRole } from '@/lib/auth/role'
 import { createClient } from '@/lib/supabase/server'
 import { resolveUploadScope } from '@/lib/uploadScope'
 import { clientMembershipOf } from '@/lib/team'
-import { clientCan } from '@/lib/permissions'
+import { can } from '@/lib/capabilities.server'
 import {
   createMultipartUpload,
   signUploadParts,
@@ -90,7 +90,8 @@ export async function POST(req: NextRequest) {
     // not by the company capability an external collaborator does not have.
     if (role === 'client' && !input.roomId) {
       const membership = await clientMembershipOf(user)
-      if (!membership || !clientCan(membership.role, 'portal.upload', membership.extraCaps)) {
+      // Resolved, not derived (Batch 26 item 8) — see /api/files/presign.
+      if (!membership || !(await can(user, 'portal.upload'))) {
         return NextResponse.json(
           { error: 'Your role is view-only — uploads are not available.' },
           { status: 403 }

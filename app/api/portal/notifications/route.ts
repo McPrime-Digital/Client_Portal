@@ -1,5 +1,5 @@
 import { portalClientId, portalAccess } from '@/lib/team'
-import { clientCan } from '@/lib/permissions'
+import { can } from '@/lib/capabilities.server'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -46,8 +46,13 @@ export async function GET() {
 
   // Role shelling: billing events exist only for roles that hold the invoices
   // cap; project-scoped members see only their listed projects' events.
+  // Resolved, not derived (Batch 26 item 8), and the `?? 'owner'` fallback is
+  // gone with it — a default that assumed the most powerful portal role at the
+  // exact moment membership could not be resolved (HANDOFF §12 lesson 3). It
+  // governed whether INVOICE events reach the bell, so the old default leaked
+  // billing activity to an unresolvable session.
   const access = await portalAccess(user)
-  const canBilling = clientCan(access?.role ?? 'owner', 'portal.invoices', access?.extraCaps)
+  const canBilling = await can(user, 'portal.invoices')
   const visible = (notifications ?? []).filter(
     (n) =>
       (canBilling || !String(n.type).includes('invoice')) &&

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { portalAccess } from '@/lib/team'
-import { clientCanApproval } from '@/lib/permissions'
+import { canApproval } from '@/lib/capabilities.server'
 import { readApproval } from '@/lib/approvals'
 import { captureError } from '@/lib/errors'
 
@@ -24,7 +24,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
   const access = await portalAccess(user)
   if (!access) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (!clientCanApproval(access.role, 'decide', access.extraCaps)) {
+  // Resolved, not derived (Batch 26 item 8).
+  if (!(await canApproval(user, 'client', 'decide'))) {
     return NextResponse.json({ error: 'Not available for your role.' }, { status: 403 })
   }
 

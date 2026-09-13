@@ -1,4 +1,4 @@
-import { clientCan } from '@/lib/permissions'
+import { can } from '@/lib/capabilities.server'
 import { portalClientId, portalAccess } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -170,11 +170,28 @@ export default async function DashboardPage() {
   )
   const projectIds = scopedProjects.map((p) => p.id)
   const hasProjects = projectIds.length > 0
-  // Role shelling — billing exists ONLY for roles that hold the invoices cap.
-  const canBilling = clientCan(access?.role ?? 'owner', 'portal.invoices', access?.extraCaps)
-  const canApproveRole = clientCan(access?.role ?? 'owner', 'portal.approve', access?.extraCaps)
-  const canVault = clientCan(access?.role ?? 'owner', 'portal.upload', access?.extraCaps)
-  const isViewer = (access?.role ?? 'owner') === 'viewer'
+  // CAPABILITY SHELLING — billing, approvals and the vault exist only for a
+  // person who HOLDS the capability, resolved rather than derived from a role
+  // (Batch 26 item 8). A denial now removes the shelf; `clientCan` could not see
+  // one, so a withdrawn capability left its tiles on the dashboard.
+  //
+  // THE `?? 'owner'` FALLBACK IS GONE, and that is a deliberate narrowing.
+  // `access` is null only when the session has no active client_members row, and
+  // the old default answered that case by assuming the most powerful portal role
+  // in the company — HANDOFF §12 lesson 3's exact shape: a default that fires
+  // precisely when identity could not be resolved, asserting the maximum. It
+  // affects nobody live (all eight production portal members hold an active row
+  // with a correct organization_id claim — verified 2026-09-12), and it cannot
+  // strand anyone, because these are render flags and not redirects.
+  const [canBilling, canApproveRole, canVault] = await Promise.all([
+    can(user, 'portal.invoices'),
+    can(user, 'portal.approve'),
+    can(user, 'portal.upload'),
+  ])
+  // A ROLE predicate, not a capability one, so it stays a role read — but the
+  // `?? 'owner'` is dropped for the same reason as above: identical behaviour
+  // (null access → not a viewer) without asserting a role nobody resolved.
+  const isViewer = access?.role === 'viewer'
 
   const [
     { data: tasks },

@@ -1,5 +1,5 @@
 import ApprovalRecord from '@/components/shared/ApprovalRecord'
-import { clientCan } from '@/lib/permissions'
+import { can } from '@/lib/capabilities.server'
 import { portalClientId, portalAccess } from '@/lib/team'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
@@ -85,7 +85,12 @@ export default async function ClientApprovalsPage() {
     .eq('client_id', client.id)
   // Approvals belong to roles that can act on them — others never see this page.
   const access = await portalAccess(user)
-  if (access && !clientCan(access.role, 'portal.approve', access.extraCaps)) redirect('/dashboard')
+  // Resolved, not derived (Batch 26 item 8): `can()` subtracts DENIALS, which
+  // clientCan() could not see. The `access &&` precondition is deliberately
+  // unchanged — a session with no client_members row skips this guard today,
+  // which is a separate pre-existing hole reported in HANDOFF, not one this
+  // item closes by side effect.
+  if (access && !(await can(user, 'portal.approve'))) redirect('/dashboard')
 
   const scoped = (projects ?? []).filter(
     (p) => !access?.projectIds || access.projectIds.includes(p.id)

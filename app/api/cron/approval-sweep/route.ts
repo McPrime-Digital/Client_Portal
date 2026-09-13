@@ -145,8 +145,15 @@ async function recipientsForStage(
  * deliberately made the five approval concerns ACTIONS resolving onto existing
  * stored caps (lib/permissions.ts:152-158), because every new stored string is a
  * value that can end up in an extra_caps row. So "can this person decide" is
- * orgCanApproval('decide') crew-side and clientCanApproval('decide')
- * client-side, over each assignee's own resolved capability set.
+ * approvalActionCap('crew' | 'client', 'decide') over each assignee's own
+ * resolved capability set.
+ *
+ * Batch 26 item 8 deleted orgCanApproval/clientCanApproval, which this comment
+ * used to name. THIS FUNCTION DID NOT CHANGE — it was the one consumer already
+ * resolving correctly, and item 8 is that resolution applied to the other seven.
+ * `canApproval()` in lib/capabilities.server.ts is now the shape for a caller
+ * asking about THEMSELVES; this stays hand-rolled for the reason resolveEffective
+ * states below (no session, and the question is about somebody else).
  *
  * The resolution reads the ROSTER per assignee (S-R R-2), including their
  * individual grants and denials — a DENY is exactly how someone loses the
@@ -201,8 +208,8 @@ async function anyAssigneeCanDecide(
  * MINUS live denials — the same order has_cap() uses, and the order is the rule.
  *
  * DENY SUBTRACTS LAST, and it must subtract from the BASELINE too. The first
- * version of this check handed the extras to clientCanApproval() instead, which
- * ORs the role baseline — so a client owner DENIED portal.approve still read as
+ * version of this check handed the extras to the deleted clientCanApproval()
+ * instead, which ORed the role baseline — so a client owner DENIED portal.approve still read as
  * able to decide, because `owner` carries it by baseline. The probe's negative
  * run caught it: the stage lapsed when it should have been blocked, which is
  * exactly the wrong record R-11 exists to prevent.

@@ -2,8 +2,9 @@ import { z } from 'zod'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { isAdmin } from '@/lib/auth/role'
-import { orgAccessOf, rosterName } from '@/lib/team'
-import { orgCanApproval, type ApprovalAction } from '@/lib/permissions'
+import { rosterName } from '@/lib/team'
+import { approvalActionCap, type ApprovalAction } from '@/lib/permissions'
+import { hasCap } from '@/lib/capabilities.server'
 import {
   recordDecision, setCommentPermission, setReviewWindow, withdrawApproval,
 } from '@/lib/approvals'
@@ -68,8 +69,9 @@ export async function POST(req: NextRequest) {
   }
   const body = parsed.data
 
-  const access = await orgAccessOf(user)
-  if (!orgCanApproval(access.roles, CAP_FOR[body.action], access.extraCaps)) {
+  // RESOLVED, NOT DERIVED (Batch 26 item 8) — a denial now refuses the action.
+  // orgAccessOf() removed with orgCanApproval — resolveCaps does the roster read.
+  if (!(await hasCap(user, approvalActionCap('crew', CAP_FOR[body.action])))) {
     return NextResponse.json({ error: 'You cannot take that action.' }, { status: 403 })
   }
 

@@ -1,4 +1,4 @@
-import { clientCan } from '@/lib/permissions'
+import { can } from '@/lib/capabilities.server'
 import { tenantBrand } from '@/lib/tenantBrand'
 import { portalClientId, portalAccess } from '@/lib/team'
 import { createClient } from '@/lib/supabase/server'
@@ -55,7 +55,7 @@ export default async function MessagesPage() {
       orgId={client.organization_id}
       projects={visibleProjects}
       unread={{ general: unread.general, byProject: unread.byProject }}
-      canSend={clientCan(access?.role ?? 'owner', 'portal.message', access?.extraCaps)}
+      canSend={await can(user, 'portal.message')}
       /* Only a company OWNER opens a direct line to the studio (the owner's
          rule, 2026-09-03). Everyone else participates in the DMs and groups
          they are seated in; nobody in the portal creates a group — those come

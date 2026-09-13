@@ -1,4 +1,5 @@
 import { clientMembershipOf } from '@/lib/team'
+import { capList } from '@/lib/capabilities.server'
 import { redirect } from 'next/navigation'
 import { getCurrentUser } from '@/lib/auth/currentUser'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -115,7 +116,6 @@ export default async function PortalLayout({
   // The signed-in person's OWN identity — never the company owner's.
   const memberRole = membership?.role ?? 'viewer'
   const memberName = membership?.name ?? fallbackClient.name
-  const memberExtra = membership?.extraCaps ?? []
   const memberTitle = membership?.title ?? null
 
   // The tenant this portal session belongs to. Read from the client company's
@@ -135,6 +135,11 @@ export default async function PortalLayout({
   // owns both reads.
   const brand = await tenantBrand(orgId)
 
+  // Resolved AFTER the brand read rather than beside it because resolveCaps is
+  // memoised per request and every portal page guard in this tree is about to
+  // ask for it — so this is the one read, not an extra one.
+  const caps = await capList(user)
+
   return (
     <div className="app-canvas flex h-screen gap-2 overflow-hidden p-2 sm:gap-3 sm:p-3">
       <PresencePulse
@@ -151,8 +156,10 @@ export default async function PortalLayout({
         orgName={brand.name}
         orgLogoUrl={brand.logoUrl}
         showsAttribution={brand.showsAttribution}
-        memberRole={memberRole}
-        memberExtra={memberExtra}
+        // THE RESOLVED SET (Batch 26 item 8) — baseline ∪ extras ∪ grants −
+        // denials, resolved server-side on the user client. The rail tests
+        // membership; it no longer re-derives authority from a role string.
+        caps={caps}
       />
       <div className="flex min-w-0 flex-1 flex-col gap-2 overflow-hidden sm:gap-3">
         <Topbar clientName={memberName} clientId={(activeClient as any).id} memberRole={memberRole} roleTitle={memberTitle} />

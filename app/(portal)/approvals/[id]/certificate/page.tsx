@@ -1,7 +1,8 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { portalAccess } from '@/lib/team'
-import { clientCanApproval } from '@/lib/permissions'
+import { approvalActionCap } from '@/lib/permissions'
+import { can } from '@/lib/capabilities.server'
 import { readApproval } from '@/lib/approvals'
 import { tenantBrandForClient } from '@/lib/tenantBrand'
 import ApprovalCertificate from '@/components/shared/ApprovalCertificate'
@@ -29,7 +30,13 @@ export default async function PortalCertificatePage(
 
   const access = await portalAccess(user)
   if (!access) redirect('/dashboard')
-  if (!clientCanApproval(access.role, 'decide', access.extraCaps)) redirect('/dashboard')
+  // approvalActionCap resolves the ACTION to the stored cap; can() resolves the
+  // person. Split that way because 'decide' maps to portal.approve through a
+  // table (S3-c), and a page should not hardcode which capability an action
+  // needs — that is the mapping clientCanApproval() owned and got right; what it
+  // got wrong was the resolution, which is now the resolver's.
+  const need = approvalActionCap('client', 'decide')
+  if (need === 'never' || !(await can(user, need))) redirect('/dashboard')
 
   // RLS is the filter: an approval outside this company — or an INTERNAL one —
   // simply is not returned (0038), so there is no branch here that could get

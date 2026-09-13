@@ -2,9 +2,9 @@ import { z } from 'zod'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
-import { orgAccessOf, rosterName } from '@/lib/team'
-import { orgCanApproval } from '@/lib/permissions'
-import { capGate } from '@/lib/capabilities.server'
+import { rosterName } from '@/lib/team'
+import { approvalActionCap } from '@/lib/permissions'
+import { capGate, hasCap } from '@/lib/capabilities.server'
 import { createApproval, listApprovals, type SubjectKind } from '@/lib/approvals'
 import { captureError } from '@/lib/errors'
 
@@ -109,8 +109,19 @@ export async function POST(req: NextRequest) {
   // The ROSTER decides, not the claim (S2). 'create' rides run_projects, so a
   // member who runs projects can open one without being able to move the
   // deadline the studio promised (item 3's tiering).
-  const access = await orgAccessOf(user)
-  if (!orgCanApproval(access.roles, 'create', access.extraCaps)) {
+  // RESOLVED, NOT DERIVED (Batch 26 item 8). `orgCanApproval` ORed the role
+  // baseline with extra_caps and stopped, so a DENIED work.projects still opened
+  // approvals. `approvalActionCap` is the same action→capability map it used; it
+  // is the RESOLUTION that moves. Exactly the correction the R-11 sweep already
+  // carries in app/api/cron/approval-sweep/route.ts:177 — applied to the route
+  // that creates the record, not just the one that reports on it.
+  // The orgAccessOf() read that used to sit here is GONE, not merely unused:
+  // its only job was feeding orgCanApproval, and hasCap → resolveCaps performs
+  // the roster read itself (S-R §5 step 0). So membership is still enforced, and
+  // by the resolver rather than beside it — which matters here because the check
+  // above is isAdmin(user), and that claim is 'admin' for EVERY crew member
+  // whatever their roster role (CLAUDE.md). It routes; it authorizes nothing.
+  if (!(await hasCap(user, approvalActionCap('crew', 'create')))) {
     return NextResponse.json({ error: 'You cannot open approvals.' }, { status: 403 })
   }
 
@@ -125,7 +136,7 @@ export async function POST(req: NextRequest) {
 
   // Setting a per-approval window is a SEPARATE capability from opening one —
   // otherwise 'create' would be a way to buy 'set_window' (item 3).
-  if (body.reviewWindowHours != null && !orgCanApproval(access.roles, 'set_window', access.extraCaps)) {
+  if (body.reviewWindowHours != null && !(await hasCap(user, approvalActionCap('crew', 'set_window')))) {
     return NextResponse.json(
       { error: 'You cannot set a review window. Leave it unset to use the studio default.' },
       { status: 403 }

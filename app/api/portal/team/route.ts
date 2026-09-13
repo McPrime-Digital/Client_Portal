@@ -4,9 +4,9 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { userOrgId } from '@/lib/auth/role'
 import { cutMemberAccess, restoreClientAccess, statusCutsAccess } from '@/lib/memberAccess'
 import { clientMembershipOf } from '@/lib/team'
-import { clientCan, CLIENT_GRANTABLE } from '@/lib/permissions'
+import { CLIENT_GRANTABLE } from '@/lib/permissions'
+import { can, resolveCaps } from '@/lib/capabilities.server'
 import { setMemberGrants, listMemberGrants, recordRoleChange, type DesiredGrant } from '@/lib/grants'
-import { CLIENT_ROLE_BASELINE } from '@/lib/capabilities'
 import { recordUsage } from '@/lib/usage'
 import { createAdminNotification } from '@/lib/notify'
 import { sendTenantInvite } from '@/lib/email/invite'
@@ -31,7 +31,7 @@ async function requireMembership() {
 export async function GET() {
   const gate = await requireMembership()
   if ('error' in gate) return gate.error
-  const { membership } = gate
+  const { user, membership } = gate
   const [{ data: members }, { data: company }, { data: projects }] = await Promise.all([
     supabaseAdmin
       .from('client_members')
@@ -45,16 +45,20 @@ export async function GET() {
   // The live grants, plus the ACTOR's own ceiling so the picker can offer only
   // what they hold (G-1 offered rather than discovered — see admin/team's note).
   const grants = await listMemberGrants(gate.supabase, 'client', (members ?? []).map((m) => m.id as string))
-  const mine = new Set<string>([
-    ...(CLIENT_ROLE_BASELINE[membership.role] ?? []),
-    ...(membership.extraCaps ?? []),
-  ])
+  // THE CEILING IS RESOLVED TOO (Batch 26 item 8). This built the granter's own
+  // set as baseline ∪ extra_caps — deny-blind, like everything else this item
+  // replaced — so a client owner who had been DENIED a capability was still
+  // offered it in the picker, and G-1's trigger would have refused the write. A
+  // picker that offers what the trigger refuses turns a rule into a bug report,
+  // which is the note app/api/admin/team/route.ts already carries; that route
+  // resolves properly (`resolveCaps(user)` at :87) and this one did not.
+  const mine = (await resolveCaps(user)).caps
   return NextResponse.json({
     members: members ?? [],
     grants: Object.fromEntries(grants),
     myCaps: [...mine],
     myRole: membership.role,
-    canManage: clientCan(membership.role, 'portal.team', membership.extraCaps),
+    canManage: await can(user, 'portal.team'),
     invitePolicy: company?.invite_policy ?? 'open',
     projects: projects ?? [],
   })
@@ -64,7 +68,9 @@ export async function POST(req: NextRequest) {
   const gate = await requireMembership()
   if ('error' in gate) return gate.error
   const { user, membership } = gate
-  if (!clientCan(membership.role, 'portal.team', membership.extraCaps)) {
+  // Resolved, not derived (Batch 26 item 8) — three gates in this file, one
+  // answer, and a denial now closes all three.
+  if (!(await can(user, 'portal.team'))) {
     return NextResponse.json({ error: 'You need team-management access to invite teammates.' }, { status: 403 })
   }
 
@@ -163,8 +169,8 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const gate = await requireMembership()
   if ('error' in gate) return gate.error
-  const { membership } = gate
-  if (!clientCan(membership.role, 'portal.team', membership.extraCaps)) return NextResponse.json({ error: 'You need team-management access to manage teammates.' }, { status: 403 })
+  const { user, membership } = gate
+  if (!(await can(user, 'portal.team'))) return NextResponse.json({ error: 'You need team-management access to manage teammates.' }, { status: 403 })
   const { memberId, role, status, extraCaps, title, grants } = await req.json().catch(() => ({}))
   if (!memberId) return NextResponse.json({ error: 'memberId required.' }, { status: 400 })
   if (role !== undefined && !INVITABLE_ROLES.includes(role)) return NextResponse.json({ error: 'Invalid role.' }, { status: 400 })
@@ -283,7 +289,7 @@ export async function DELETE(req: NextRequest) {
   const gate = await requireMembership()
   if ('error' in gate) return gate.error
   const { user, membership } = gate
-  if (!clientCan(membership.role, 'portal.team', membership.extraCaps)) return NextResponse.json({ error: 'You need team-management access to remove teammates.' }, { status: 403 })
+  if (!(await can(user, 'portal.team'))) return NextResponse.json({ error: 'You need team-management access to remove teammates.' }, { status: 403 })
   const { memberId } = await req.json().catch(() => ({}))
   const { data: target } = await supabaseAdmin
     .from('client_members')

@@ -107,6 +107,58 @@ const NO_SUPABASE_MAILER = [
   },
 ]
 
+/**
+ * S-R §5's "one resolver", as a ratchet (Batch 26 item 8).
+ *
+ * The role baselines are DATA — `lib/capabilities.ts` declares them and
+ * `scripts/gen-capability-sql.ts` generates `role_baseline()` in SQL from them.
+ * Reading them to ANSWER a permission question is the defect item 8 removed from
+ * 28 call sites: `baseline(role) OR extra_caps.includes(cap)` cannot see a
+ * DENIAL, because `extra_caps` is a projection of the grant rows only
+ * (lib/grants.ts:149-153). Four functions did exactly that and are deleted.
+ *
+ * This is the invariant rather than the cleanup, for the reason NO_RAW_APP_URL
+ * states above and HANDOFF §12 lesson 1 states generally: converting 28 sites
+ * without banning the 29th leaves a repair. And the 29th is easy to write —
+ * `ORG_ROLE_BASELINE[role]?.includes(cap)` reads as obviously correct, is one
+ * line, and is wrong in a direction nothing tests.
+ *
+ * THREE readers are legitimate and each is exempted below with its reason:
+ *   · lib/capabilities.server.ts   — IS the resolver
+ *   · scripts/gen-capability-sql.ts — generates the SQL and checks the parity
+ *   · app/api/cron/approval-sweep/route.ts — answers about SOMEBODY ELSE, with
+ *     no session to resolve through, and it already subtracts denials (it is the
+ *     one consumer that was correct before this batch)
+ */
+const NO_BASELINE_AS_ORACLE = [
+  {
+    selector: "ImportSpecifier[imported.name='ORG_ROLE_BASELINE']",
+    message:
+      'Do not resolve capability from a role baseline — it cannot see a DENIAL (extra_caps carries grants only). Ask can()/hasCap() from @/lib/capabilities.server, the one resolver (S-R §5, R-3).',
+  },
+  {
+    selector: "ImportSpecifier[imported.name='CLIENT_ROLE_BASELINE']",
+    message:
+      'Do not resolve capability from a role baseline — it cannot see a DENIAL (extra_caps carries grants only). Ask can()/hasCap() from @/lib/capabilities.server, the one resolver (S-R §5, R-3).',
+  },
+]
+
+/**
+ * EVERY syntax rule, in one place — so the restatement blocks below can subtract
+ * what they exempt instead of re-listing what they keep.
+ *
+ * Written this way because the blocks USED to re-list, and that made every new
+ * rule a four-place edit whose failure mode is silence: forget one line and the
+ * rule is simply off for 69 files, with lint fully green. The getSession comment
+ * on the allowlist block already names that hazard; this removes it rather than
+ * warning about it again.
+ */
+const ALL_SYNTAX = [
+  NO_GET_SESSION, ...NO_SERVICE_ROLE_KEY, NO_RAW_APP_URL, ...NO_SUPABASE_MAILER,
+  ...NO_BASELINE_AS_ORACLE,
+]
+const except = (...lifted) => ALL_SYNTAX.filter((r) => !lifted.flat().includes(r))
+
 const eslintConfig = [
   ...nextCoreWebVitals,
   ...nextTypescript,
@@ -123,7 +175,7 @@ const eslintConfig = [
   },
   {
     rules: {
-      'no-restricted-syntax': ['error', NO_GET_SESSION, ...NO_SERVICE_ROLE_KEY, NO_RAW_APP_URL, ...NO_SUPABASE_MAILER],
+      'no-restricted-syntax': ['error', ...ALL_SYNTAX],
       'no-restricted-imports': ['error', NO_ADMIN_IMPORT],
     },
   },
@@ -135,7 +187,7 @@ const eslintConfig = [
     files: SERVICE_ROLE_ALLOWLIST,
     rules: {
       'no-restricted-imports': 'off',
-      'no-restricted-syntax': ['error', NO_GET_SESSION, NO_RAW_APP_URL, ...NO_SUPABASE_MAILER],
+      'no-restricted-syntax': ['error', ...except(NO_SERVICE_ROLE_KEY)],
     },
   },
   {
@@ -152,7 +204,7 @@ const eslintConfig = [
     // others are restated, for the reason given on the allowlist block above.
     files: ['lib/appOrigin.ts'],
     rules: {
-      'no-restricted-syntax': ['error', NO_GET_SESSION, ...NO_SERVICE_ROLE_KEY, ...NO_SUPABASE_MAILER],
+      'no-restricted-syntax': ['error', ...except(NO_RAW_APP_URL)],
     },
   },
   {
@@ -160,7 +212,20 @@ const eslintConfig = [
     // Only the mailer ban is lifted here; the rest are restated.
     files: ['lib/email/invite.ts'],
     rules: {
-      'no-restricted-syntax': ['error', NO_GET_SESSION, NO_RAW_APP_URL],
+      'no-restricted-syntax': ['error', ...except(NO_SUPABASE_MAILER, NO_SERVICE_ROLE_KEY)],
+    },
+  },
+  {
+    // The three legitimate readers of a role baseline (see NO_BASELINE_AS_ORACLE).
+    // Only that ban is lifted; everything else is still in force, which is the
+    // whole point of `except()`.
+    files: [
+      'lib/capabilities.server.ts',
+      'scripts/gen-capability-sql.ts',
+      'app/api/cron/approval-sweep/route.ts',
+    ],
+    rules: {
+      'no-restricted-syntax': ['error', ...except(NO_BASELINE_AS_ORACLE)],
     },
   },
 ]

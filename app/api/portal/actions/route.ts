@@ -5,15 +5,19 @@ import { createAdminNotification, pushMessageAlert } from '@/lib/notify'
 import { messagePreview } from '@/lib/messagePreview'
 import { recordActivity } from '@/lib/logActivity.server'
 import { mirrorLegacyTaskDecision } from '@/lib/approvals'
-import { clientMembershipOf, type ClientRole } from '@/lib/team'
-import { clientCan } from '@/lib/permissions'
+import { clientMembershipOf } from '@/lib/team'
+import { can } from '@/lib/capabilities.server'
 import { ensureClientRoom } from '@/lib/messageRooms'
 import { verifyAttachment, writeAttachmentRow } from '@/lib/messageAttachments'
 import { writeMentions, notifyMentions } from '@/lib/messageMentions'
 
 // Verify the calling user belongs to a client company — the primary login
-// (clients.user_id) or an invited teammate (client_members). Returns the
-// member's role so approval actions can be role-gated.
+// (clients.user_id) or an invited teammate (client_members).
+//
+// It no longer returns a role or an extras array (Batch 26 item 8): both existed
+// only to be handed to clientCan(), and carrying a deny-blind pair around after
+// the thing that consumed it is gone is how the next reader reaches for it again.
+// This answers MEMBERSHIP; can() answers capability.
 async function verifyClient() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -29,7 +33,7 @@ async function verifyClient() {
     .single()
 
   return client
-    ? { user, client, memberRole: membership.role as ClientRole, memberName: membership.name, memberExtra: membership.extraCaps }
+    ? { user, client, memberName: membership.name }
     : null
 }
 
@@ -61,7 +65,11 @@ export async function POST(req: NextRequest) {
 
       // ── Client approves a shared task ───────────────────────
       case 'approve_task': {
-        if (!clientCan(auth.memberRole, 'portal.approve', auth.memberExtra)) {
+        // Resolved, not derived (Batch 26 item 8): three gates in this file
+        // asked clientCan(), which ORs the role baseline with extra_caps and can
+        // never see a DENIAL. An owner who withdrew portal.approve from an
+        // approver was still approved through by this handler.
+        if (!(await can(auth.user, 'portal.approve'))) {
           return NextResponse.json({ error: 'Your role does not include approvals.' }, { status: 403 })
         }
         const { task_id, note, attachment_url, attachment_name, attachment_file_id } = body
@@ -150,7 +158,7 @@ export async function POST(req: NextRequest) {
       // Client requests changes on an approval-gate task. A note is required
       // and is auto-posted into the project chat for further discussion.
       case 'request_changes': {
-        if (!clientCan(auth.memberRole, 'portal.approve', auth.memberExtra)) {
+        if (!(await can(auth.user, 'portal.approve'))) {
           return NextResponse.json({ error: 'Your role does not include approvals.' }, { status: 403 })
         }
         const { task_id, note, attachment_url, attachment_name, attachment_file_id } = body
@@ -231,7 +239,7 @@ export async function POST(req: NextRequest) {
       }
 
       case 'send_message': {
-        if (!clientCan(auth.memberRole, 'portal.message', auth.memberExtra)) {
+        if (!(await can(auth.user, 'portal.message'))) {
           return NextResponse.json({ error: 'Your role is view-only — messaging is not available.' }, { status: 403 })
         }
         const {
