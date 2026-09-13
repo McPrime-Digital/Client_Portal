@@ -115,8 +115,8 @@ Note: dynamic-route `params` and `next/headers` `cookies()` are async (Promises)
 There is no unit-test framework configured. There are now TWO test surfaces, and both must
 be run after anything touching policies, auth, capabilities or tenancy:
 
-- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **52 assertions**, numbered
-  1–52 with none reserved (slot 21 was held for the retention purge and 0071 filled
+- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **53 assertions**, numbered
+  1–53 with none reserved (slot 21 was held for the retention purge and 0071 filled
   it), every one with a positive control, seeded by
   `npm run seed:harness -- --apply`). Seed, then run ONCE:
   assertion 17 is single-use and reports VACUOUS on a second run without a re-seed.
@@ -323,9 +323,9 @@ Walk each of these paths mentally before saving an edit to `proxy.ts`.
 - `app/api/` — route handlers for files, portal, admin, studio, rooms, cron,
   presence, push, and the Stripe webhook. This entry was off by one twice when
   it carried a number — count it (`find app/api -name route.ts | wc -l`),
-  don't quote it (**60** today — Batch 26 ended at 57; `app/api/admin/budgets`,
-  `app/api/studio/provenance` and `app/api/studio/calendar` are the three added
-  since). `app/api/rooms*` (Batch 23) is the
+  don't quote it (**63** today — Batch 26 ended at 57; `admin/budgets`,
+  `studio/provenance`, `studio/calendar`, `studio/scheduling`,
+  `studio/contracts` and `portal/contracts` are the six added since). `app/api/rooms*` (Batch 23) is the
   S3-d surface: room list/create (channels, groups, broadcast, DMs), seating,
   and room-addressed messages — zod-validated, and the WRITES run on the user
   client so the 0046 policies are the authorization (AD-001 as written; the
@@ -470,6 +470,31 @@ CASCADE. That guard closed a live defect — `activity_log.project_id` and
 `.client_id` were `ON DELETE CASCADE`, so deleting a client company destroyed
 its ledger silently. Both are `SET NULL` now.
 
+## Contracts and signatures — what carries enforceability
+
+`lib/contracts.ts` is the one write path; `/api/studio/contracts` drafts, staffs
+and sends; `/api/portal/contracts` consents, signs and declines. The signing
+record (`contract_events`) is append-only by TRIGGER for everyone including the
+service role.
+
+Three things carry ESIGN/UETA and all three are mechanical, not cosmetic:
+
+- **Consent BEFORE signature.** `sign()` refuses without a `consented` event for
+  that signer, and the exact wording is stored ON the event — "they consented"
+  is worth nothing in a dispute without "to this text". `CONSENT_TEXT` is
+  server-owned so the studio and the portal cannot show two different sentences.
+- **`content_hash` is taken at SEND and never recomputed.** A hash that moved
+  with the document would prove the opposite of what it is for. After send, the
+  body is not editable through this module.
+- **Identity, not capability.** A client owner holding every portal capability
+  still cannot sign for a colleague: the signer row is resolved from
+  `auth.uid()` and never from the request body, and
+  `contract_signers_self_update` enforces it on the row (assertion 53).
+
+NOT BUILT, deliberately: PDF field placement, and the single-use signing link
+for a non-member. `S3-b` §7 answer 2 puts v1 on real accounts, and that link is
+a service-role surface on a legal document.
+
 ## Provenance — the disclosure a studio can be asked for
 
 `asset_provenance` (0001, dormant until 0064) records **accepted** AI
@@ -493,8 +518,14 @@ generations. `lib/provenance.ts` is the one write path and
 
 `supabase/migrations/` holds one numbering scheme (`00NN`); the retired `2026*` scheme is fenced in `_archive/`:
 
-- `0000_baseline_schema.sql` … `0074_calendar_projections.sql` — the current
+- `0000_baseline_schema.sql` … `0075_booking_calendar.sql` — the current
   source of truth, **all applied** (verified live 2026-09-13).
+  **0075 closes the edge between bookings and the calendar** — `S3-b` §1.1:
+  "Bookings produce calendar entries." A confirmed booking projects onto the
+  calendar and a cancelled one is REMOVED, because a calendar holding cancelled
+  bookings shows time as busy when it is free. `source_kind` gains `'booking'`;
+  reusing `'meeting'` would make the two indistinguishable the day meetings get
+  their own projection.
   **0074 gives `calendar_entries` its writers**, which 0065 created without.
   Approval-stage deadlines and invoice due dates project onto the calendar
   through TRIGGERS rather than call sites — 0041's precedent, and the reason is

@@ -45,7 +45,7 @@ import {
   loadEnv, requireEnv, assertEnvLocalIgnored,
   OM_OWNER_ID, OM_CREW_ID, OM_REVOKED_ID, OM_FINANCE_ID, OM_CONTRACTOR_ID,
   DOC_P1_ID, DOC_P2_ID,
-  CAL_C1_ID, CAL_P2_ID, CONTRACT_C1_ID, CONTRACT_EVENT_ID,
+  CAL_C1_ID, CAL_P2_ID, CONTRACT_C1_ID, CONTRACT_EVENT_ID, CONTRACT_SIGNER_ID,
   CM_C1OWN_ID, CM_C1MATE_ID, CM_C2OWN_ID,
 } from './harness-constants'
 
@@ -401,6 +401,17 @@ async function main() {
     { id: CONTRACT_C1_ID, organization_id: HARNESS_ORG_ID, project_id: PROJECT_1_ID,
       client_id: COMPANY_1_ID, title: 'Harness · company 1 agreement', status: 'sent' },
   ])
+  // A signer on the harness contract — assertion 53's subject. Same reason as
+  // contract_events for going in directly: contract_signers reaches its tenant
+  // through the contract and carries no organization_id of its own.
+  {
+    const { error } = await admin.from('contract_signers').upsert([
+      { id: CONTRACT_SIGNER_ID, contract_id: CONTRACT_C1_ID, user_id: userIds.c1own,
+        name: 'Harness C1 Owner', email: PERSONAS.c1own.email, seq: 0, status: 'sent' },
+    ], { onConflict: 'id' })
+    if (error) throw new Error(`contract_signers: ${error.message}`)
+  }
+
   // contract_events carries NO organization_id — it reaches its tenant through
   // the contract, which is 0038's idiom for a parentless child. seedRows'
   // assertHarnessOnly guard (correctly) refuses a row without the column, so

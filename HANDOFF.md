@@ -324,7 +324,13 @@ The audited era, each batch with what it *found*:
 - **Branch:** `throughline` (main ⊆ throughline, fast-forward). Not renamed —
   S0-B §6 excludes the branch, and renaming it is a remote/CI change, not a
   code one.
-- **Migrations applied: 0000–0074, every one of them.** Verified live
+- **Migrations applied: 0000–0075, every one of them.** Verified live
+  2026-09-13. **0075 is the last projection edge** — `S3-b` §1.1's "bookings
+  produce calendar entries", which neither 0066 nor 0074 could own alone.
+  Cancelling removes the entry and nulls the link, because a calendar holding
+  cancelled bookings shows time as busy when it is free. Harness **52 → 53**.
+  The pre-0075 line, kept because it is what this file claimed:
+  **Migrations applied: 0000–0074, every one of them.** Verified live
   2026-09-13. **0074 is the calendar's writers** — 0065 created
   `calendar_entries` and nothing wrote to it, which is the dormant-engine trap
   0064 had just closed one table over. Approval-stage deadlines and invoice due

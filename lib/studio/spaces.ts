@@ -11,7 +11,7 @@ import {
   MessageSquare, ListChecks, GitBranchPlus, Radar, Gauge, Video, Contact,
   LayoutDashboard, FolderOpen, ScanEye, Files, MessageCircle, Receipt, Link2, Building2,
   Film, Workflow, Aperture, MonitorPlay, ImageUpscale, Fingerprint, Scale, Library, ShieldCheck, NotebookPen, SlidersHorizontal,
-  CalendarDays, Settings, Palette, FileText, Package,
+  CalendarDays, CalendarClock, FileSignature, Settings, Palette, FileText, Package,
 } from 'lucide-react'
 
 export type SpaceId = 'crew' | 'client' | 'suite'
@@ -48,6 +48,7 @@ const SPACES_LITERAL = defineSpaces([
       { slug: 'tasks', label: 'Tasks & Assignments', icon: ListChecks, phase: 4 },
       { slug: 'calendar', label: 'Calendar', icon: CalendarDays, phase: 4 },
       { slug: 'meetings', label: 'Meetings', icon: Video, phase: 5 },
+      { slug: 'scheduling', label: 'Scheduling', icon: CalendarClock, phase: 4 },
       // House-only (plan feature 'internal.pipeline'): the platform operator's
       // own selling tools from the client-portal era. Tenants never see these.
       { slug: 'crm', label: 'CRM · Pipeline', icon: GitBranchPlus, phase: 5, planFeature: 'internal.pipeline' },
@@ -71,6 +72,7 @@ const SPACES_LITERAL = defineSpaces([
       { slug: 'documents', label: 'Documents', icon: FileText, phase: 4 },
       { slug: 'messages', label: 'Messages', icon: MessageCircle, phase: 0, badge: 'LIVE' },
       { slug: 'invoices', label: 'Invoices & Payments', icon: Receipt, phase: 1, badge: 'LIVE' },
+      { slug: 'contracts', label: 'Contracts & Signatures', icon: FileSignature, phase: 2 },
       { slug: 'brand-kit', label: 'Brand Kit', icon: Palette, phase: 3 },
       { slug: 'guest-links', label: 'Guest Review Links', icon: Link2, phase: 2 },
       { slug: 'settings', label: 'Settings', icon: Settings, phase: 1, badge: 'LIVE' },

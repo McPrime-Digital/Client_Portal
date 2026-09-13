@@ -13,7 +13,7 @@ import {
   MessageSquare,
   Files,
   LogOut,
-  Receipt,
+  Receipt, FileSignature,
   Settings,
   UsersRound,
 } from 'lucide-react'
@@ -67,6 +67,7 @@ const navItems = [
     items: [
       { label: 'Messages', href: '/messages', icon: MessageSquare },
       { label: 'Invoices', href: '/invoices', icon: Receipt },
+      { label: 'Documents to sign', href: '/dashboard/contracts', icon: FileSignature },
     ],
   },
   {

@@ -493,6 +493,63 @@ constraints, policies and harness assertions — and no pages. Bookings depend o
 the calendar that now exists, so that is the natural next one; signing is the
 largest of the three and the strongest differentiator after the approval record.
 
+### 6.6 Phase F — scheduling and signing, and what they are FOR
+
+The owner asked the right question before paying for these: *what role do a
+calendar, bookings and contracts play in a film OS?* Recorded here because the
+answer shapes the build, and because one third of it is a genuine caveat.
+
+**Contracts are the strongest and the most film-specific.** A production signs
+constantly: appearance and talent releases for every person on camera, location
+agreements, crew deal memos, NDAs before a script goes out, music and stock
+licences, client SOWs and change orders. The reason to hold them here rather
+than in a separate e-signature product is not tidiness — it is that the
+agreement sits next to the production, the files and the approval record, and it
+**closes a loop the provenance engine left open**: `rights.talent_consent`
+(0064) is a boolean that nothing could substantiate, and a signed appearance
+release is the evidence behind it.
+
+**The calendar is the operational spine.** Production is a scheduling business
+and the failure mode is a date slipping silently — a review window lapsing, an
+invoice ageing. §6.5 built it.
+
+**Bookings is the weakest in isolation, and that is worth saying.** A Cal.com
+clone is not a film feature. What makes it one is what sits underneath: casting
+and audition slots, client review sessions, grade-suite and ADR time, a
+director's availability against a shoot date. The part that earns its place is
+the EXCLUSION CONSTRAINT — two people cannot have the same colourist at 3pm, and
+an application-side check loses that race.
+
+#### What shipped
+
+`crew/scheduling` — availability by weekday, booking types, and booking a slot.
+Every offered time has already survived availability, buffers, minimum notice
+and existing bookings, because offering a slot that then bounces off the
+constraint is worse than offering none. Nine probe assertions with controls
+cover the arithmetic, including DST (09:00 London is 08:00Z in BST and 09:00Z
+after the clocks change — a one-pass offset gets one of those wrong) and reading
+a weekday in the RULE's timezone rather than the server's.
+
+`client/contracts` + `dashboard/contracts` — draft, staff the signers, send,
+sign, decline, void, and the certificate of completion. The three things that
+carry enforceability are mechanical: consent recorded BEFORE the signature with
+its exact wording stored on the event; `content_hash` taken at send and never
+recomputed; and the signer resolved from `auth.uid()` rather than the request
+body, so a client owner holding every capability still cannot sign for a
+colleague (assertion 53).
+
+#### Named, not silently skipped
+
+- **PDF field placement** — drag-and-drop signature boxes on an uploaded
+  document. `contract_fields` has the schema; v1 signs a text body.
+- **The single-use signing link for a non-member.** `S3-b` §7 answer 2 puts v1
+  on real accounts, and that link is a service-role surface on a legal
+  document — the standing rule is no new service-role importers.
+- **Meetings (0067)** still has no surface, and needs a LiveKit integration
+  rather than a page to be worth one.
+- **Client-facing booking pages.** Booking is studio-side today; `booking_types`
+  already carries `client_id` for the day a client picks their own slot.
+
 ### 6.2 Owner answers to §5
 
 1. Unbuilt stays "coming soon" — built surfaces lead, held-but-unbuilt sit behind
@@ -505,5 +562,5 @@ largest of the three and the strongest differentiator after the approval record.
 
 ---
 
-*End of S-S. Phases A–E built, plus allowance (§6.1.1). Governs what a surface contains; `S-R` §8
+*End of S-S. Phases A–F built, plus allowance (§6.1.1). Governs what a surface contains; `S-R` §8
 governs what it may show to whom.*

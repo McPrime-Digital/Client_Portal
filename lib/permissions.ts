@@ -83,6 +83,10 @@ export const CLIENT_GRANTABLE: { cap: ClientCap; label: string }[] = [
  * S-R §5's "one resolver" that is about the MAP rather than the resolution.
  */
 const CLIENT_NAV_CAP: Readonly<Record<string, ClientCap | null>> = {
+  // Signing is IDENTITY, not a capability: the page lists what your company was
+  // sent, and the route refuses anybody who is not the named signer. Gating the
+  // link on portal.approve would hide it from the person actually asked to sign.
+  '/dashboard/contracts': null,
   '/dashboard': null,
   '/projects': null,
   '/messages': null,
@@ -295,6 +299,10 @@ const ORG_FEATURE_CAP: Record<FeatureKey, OrgCap | null> = {
   'crew/tasks': 'work.projects',
   'crew/calendar': null,
   'crew/meetings': null,
+  // Scheduling is WORK, not administration: a person sets their own
+  // availability without holding people.manage, and 0066's policies already
+  // scope each row to its owner.
+  'crew/scheduling': 'work.projects',
   'crew/crm': 'client.manage',
   'crew/leads': 'client.manage',
   'crew/control-tower': 'money.costs',
@@ -309,6 +317,10 @@ const ORG_FEATURE_CAP: Record<FeatureKey, OrgCap | null> = {
   'client/documents': 'work.projects',
   'client/messages': 'work.projects',
   'client/invoices': 'money.invoices',
+  // A contract is a RECORD of the same family as the approval chain, so it
+  // rides work.projects rather than money.invoices — a producer who may not see
+  // the money still sends releases and deal memos.
+  'client/contracts': 'work.projects',
   'client/brand-kit': 'client.manage',
   'client/guest-links': 'work.projects',
   'client/settings': 'org.settings',

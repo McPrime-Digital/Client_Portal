@@ -1,7 +1,7 @@
 /**
  * scripts/test-rls.ts — S2 §6, Part B. The RLS test harness.
  *
- * FIFTY-TWO assertions, numbered 1–52, none reserved. Slot 21 was held open for
+ * FIFTY-THREE assertions, numbered 1–53, none reserved. Slot 21 was held open for
  * the retention-purge assertion — "cannot be written against a function that
  * does not exist" — and 0071 built the function, so it is filled.
  * This count was "Twenty-nine" until Batch 26 item 1 and had been
@@ -29,6 +29,8 @@
  *          signing record refuses UPDATE and DELETE from everyone
  *   52     0074 — a projected calendar entry is owned by its source: it
  *          survives a hand edit and a hand delete
+ *   53     0068 — a signature is IDENTITY: a colleague on the same company
+ *          cannot mark somebody else as having signed
  *   50–51  0070/0073, 0072 — a soft-deleted row disappears for the CLIENT
  *          (crew keep it by design, so restore stays possible), and calendar
  *          credentials are invisible to everyone but the person they belong to,
@@ -61,7 +63,7 @@
  * rows that persona SHOULD see. Control zero → the assertion is reported
  * VACUOUS, not PASS, and the run does not exit clean.
  *
- * WHAT TO EXPECT NOW: all 52 green on a freshly seeded tenant. This paragraph
+ * WHAT TO EXPECT NOW: all 53 green on a freshly seeded tenant. This paragraph
  * used to read "expect most of this to be RED today" — true when S2 §6 asked for
  * a failing baseline, and false since the policy classes landed. Left as written
  * it tells the next reader that red output is normal, which is the one thing a
@@ -1257,6 +1259,41 @@ async function main() {
       const readable = await countRows(owner, 'contract_events', [{ op: 'eq', col: 'id', val: CONTRACT_EVENT_ID }])
       judge(49, 'contract_events survives UPDATE and DELETE from an org owner, unchanged (control: the same row reads fine)',
         leaks, readable)
+    }
+
+    // ── 53 · 0068 — nobody signs on somebody else's behalf ─────────────────
+    //
+    // Every other portal permission asks "may this ROLE do this". A signature
+    // asks something stricter: are you THE PERSON NAMED. A client owner holding
+    // every capability in the matrix still must not be able to sign for a
+    // colleague, and `contract_signers_self_update` is what makes that true on
+    // the row rather than in a route.
+    {
+      const { data: mine } = await c1own.from('contract_signers')
+        .select('id').eq('contract_id', CONTRACT_C1_ID).limit(1).maybeSingle()
+
+      if (!mine) {
+        record(53, 'a client member cannot sign as another signer', 'ERROR',
+          'no signer row seeded on the harness contract')
+      } else {
+        const signerId = (mine as { id: string }).id
+        // c1mate is on the SAME company and can read the contract — which is
+        // what makes this a real test rather than a tenancy one.
+        const forged = await c1mate.from('contract_signers')
+          .update({ status: 'signed', signed_at: new Date().toISOString() })
+          .eq('id', signerId).select('id')
+        const { data: after } = await c1own.from('contract_signers')
+          .select('status').eq('id', signerId).maybeSingle()
+
+        const leaks: string[] = []
+        if ((forged.data ?? []).length > 0) leaks.push('a colleague wrote to another person\'s signer row')
+        if ((after as { status: string } | null)?.status === 'signed') {
+          leaks.push('a colleague marked another person as having signed')
+        }
+        const readable = await countRows(c1mate, 'contract_signers', [{ op: 'eq', col: 'id', val: signerId }])
+        judge(53, 'a client member cannot mark a colleague as having signed (control: they can READ the same row)',
+          leaks, readable)
+      }
     }
 
     // ── 52 · 0074 — a projected calendar entry is not editable by hand ─────
