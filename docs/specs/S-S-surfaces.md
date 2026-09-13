@@ -435,6 +435,64 @@ Still open from Phase D proper: `rights` has a schema and no writer. A surface
 for it — per-file licence, talent consent, the CAWG training triple — is the
 smallest next step, and the file viewer is where it belongs.
 
+### 6.5 Phase E — the first surface over the S3-b engines
+
+`S3-b`'s six migrations landed as engines with no surfaces. This is the first of
+them: **Crew · Calendar**.
+
+#### The engine had no writer, and that came first
+
+0065 created `calendar_entries` and **nothing wrote to it**. A calendar over an
+empty table is the same dormant-engine outcome 0064 had just spent a migration
+closing, one table over — so 0074 built the writers before the surface existed.
+
+`S3-b` §1.2 says a derived entry is "written by the same server action that sets
+the deadline". Taken literally that is four call sites in `lib/approvals.ts`
+alone, plus every one written later, and **the first one somebody forgets is a
+deadline that silently never reaches the calendar** — indistinguishable from
+having no deadline. It is a trigger instead, which is exactly the argument 0041
+made for the task projection and is quoted in `lib/approvals.ts` to this day.
+
+The hard half of a projection is not the insert. A stage that advances, an
+approval that is withdrawn, an invoice that is paid — each must REMOVE its entry
+or the calendar fills with obligations that no longer exist and becomes the
+thing nobody trusts. Proven with controls: completing a stage removes the entry,
+re-activating restores it, two re-saves still leave one row, clearing the
+deadline removes it, and a paid invoice drops off.
+
+#### A projection is read-only, and the control is in the database
+
+Dragging an approval deadline on a calendar would be overwritten the next time
+its stage is saved — so the edit would silently vanish, which is worse than not
+offering it. `calendar_entry_projection_guard` refuses a hand edit or delete,
+the route returns a sentence saying where to change it instead of a 500, and the
+surface renders no control at all on a derived entry. Harness 52 holds it.
+
+#### What the surface does, and what it deliberately does not
+
+One grid. §1.1's premise is that a meeting, a review date and an invoice due
+date are the same kind of thing to a person looking at a week, so what an entry
+IS shows as a colour rather than as a separate calendar.
+
+- **SS-5** — one primary statement, and it is about the NEXT SEVEN DAYS rather
+  than the month on screen. Someone paging back to March does not want to be
+  told what was due in March.
+- **SS-3** — no realtime channel. I-2 is already violated at ~6 subscriptions
+  per session and a calendar is not a live-collaboration surface; it re-renders
+  on navigation and after a write. Deliberate, not unfinished.
+- **SS-6** — the empty state says what will appear on its own and what the
+  reader adds themselves.
+- Six-week grid always, so the page does not change height when paging through
+  a year; Monday-first; day keys computed LOCALLY, because `toISOString()` puts
+  a 23:30 entry on tomorrow.
+
+#### Still engines without surfaces
+
+Bookings (0066), meetings (0067) and contracts/signing (0068) have schema,
+constraints, policies and harness assertions — and no pages. Bookings depend on
+the calendar that now exists, so that is the natural next one; signing is the
+largest of the three and the strongest differentiator after the approval record.
+
 ### 6.2 Owner answers to §5
 
 1. Unbuilt stays "coming soon" — built surfaces lead, held-but-unbuilt sit behind
@@ -447,5 +505,5 @@ smallest next step, and the file viewer is where it belongs.
 
 ---
 
-*End of S-S. Phases A–D built, plus allowance (§6.1.1). Governs what a surface contains; `S-R` §8
+*End of S-S. Phases A–E built, plus allowance (§6.1.1). Governs what a surface contains; `S-R` §8
 governs what it may show to whom.*

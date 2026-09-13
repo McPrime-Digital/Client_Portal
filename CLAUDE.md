@@ -115,8 +115,8 @@ Note: dynamic-route `params` and `next/headers` `cookies()` are async (Promises)
 There is no unit-test framework configured. There are now TWO test surfaces, and both must
 be run after anything touching policies, auth, capabilities or tenancy:
 
-- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **51 assertions**, numbered
-  1–51 with none reserved (slot 21 was held for the retention purge and 0071 filled
+- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **52 assertions**, numbered
+  1–52 with none reserved (slot 21 was held for the retention purge and 0071 filled
   it), every one with a positive control, seeded by
   `npm run seed:harness -- --apply`). Seed, then run ONCE:
   assertion 17 is single-use and reports VACUOUS on a second run without a re-seed.
@@ -323,8 +323,9 @@ Walk each of these paths mentally before saving an edit to `proxy.ts`.
 - `app/api/` — route handlers for files, portal, admin, studio, rooms, cron,
   presence, push, and the Stripe webhook. This entry was off by one twice when
   it carried a number — count it (`find app/api -name route.ts | wc -l`),
-  don't quote it (**59** today — Batch 26 ended at 57; `app/api/admin/budgets`
-  and `app/api/studio/provenance` are the two added since). `app/api/rooms*` (Batch 23) is the
+  don't quote it (**60** today — Batch 26 ended at 57; `app/api/admin/budgets`,
+  `app/api/studio/provenance` and `app/api/studio/calendar` are the three added
+  since). `app/api/rooms*` (Batch 23) is the
   S3-d surface: room list/create (channels, groups, broadcast, DMs), seating,
   and room-addressed messages — zod-validated, and the WRITES run on the user
   client so the 0046 policies are the authorization (AD-001 as written; the
@@ -492,8 +493,19 @@ generations. `lib/provenance.ts` is the one write path and
 
 `supabase/migrations/` holds one numbering scheme (`00NN`); the retired `2026*` scheme is fenced in `_archive/`:
 
-- `0000_baseline_schema.sql` … `0073_soft_delete_correction.sql` — the current
+- `0000_baseline_schema.sql` … `0074_calendar_projections.sql` — the current
   source of truth, **all applied** (verified live 2026-09-13).
+  **0074 gives `calendar_entries` its writers**, which 0065 created without.
+  Approval-stage deadlines and invoice due dates project onto the calendar
+  through TRIGGERS rather than call sites — 0041's precedent, and the reason is
+  the same: `lib/approvals.ts` alone sets a deadline in four places, and the
+  first one somebody forgets is a deadline that silently never reaches the
+  calendar. **A projection is deleted as well as written** (a stage that
+  advances, an invoice that is paid), and a UNIQUE index on
+  `(source_kind, source_id)` is what stops a re-save adding a duplicate.
+  **A projected entry is read-only to people**: `calendar_entry_projection_guard`
+  refuses a hand edit or delete when `current_user = 'authenticated'`, which works
+  because the projection functions are SECURITY DEFINER and run as the owner.
   **0069–0073 finish the specified engines.** 0069 is `S3-core` migration 9
   (file version stacking — `parent_file_id`, `version_no`, `is_current`, one
   current per stack via a partial unique index on `coalesce(parent_file_id, id)`,

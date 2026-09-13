@@ -1,7 +1,7 @@
 /**
  * scripts/test-rls.ts — S2 §6, Part B. The RLS test harness.
  *
- * FIFTY-ONE assertions, numbered 1–51, none reserved. Slot 21 was held open for
+ * FIFTY-TWO assertions, numbered 1–52, none reserved. Slot 21 was held open for
  * the retention-purge assertion — "cannot be written against a function that
  * does not exist" — and 0071 built the function, so it is filled.
  * This count was "Twenty-nine" until Batch 26 item 1 and had been
@@ -27,6 +27,8 @@
  *          the tables could not hold before migration 0055
  *   46–49  S3-b (0065, 0068) — the calendar scopes on BOTH axes, and the
  *          signing record refuses UPDATE and DELETE from everyone
+ *   52     0074 — a projected calendar entry is owned by its source: it
+ *          survives a hand edit and a hand delete
  *   50–51  0070/0073, 0072 — a soft-deleted row disappears for the CLIENT
  *          (crew keep it by design, so restore stays possible), and calendar
  *          credentials are invisible to everyone but the person they belong to,
@@ -59,7 +61,7 @@
  * rows that persona SHOULD see. Control zero → the assertion is reported
  * VACUOUS, not PASS, and the run does not exit clean.
  *
- * WHAT TO EXPECT NOW: all 51 green on a freshly seeded tenant. This paragraph
+ * WHAT TO EXPECT NOW: all 52 green on a freshly seeded tenant. This paragraph
  * used to read "expect most of this to be RED today" — true when S2 §6 asked for
  * a failing baseline, and false since the policy classes landed. Left as written
  * it tells the next reader that red output is normal, which is the one thing a
@@ -1255,6 +1257,55 @@ async function main() {
       const readable = await countRows(owner, 'contract_events', [{ op: 'eq', col: 'id', val: CONTRACT_EVENT_ID }])
       judge(49, 'contract_events survives UPDATE and DELETE from an org owner, unchanged (control: the same row reads fine)',
         leaks, readable)
+    }
+
+    // ── 52 · 0074 — a projected calendar entry is not editable by hand ─────
+    //
+    // An approval deadline on the calendar is a PROJECTION of its stage. If a
+    // person could drag it, the next save of that stage would overwrite the
+    // change and the edit would silently vanish — worse than not offering it.
+    // The route refuses it too, but a route being careful is not a control when
+    // the table accepts direct writes (§12).
+    {
+      const { data: derived } = await owner.from('calendar_entries')
+        .select('id').eq('organization_id', HARNESS_ORG_ID)
+        .not('source_id', 'is', null).limit(1).maybeSingle()
+
+      if (!derived) {
+        record(52, 'a projected calendar entry cannot be edited by hand', 'ERROR',
+          'no projected entry in the harness org to test against')
+      } else {
+        const derivedId = (derived as { id: string }).id
+        await owner.from('calendar_entries').delete().eq('id', derivedId)
+        const survived = await countRows(owner, 'calendar_entries', [{ op: 'eq', col: 'id', val: derivedId }])
+
+        const edit = await owner.from('calendar_entries')
+          .update({ title: 'zz forged' }).eq('id', derivedId).select('id')
+        const { data: after } = await owner.from('calendar_entries')
+          .select('title').eq('id', derivedId).maybeSingle()
+
+        const leaks: string[] = []
+        if (survived === 0) leaks.push('a projected entry was deleted by hand')
+        if ((edit.data ?? []).length > 0 || (after as { title: string } | null)?.title === 'zz forged') {
+          leaks.push('a projected entry was retitled by hand')
+        }
+
+        // CONTROL: the same person, the same table, a MANUAL entry — which must
+        // work, or the refusals above prove only that the table is locked.
+        const mine = await owner.from('calendar_entries').insert({
+          organization_id: HARNESS_ORG_ID, kind: 'manual',
+          title: 'zz manual probe', starts_at: new Date().toISOString(),
+        }).select('id').maybeSingle()
+        let controlRows = 0
+        if (mine.data) {
+          const del = await owner.from('calendar_entries')
+            .delete().eq('id', (mine.data as { id: string }).id).select('id')
+          controlRows = (del.data ?? []).length
+        }
+
+        judge(52, 'a projected calendar entry survives a hand edit and a hand delete (control: a manual entry deletes fine)',
+          leaks, controlRows)
+      }
     }
 
     // ── 44-45 · 0064: content provenance cannot be forged ──────────────────

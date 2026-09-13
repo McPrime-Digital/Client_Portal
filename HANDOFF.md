@@ -324,7 +324,15 @@ The audited era, each batch with what it *found*:
 - **Branch:** `throughline` (main ⊆ throughline, fast-forward). Not renamed —
   S0-B §6 excludes the branch, and renaming it is a remote/CI change, not a
   code one.
-- **Migrations applied: 0000–0073, every one of them.** Verified live
+- **Migrations applied: 0000–0074, every one of them.** Verified live
+  2026-09-13. **0074 is the calendar's writers** — 0065 created
+  `calendar_entries` and nothing wrote to it, which is the dormant-engine trap
+  0064 had just closed one table over. Approval-stage deadlines and invoice due
+  dates now project through triggers (0041's precedent), are REMOVED when they
+  stop being obligations, and cannot be edited by hand because they belong to
+  their source. Harness **51 → 52**.
+  The pre-0074 line, kept because it is what this file claimed:
+  **Migrations applied: 0000–0073, every one of them.** Verified live
   2026-09-13. **0069–0073 finish every specified engine that was still
   unbuilt**: `S3-core` migration 9 (file version stacking, 0069), migration 10
   (soft delete on the remaining six tables, 0070), migration 11 (the purge and

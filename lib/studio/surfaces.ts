@@ -64,6 +64,7 @@ export type HeldFeature = {
  *  plus the three the catch-all serves directly. */
 const BUILT: ReadonlySet<string> = new Set([
   'crew/chat', 'crew/directory', 'crew/settings', 'crew/tasks', 'crew/control-tower',
+  'crew/calendar',
   'client/overview', 'client/companies', 'client/projects', 'client/review',
   'client/files', 'client/documents', 'client/messages', 'client/invoices', 'client/settings',
   'suite/script', 'suite/storyboard', 'suite/ai-chat', 'suite/library',
