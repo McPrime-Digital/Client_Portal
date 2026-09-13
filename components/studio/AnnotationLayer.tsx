@@ -30,11 +30,12 @@ import { PenLine, Trash2, Check, Loader2 } from 'lucide-react'
 type Point = { x: number; y: number }
 
 export default function AnnotationLayer({
-  meetingId, fileId, video,
+  meetingId, fileId, video, endpoint = '/api/studio/meetings',
 }: {
   meetingId: string
   fileId: string | null
   video: React.RefObject<HTMLVideoElement | null>
+  endpoint?: string
 }) {
   const canvas = useRef<HTMLCanvasElement | null>(null)
   const [drawing, setDrawing] = useState(false)
@@ -95,7 +96,7 @@ export default function AnnotationLayer({
     if (busy || strokes.length === 0 || !fileId) return
     setBusy(true); setError(null)
     try {
-      const res = await fetch('/api/studio/meetings', {
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

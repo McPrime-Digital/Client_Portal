@@ -704,6 +704,58 @@ operative part, which is the misconception the whole design avoids.
   anchor; a reviewer's timeline that lists them next to the approval record is
   the obvious next surface.
 
+### 6.9 Phase I — the room reaches the client
+
+The owner: conferencing must be available in the Client space, in the client
+portal, AND internally. It was internal-only.
+
+#### One room, three doors
+
+| Surface | Who | Absent |
+|---|---|---|
+| `crew/meetings` | the studio's internal floor | — |
+| `client/meetings` | the studio, addressed to a company | — |
+| `dashboard/meetings` | the client's own portal | create, end, cancel, record, file picker |
+
+**`client_id` is the boundary.** Null is the internal floor; set means a client
+company is party to it. Batch 24 settled this exact split for ROOMS after the
+crew hub filtered on `kind` and put a conversation with a client's person on the
+studio's internal floor — the same rule one table over, and a client walking
+into an internal CALL is a worse version of that bug. Assertion 55 holds it, and
+because the media token follows the row (`S3-b` §2.3), that one assertion is also
+the access control on the video.
+
+`MeetingScreen` is ONE component rendered by both studio spaces — Batch 15
+deleted ~800 lines of duplicated message machinery, and a room is more intricate
+than a message list. `MeetingRoom` takes an `endpoint`, so the studio and portal
+routes differ only in what they REFUSE.
+
+#### No invite step, deliberately
+
+A meeting opened against a company is joinable by its team the moment it exists,
+because `meetings_client_read` already admits them. An invite table would be a
+second mechanism to keep in step with the first, and the first is RLS.
+
+#### A client can DRAW (0081)
+
+0080 gave clients SELECT on annotations and nothing more, which makes a review
+session half a feature: the client watches the studio draw and then describes
+what they mean in words. **The reason to run a review session rather than a
+screenshare is that the person giving the note can point at the thing** — that is
+Frame.io's entire value, and withholding it leaves a video call with extra steps.
+
+INSERT plus a narrow UPDATE (`created_by = auth.uid()`), no DELETE: a client may
+add a mark and retract their own, and cannot touch the studio's or a colleague's.
+Removal is the soft delete, so a retracted note leaves a row — a review whose
+notes can vanish without trace is one somebody can rewrite afterwards.
+
+#### The meter follows the cost, not the side
+
+A client's participant-minutes are recorded against the STUDIO's organization and
+its production. LiveKit bills every participant-minute regardless of which side
+of the relationship the person is on, so recording them anywhere else would
+understate the cost of exactly the sessions that cost most.
+
 ### 6.2 Owner answers to §5
 
 1. Unbuilt stays "coming soon" — built surfaces lead, held-but-unbuilt sit behind
@@ -716,5 +768,5 @@ operative part, which is the misconception the whole design avoids.
 
 ---
 
-*End of S-S. Phases A–H built, plus allowance (§6.1.1). Governs what a surface contains; `S-R` §8
+*End of S-S. Phases A–I built, plus allowance (§6.1.1). Governs what a surface contains; `S-R` §8
 governs what it may show to whom.*

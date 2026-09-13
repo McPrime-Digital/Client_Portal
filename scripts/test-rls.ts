@@ -1,7 +1,7 @@
 /**
  * scripts/test-rls.ts — S2 §6, Part B. The RLS test harness.
  *
- * FIFTY-FOUR assertions, numbered 1–54, none reserved. Slot 21 was held open for
+ * FIFTY-FIVE assertions, numbered 1–55, none reserved. Slot 21 was held open for
  * the retention-purge assertion — "cannot be written against a function that
  * does not exist" — and 0071 built the function, so it is filled.
  * This count was "Twenty-nine" until Batch 26 item 1 and had been
@@ -33,6 +33,8 @@
  *          cannot mark somebody else as having signed
  *   54     0078 — a signing link is a bearer credential and no session, owner
  *          included, can read one
+ *   55     0067 — client_id is the boundary between the studio's internal floor
+ *          and a room a client may walk into; the media token follows the row
  *   50–51  0070/0073, 0072 — a soft-deleted row disappears for the CLIENT
  *          (crew keep it by design, so restore stays possible), and calendar
  *          credentials are invisible to everyone but the person they belong to,
@@ -65,7 +67,7 @@
  * rows that persona SHOULD see. Control zero → the assertion is reported
  * VACUOUS, not PASS, and the run does not exit clean.
  *
- * WHAT TO EXPECT NOW: all 54 green on a freshly seeded tenant. This paragraph
+ * WHAT TO EXPECT NOW: all 55 green on a freshly seeded tenant. This paragraph
  * used to read "expect most of this to be RED today" — true when S2 §6 asked for
  * a failing baseline, and false since the policy classes landed. Left as written
  * it tells the next reader that red output is normal, which is the one thing a
@@ -100,6 +102,7 @@ import {
   OM_OWNER_ID, OM_CREW_ID, OM_FINANCE_ID,
   DOC_P1_ID, DOC_P2_ID,
   CAL_C1_ID, CAL_P2_ID, CONTRACT_C1_ID, CONTRACT_EVENT_ID,
+  MEETING_CLIENT_ID, MEETING_INTERNAL_ID,
 } from './harness-constants'
 
 // ── result model ────────────────────────────────────────────────────────────
@@ -1296,6 +1299,23 @@ async function main() {
         judge(53, 'a client member cannot mark a colleague as having signed (control: they can READ the same row)',
           leaks, readable)
       }
+    }
+
+    // ── 55 · 0067 — the company column is the boundary for MEETINGS ────────
+    //
+    // A meeting with no client_id is the studio's internal floor. Batch 24
+    // settled this exact split for rooms after the crew hub filtered on the
+    // wrong thing and put a conversation with a client's person on the internal
+    // floor; this is the same rule one table over, and a client walking into an
+    // internal call is a far worse version of it.
+    //
+    // The media token follows the row: no read, no token, no way into the room
+    // (S3-b §2.3). So this assertion is also the access control on the video.
+    {
+      const internal = await countRows(c1own, 'meetings', [{ op: 'eq', col: 'id', val: MEETING_INTERNAL_ID }])
+      const theirs = await countRows(c1own, 'meetings', [{ op: 'eq', col: 'id', val: MEETING_CLIENT_ID }])
+      judge(55, 'a client reads no INTERNAL meeting (control: the one addressed to their company)',
+        internal > 0 ? ['a client could read the studio\'s internal meeting'] : [], theirs)
     }
 
     // ── 54 · 0078 — a signing link is invisible to EVERY session ───────────

@@ -324,7 +324,13 @@ The audited era, each batch with what it *found*:
 - **Branch:** `throughline` (main ⊆ throughline, fast-forward). Not renamed —
   S0-B §6 excludes the branch, and renaming it is a remote/CI change, not a
   code one.
-- **Migrations applied: 0000–0080, every one of them.** Verified live
+- **Migrations applied: 0000–0081, every one of them.** Verified live
+  2026-09-13. **0081** lets a client draw on their own company's material —
+  0080 gave them SELECT only, which makes a review session half a feature.
+  Meetings now exist in three places (crew floor, Client space, client portal)
+  over ONE room, with `client_id` as the boundary. Harness **54 → 55**.
+  The pre-0081 line, kept because it is what this file claimed:
+  **Migrations applied: 0000–0080, every one of them.** Verified live
   2026-09-13. **0080** adds session recording (an Egress id plus a STATUS,
   because Egress is asynchronous and "processing" is not "ready") and
   `review_annotations` — a mark drawn on a frame during a live review, persisted

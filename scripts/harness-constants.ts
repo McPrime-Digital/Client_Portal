@@ -226,6 +226,12 @@ export const CONTRACT_EVENT_ID  = '0f0f0f0f-0010-4000-8000-000000000001'
 export const CONTRACT_SIGNER_ID = '0f0f0f0f-0011-4000-8000-000000000001'
 export const SIGNING_LINK_ID    = '0f0f0f0f-0012-4000-8000-000000000001'
 
+// Two meetings, and the difference between them IS the assertion: one names a
+// client company, one does not. `client_id` is the boundary between the studio's
+// internal floor and a room a client can walk into.
+export const MEETING_CLIENT_ID   = '0f0f0f0f-0013-4000-8000-000000000001'
+export const MEETING_INTERNAL_ID = '0f0f0f0f-0013-4000-8000-000000000002'
+
 export const APPROVAL_CLIENT_ID = '0f0f0f0f-000a-4000-8000-000000000001'
 export const APPROVAL_CLIENT_STAGE_ID = '0f0f0f0f-000b-4000-8000-000000000001'
 /** INTERNAL — client_id null. Must be invisible to every client member. */

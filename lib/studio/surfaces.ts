@@ -67,7 +67,7 @@ const BUILT: ReadonlySet<string> = new Set([
   'crew/calendar', 'crew/meetings',
   'client/overview', 'client/companies', 'client/projects', 'client/review',
   'client/files', 'client/documents', 'client/messages', 'client/invoices', 'client/settings',
-  'client/contracts',
+  'client/contracts', 'client/meetings',
   'suite/script', 'suite/storyboard', 'suite/ai-chat', 'suite/library',
 ])
 

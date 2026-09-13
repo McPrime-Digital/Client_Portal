@@ -86,12 +86,13 @@ const NUDGE_CEILING_MS = 250
 const MAX_RATE_TRIM = 0.03
 
 function ReviewPlayer({
-  meetingId, fileUrl, fileId, initial,
+  meetingId, fileUrl, fileId, initial, endpoint,
 }: {
   meetingId: string
   fileUrl: string
   fileId: string | null
   initial: { positionMs: number; playing: boolean } | null
+  endpoint: string
 }) {
   const video = useRef<HTMLVideoElement | null>(null)
   const applying = useRef(false)
@@ -115,12 +116,12 @@ function ReviewPlayer({
     // only one person ever reads, once.
     if (now - lastPersist.current < 2000) return
     lastPersist.current = now
-    void fetch('/api/studio/meetings', {
+    void fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'sync', meetingId, positionMs, playing }),
     }).catch(() => { /* the live channel already carried it; the row catches up */ })
-  }, [meetingId])
+  }, [meetingId, endpoint])
 
   const broadcast = useCallback((positionMs: number, playing: boolean) => {
     if (applying.current) return
@@ -234,7 +235,7 @@ function ReviewPlayer({
           onPause={(e) => broadcast(e.currentTarget.currentTime * 1000, false)}
           onSeeked={(e) => broadcast(e.currentTarget.currentTime * 1000, !e.currentTarget.paused)}
         />
-        <AnnotationLayer meetingId={meetingId} fileId={fileId} video={video} />
+        <AnnotationLayer meetingId={meetingId} fileId={fileId} video={video} endpoint={endpoint} />
       </div>
       <p className="mt-1.5 text-[11px] text-faint">
         Everyone in this room is on the same frame. Play, pause and scrub are shared,
@@ -245,12 +246,16 @@ function ReviewPlayer({
 }
 
 export default function MeetingRoom({
-  meetingId, mode, fileUrl, fileId,
+  meetingId, mode, fileUrl, fileId, endpoint = '/api/studio/meetings',
 }: {
   meetingId: string
   mode: 'call' | 'review_session'
   fileUrl: string | null
   fileId: string | null
+  /** '/api/portal/meetings' on the client side. The two routes take the same
+   *  actions and differ in what they REFUSE — a client has no create, end or
+   *  record — so the room does not need to know which side it is on. */
+  endpoint?: string
 }) {
   const router = useRouter()
   const [conn, setConn] = useState<
@@ -262,7 +267,7 @@ export default function MeetingRoom({
   const join = useCallback(async () => {
     setBusy(true); setError(null)
     try {
-      const res = await fetch('/api/studio/meetings', {
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'join', meetingId }),
@@ -275,20 +280,20 @@ export default function MeetingRoom({
     } finally {
       setBusy(false)
     }
-  }, [meetingId])
+  }, [meetingId, endpoint])
 
   // Closing the span is what meters the minute, so it must survive a tab close
   // as well as a click. `sendBeacon` is the only thing that reliably runs then.
   const leave = useCallback(() => {
     const body = JSON.stringify({ action: 'leave', meetingId })
     try {
-      navigator.sendBeacon?.('/api/studio/meetings', new Blob([body], { type: 'application/json' }))
+      navigator.sendBeacon?.(endpoint, new Blob([body], { type: 'application/json' }))
     } catch {
-      void fetch('/api/studio/meetings', {
+      void fetch(endpoint, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true,
       }).catch(() => {})
     }
-  }, [meetingId])
+  }, [meetingId, endpoint])
 
   useEffect(() => {
     if (!conn) return
@@ -327,6 +332,7 @@ export default function MeetingRoom({
           meetingId={meetingId}
           fileUrl={fileUrl}
           fileId={fileId}
+          endpoint={endpoint}
           initial={conn.sync ? { positionMs: conn.sync.position_ms, playing: conn.sync.playing } : null}
         />
       )}

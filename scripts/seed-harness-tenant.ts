@@ -46,6 +46,7 @@ import {
   OM_OWNER_ID, OM_CREW_ID, OM_REVOKED_ID, OM_FINANCE_ID, OM_CONTRACTOR_ID,
   DOC_P1_ID, DOC_P2_ID,
   CAL_C1_ID, CAL_P2_ID, CONTRACT_C1_ID, CONTRACT_EVENT_ID, CONTRACT_SIGNER_ID, SIGNING_LINK_ID,
+  MEETING_CLIENT_ID, MEETING_INTERNAL_ID,
   CM_C1OWN_ID, CM_C1MATE_ID, CM_C2OWN_ID,
 } from './harness-constants'
 
@@ -411,6 +412,17 @@ async function main() {
     ], { onConflict: 'id' })
     if (error) throw new Error(`contract_signers: ${error.message}`)
   }
+
+  record(`\n-- ═══ meetings (0067) ═══`)
+  await seedRows(admin, 'meetings', [
+    { id: MEETING_CLIENT_ID, organization_id: HARNESS_ORG_ID, project_id: PROJECT_1_ID,
+      client_id: COMPANY_1_ID, mode: 'review_session', provider: 'livekit',
+      provider_room_name: 'gl-harness-client', status: 'scheduled', scheduled_for: at(2) },
+    // NO client_id — the studio's own floor, and assertion 55's subject.
+    { id: MEETING_INTERNAL_ID, organization_id: HARNESS_ORG_ID, project_id: PROJECT_1_ID,
+      client_id: null, mode: 'call', provider: 'livekit',
+      provider_room_name: 'gl-harness-internal', status: 'scheduled', scheduled_for: at(2) },
+  ])
 
   // A signing link, so assertion 54 has something to fail to read. Inserted
   // directly: contract_signing_links has RLS enabled and NO policy at all, so

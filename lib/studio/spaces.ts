@@ -72,6 +72,7 @@ const SPACES_LITERAL = defineSpaces([
       { slug: 'messages', label: 'Messages', icon: MessageCircle, phase: 0, badge: 'LIVE' },
       { slug: 'invoices', label: 'Invoices & Payments', icon: Receipt, phase: 1, badge: 'LIVE' },
       { slug: 'contracts', label: 'Contracts & Signatures', icon: FileSignature, phase: 2 },
+      { slug: 'meetings', label: 'Meetings', icon: Video, phase: 2 },
       { slug: 'brand-kit', label: 'Brand Kit', icon: Palette, phase: 3 },
       { slug: 'guest-links', label: 'Guest Review Links', icon: Link2, phase: 2 },
       { slug: 'settings', label: 'Settings', icon: Settings, phase: 1, badge: 'LIVE' },

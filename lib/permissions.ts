@@ -87,6 +87,10 @@ const CLIENT_NAV_CAP: Readonly<Record<string, ClientCap | null>> = {
   // sent, and the route refuses anybody who is not the named signer. Gating the
   // link on portal.approve would hide it from the person actually asked to sign.
   '/dashboard/contracts': null,
+  // Joining a room the studio opened against your company is not a capability
+  // question — RLS already decides which meetings exist for you, and gating the
+  // LINK would hide it from somebody who is in the call.
+  '/dashboard/meetings': null,
   '/dashboard': null,
   '/projects': null,
   '/messages': null,
@@ -317,6 +321,10 @@ const ORG_FEATURE_CAP: Record<FeatureKey, OrgCap | null> = {
   // rides work.projects rather than money.invoices — a producer who may not see
   // the money still sends releases and deal memos.
   'client/contracts': 'work.projects',
+  // The same room as crew/meetings, addressed to a company. Gated on the work
+  // capability rather than client.manage: a producer runs the review session,
+  // and managing the client RELATIONSHIP is a different job.
+  'client/meetings': 'work.projects',
   'client/brand-kit': 'client.manage',
   'client/guest-links': 'work.projects',
   'client/settings': 'org.settings',

@@ -115,8 +115,8 @@ Note: dynamic-route `params` and `next/headers` `cookies()` are async (Promises)
 There is no unit-test framework configured. There are now TWO test surfaces, and both must
 be run after anything touching policies, auth, capabilities or tenancy:
 
-- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **54 assertions**, numbered
-  1–54 with none reserved (slot 21 was held for the retention purge and 0071 filled
+- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **55 assertions**, numbered
+  1–55 with none reserved (slot 21 was held for the retention purge and 0071 filled
   it), every one with a positive control, seeded by
   `npm run seed:harness -- --apply`). Seed, then run ONCE:
   assertion 17 is single-use and reports VACUOUS on a second run without a re-seed.
@@ -323,7 +323,7 @@ Walk each of these paths mentally before saving an edit to `proxy.ts`.
 - `app/api/` — route handlers for files, portal, admin, studio, rooms, cron,
   presence, push, and the Stripe webhook. This entry was off by one twice when
   it carried a number — count it (`find app/api -name route.ts | wc -l`),
-  don't quote it (**64** today). `studio/scheduling` was added and then REMOVED
+  don't quote it (**65** today). `studio/scheduling` was added and then REMOVED
   with the bookings feature (0076); `sign` is the only route in the application
   with no session at all. `app/api/rooms*` (Batch 23) is the
   S3-d surface: room list/create (channels, groups, broadcast, DMs), seating,
@@ -470,6 +470,32 @@ CASCADE. That guard closed a live defect — `activity_log.project_id` and
 `.client_id` were `ON DELETE CASCADE`, so deleting a client company destroyed
 its ledger silently. Both are `SET NULL` now.
 
+## Meetings — three doors, one room
+
+The room exists in three places and they are NOT three implementations:
+
+| Surface | Who | What is absent |
+|---|---|---|
+| `crew/meetings` | studio, internal floor | — |
+| `client/meetings` | studio, addressed to a company | — |
+| `dashboard/meetings` | the client's own portal | create, end, cancel, record, file picker |
+
+**`client_id` IS THE BOUNDARY.** Null means the studio's internal floor; set
+means a client company is party to it. Batch 24 settled this for rooms after the
+crew hub filtered on the wrong column and put a conversation with a client's
+person on the internal floor — the same rule applies here, and a client walking
+into an internal CALL is a worse version of that bug. Assertion 55 holds it.
+
+`MeetingScreen` is ONE component rendered by both studio spaces; the portal has
+its own thinner page. `MeetingRoom` takes an `endpoint`, so the two routes differ
+only in what they REFUSE — a client has no create, end or record, and those
+actions do not exist on `/api/portal/meetings` rather than being disabled in the
+UI (R-6).
+
+**THERE IS NO INVITE STEP.** A meeting opened against a company is joinable by
+its team immediately, because `meetings_client_read` already admits them. A
+second mechanism would be a second thing to keep in step.
+
 ## Meetings — what makes it not a Zoom link
 
 `review_session` is the mode that justifies building rather than pasting a link.
@@ -610,8 +636,14 @@ generations. `lib/provenance.ts` is the one write path and
 
 `supabase/migrations/` holds one numbering scheme (`00NN`); the retired `2026*` scheme is fenced in `_archive/`:
 
-- `0000_baseline_schema.sql` … `0080_recordings_and_annotations.sql` — the
+- `0000_baseline_schema.sql` … `0081_client_annotations.sql` — the
   current source of truth, **all applied** (verified live 2026-09-13).
+  **0081** lets a client DRAW on their own company's material. 0080 gave them
+  SELECT only, which makes a review session half a feature: the client watches
+  the studio draw and then describes what they mean in words. INSERT plus a
+  narrow UPDATE (`created_by = auth.uid()`) and no DELETE — a retracted note
+  leaves a row, because a review where notes vanish without trace is one
+  somebody can rewrite afterwards.
   **0080** adds session recording (`meetings.recording_*` — an Egress id and a
   STATUS, because Egress is asynchronous and "processing" is not "ready") and
   `review_annotations`: a mark drawn on a frame during a live review, persisted

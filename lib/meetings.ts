@@ -92,10 +92,25 @@ export function providerRoomName(): string {
   return `gl-${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`
 }
 
+/**
+ * INTERNAL or CLIENT-FACING, and the column is the boundary.
+ *
+ * `client_id` null means the meeting belongs to the studio floor; set means a
+ * client company is party to it. Batch 24 settled this exact split for rooms —
+ * the crew hub had filtered on `kind`, so a conversation with a client's person
+ * landed on the internal floor — and the lesson is the same one table over: the
+ * COMPANY COLUMN is the boundary, everywhere.
+ *
+ * A client never sees the internal list at all, because `meetings_client_read`
+ * requires `client_id is not null`. This scope is the studio's own filter, so
+ * the two spaces show different work rather than the same list twice.
+ */
+export type MeetingScope = 'internal' | 'client' | 'all'
+
 export async function listMeetings(
-  db: SupabaseClient, orgId: string
+  db: SupabaseClient, orgId: string, scope: MeetingScope = 'all'
 ): Promise<Meeting[]> {
-  const { data, error } = await db
+  let q = db
     .from('meetings')
     .select(COLUMNS)
     .eq('organization_id', orgId)
@@ -104,7 +119,27 @@ export async function listMeetings(
     .order('scheduled_for', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: false })
     .limit(200)
+
+  if (scope === 'internal') q = q.is('client_id', null)
+  if (scope === 'client') q = q.not('client_id', 'is', null)
+
+  const { data, error } = await q
   if (error) throw new Error(`listMeetings: ${error.message}`)
+  return (data ?? []) as unknown as Meeting[]
+}
+
+/** What a client member can see: the meetings their company is party to. RLS
+ *  already enforces it; this states the intent alongside (I-9). */
+export async function listClientMeetings(db: SupabaseClient): Promise<Meeting[]> {
+  const { data, error } = await db
+    .from('meetings')
+    .select(COLUMNS)
+    .not('client_id', 'is', null)
+    .is('deleted_at', null)
+    .order('scheduled_for', { ascending: true, nullsFirst: false })
+    .order('created_at', { ascending: false })
+    .limit(100)
+  if (error) throw new Error(`listClientMeetings: ${error.message}`)
   return (data ?? []) as unknown as Meeting[]
 }
 

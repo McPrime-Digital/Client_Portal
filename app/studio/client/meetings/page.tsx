@@ -9,17 +9,20 @@ import { livekitConfigured } from '@/lib/livekit'
 import NewMeeting from '@/components/studio/NewMeeting'
 
 /**
- * CREW · MEETINGS — `S3-b` §2, the surface.
+ * CLIENT · MEETINGS — the same room, addressed to a company.
  *
- * The point of building this rather than pasting a Zoom link is `review_session`
- * (AD-006): everybody on the same frame, with the scrubber shared. In a hybrid
- * production the meeting that matters is an argument about ONE SHOT, half of
- * which came out of a model — and a screenshare gives the other people neither
- * control nor anything to anchor a comment to.
+ * ── THE COMPANY COLUMN IS THE BOUNDARY, EVERYWHERE ───────────────────────
  *
- * NOT CONFIGURED IS SAID OUT LOUD. Without LiveKit keys the page renders the
- * reason rather than a Join button that fails — the same courtesy every other
- * optional integration in this repo gets.
+ * `client_id` null is the internal floor (Crew · Meetings); set means a client
+ * company is party to it and its people can join from their portal. Batch 24
+ * settled this for rooms after the crew hub filtered on the wrong thing and put
+ * a conversation with a client's person on the studio's internal floor. Same
+ * rule, one table over.
+ *
+ * A meeting created here is immediately joinable by that company's team at
+ * /dashboard/meetings — there is no separate invite step, because
+ * `meetings_client_read` already admits them and a second mechanism would be a
+ * second thing to get wrong.
  */
 
 function when(m: { scheduled_for: string | null; started_at: string | null; created_at: string }) {
@@ -29,15 +32,23 @@ function when(m: { scheduled_for: string | null; started_at: string | null; crea
   })
 }
 
-export default async function MeetingsPage() {
-  await requireOrgFeature('crew', 'meetings')
+export default async function ClientMeetingsPage() {
+  await requireOrgFeature('client', 'meetings')
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user || !isAdmin(user)) redirect('/login')
 
-  // INTERNAL only — a meeting naming a client company belongs to the Client
-  // space, where the company column is the boundary (Batch 24's lesson).
-  const meetings = await listMeetings(supabase, userOrgId(user), 'internal')
+  const orgId = userOrgId(user)
+  const [meetings, { data: companies }] = await Promise.all([
+    listMeetings(supabase, orgId, 'client'),
+    supabase.from('clients').select('id, name, company')
+      .is('deleted_at', null).order('name').limit(200),
+  ])
+
+  const byId = new Map(
+    (companies ?? []).map((c) => [c.id as string, (c.company as string) || (c.name as string)])
+  )
+
   const live = meetings.filter((m) => m.status === 'live')
   const upcoming = meetings.filter((m) => m.status === 'scheduled')
   const past = meetings.filter((m) => m.status === 'ended' || m.status === 'cancelled').slice(0, 20)
@@ -48,27 +59,29 @@ export default async function MeetingsPage() {
         <div>
           <h1 className="flex items-center gap-3 font-display text-2xl font-semibold text-foreground">
             <Video size={24} className="text-primary" />
-            Crew meetings
+            Client meetings
           </h1>
-          {/* SS-5 — one statement, and "live now" outranks everything else. */}
           <p className="mt-1 text-sm text-muted-foreground">
             {live.length > 0
               ? `${live.length} ${live.length === 1 ? 'room is' : 'rooms are'} live right now.`
               : upcoming.length > 0
-                ? `${upcoming.length} scheduled.`
-                : 'Nothing running on the internal floor. A review session puts everyone on the same frame.'}
+                ? `${upcoming.length} scheduled with clients.`
+                : 'Nothing scheduled. A review session puts the client on the same frame as you.'}
           </p>
         </div>
-        {livekitConfigured() && <NewMeeting />}
+        {livekitConfigured() && (
+          <NewMeeting
+            basePath="/studio/client/meetings"
+            companies={(companies ?? []).map((c) => ({
+              id: c.id as string, name: (c.company as string) || (c.name as string),
+            }))}
+          />
+        )}
       </div>
 
       {!livekitConfigured() && (
         <p className="squircle mb-6 border border-border bg-card px-4 py-3 text-[13px] text-muted-foreground">
-          Video is not configured on this deployment. Set{' '}
-          <code className="text-foreground">LIVEKIT_API_KEY</code>,{' '}
-          <code className="text-foreground">LIVEKIT_API_SECRET</code> and{' '}
-          <code className="text-foreground">NEXT_PUBLIC_LIVEKIT_URL</code>, and this page
-          becomes a room. Everything else here already works.
+          Video is not configured on this deployment, so no room can be opened yet.
         </p>
       )}
 
@@ -83,7 +96,7 @@ export default async function MeetingsPage() {
             {section.rows.map((m) => (
               <li key={m.id}>
                 <Link
-                  href={`/studio/crew/meetings/${m.id}`}
+                  href={`/studio/client/meetings/${m.id}`}
                   className="squircle group flex items-center gap-3 border border-border bg-card px-4 py-3 outline-none transition-[border-color] duration-[--dur-pop] hover:border-[hsl(var(--glow)/0.45)] focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <span className="min-w-0 flex-1">
@@ -92,6 +105,9 @@ export default async function MeetingsPage() {
                         <Dot size={20} className="-ml-1.5 animate-pulse text-[hsl(var(--status-green,var(--primary)))]" />
                       )}
                       {MODE_LABEL[m.mode]}
+                      {m.client_id && (
+                        <span className="text-muted-foreground"> · {byId.get(m.client_id) ?? 'Client'}</span>
+                      )}
                     </span>
                     <span className="mt-0.5 block text-[12px] text-muted-foreground">
                       {STATUS_LABEL[m.status]} · {when(m)}
@@ -107,8 +123,8 @@ export default async function MeetingsPage() {
 
       {meetings.length === 0 && livekitConfigured() && (
         <p className="squircle border border-dashed border-border px-4 py-8 text-center text-[13px] text-muted-foreground">
-          Nothing yet. A review session opens a room with a shared playhead — play,
-          pause and scrub are the same for everybody in it.
+          Nothing yet. A meeting you open here appears in that company&apos;s portal
+          straight away — they join from their own dashboard, with no invite to chase.
         </p>
       )}
     </div>
