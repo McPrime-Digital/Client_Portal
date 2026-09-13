@@ -965,10 +965,19 @@ of 2026-09-13, not a sample.**
    room's membership is STATED, not derived from project scope.
    `messages_member_read` carries the predicate at the MESSAGE level, which is
    the right layer. Owner ruling 4. **Do not "fix" this.**
-3. **The `access &&` precondition on the portal page guards.** A session with no
-   `client_members` row SKIPS those guards entirely. Pre-existing, and untouched
-   by item 8 deliberately: closing it starts REDIRECTING people, which is a
-   different blast radius from hiding a control. Decide it on its own.
+3. **CLOSED (2026-09-13).** The `access &&` precondition on the portal page
+   guards: a session with no `client_members` row used to SKIP them entirely.
+   Five pages fixed (`invoices`, `dashboard/invoices`, `approvals`, `files`,
+   `dashboard/settings`); `team` and the approvals certificate already refused
+   correctly. Nothing leaked while it was open — `portalClientId()` returns the
+   `NO_CLIENT` sentinel, which matches no rows, so those sessions reached an
+   EMPTY page. But "we never asked" is not "we asked and the answer was no".
+   Two live identities were affected and both are documented orphans that
+   already resolve to nothing: the MD-4 external collaborator (roster-less by
+   design) and the `.con` typo'd address in §8.3 item 19. Verified by probe
+   before and after — three lockout risks checked first and all zero (claim/row
+   org mismatch, two active rows in one org, and the orphan list itself), and
+   `c1own`/`c1mate` answer exactly their role baselines, unchanged.
 4. **The approval sweep is a legitimate THIRD resolution site.**
    `app/api/cron/approval-sweep/route.ts` resolves baseline ∪ extras ∪ grants −
    denials by hand, because it answers about SOMEBODY ELSE with no session.
