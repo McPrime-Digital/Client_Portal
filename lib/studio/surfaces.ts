@@ -65,8 +65,8 @@ export type HeldFeature = {
 const BUILT: ReadonlySet<string> = new Set([
   'crew/chat', 'crew/directory', 'crew/settings', 'crew/tasks', 'crew/control-tower',
   'client/overview', 'client/companies', 'client/projects', 'client/review',
-  'client/files', 'client/messages', 'client/invoices', 'client/settings',
-  'suite/script', 'suite/storyboard', 'suite/ai-chat',
+  'client/files', 'client/documents', 'client/messages', 'client/invoices', 'client/settings',
+  'suite/script', 'suite/storyboard', 'suite/ai-chat', 'suite/library',
 ])
 
 export function isBuilt(spaceId: string, slug: string): boolean {

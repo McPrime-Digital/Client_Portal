@@ -1,6 +1,7 @@
 import 'server-only'
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isFlow, meterFor, type MeterShape } from '@/lib/billing/meters'
 
 /**
  * AI COST INTELLIGENCE — the computation behind Control Tower.
@@ -37,6 +38,10 @@ export type UsageRow = {
   cost_cents: number | null
   created_at: string
   created_by: string | null
+  /** Carries `model` on AI rows and `file_id` on storage rows. The model is what
+   *  makes unit economics possible; the file is what makes storage allocatable
+   *  to a production the day it becomes billable. */
+  ref?: Record<string, unknown> | null
 }
 
 export type CostIntel = {
@@ -62,8 +67,22 @@ export type CostIntel = {
   anomaly: { todayCents: number; medianCents: number; multiple: number } | null
   /** Spend per person, descending. Empty when nothing billed is attributed. */
   byActor: { userId: string; cents: number; events: number }[]
-  /** Spend per metering kind, descending. */
-  byKind: { kind: string; cents: number; units: number; events: number }[]
+  /** Spend per metering kind, descending, with its economic shape and whether
+   *  it is metered-but-unbilled — the surface must not render a confident $0.00
+   *  for something that simply has no rate yet. */
+  byKind: { kind: string; label: string; shape: MeterShape; cents: number; units: number; events: number; meteredOnly: boolean }[]
+  /** UNIT ECONOMICS — cost and volume per MODEL, descending by spend.
+   *
+   *  This is the figure that changes behaviour rather than reporting it: a
+   *  studio seeing that one model costs 12× another for the same work moves the
+   *  work. No production tool on the market exposes it, because none of them
+   *  meter the AI call in the first place. Read from `ref->>'model'`, which
+   *  every AI row carries. */
+  byModel: { model: string; cents: number; tokens: number; calls: number; centsPer1kTokens: number | null }[]
+  /** The standing floor: stock + recurring spend in the window. Excluded from
+   *  burn and from the spike detector, included in runway. Zero today, and
+   *  correct on the day storage or seats start costing money. */
+  standingCents: number
   /** Daily totals for the trailing 30 days, oldest first, zero-filled — a
    *  sparkline with gaps for quiet days lies about the shape of the burn. */
   daily: { day: string; cents: number }[]
@@ -87,6 +106,17 @@ export function computeCostIntel(
   const dayOfMonth = now.getUTCDate()
 
   const billed = rows.filter((r) => (r.cost_cents ?? 0) > 0)
+  // BURN IS FLOW ONLY. Stock (storage held) and recurring (seats occupied) are a
+  // standing floor, not a rate — and folding them in would break three things:
+  // burn would count a charge that does not vary with work, runway would divide
+  // by a blended average that under-counts the floor, and a monthly seat charge
+  // landing on the 1st would read as a 30× spike every month. See
+  // lib/billing/meters.ts. Today every non-AI kind is metered at zero, so this
+  // partition changes nothing — which is exactly when it is safe to introduce.
+  const flowBilled = billed.filter((r) => isFlow(r.kind))
+  const standingCents = billed
+    .filter((r) => !isFlow(r.kind))
+    .reduce((s, r) => s + (r.cost_cents ?? 0), 0)
 
   const monthCents = billed
     .filter((r) => new Date(r.created_at) >= monthStart)
@@ -94,7 +124,7 @@ export function computeCostIntel(
 
   // ── daily series, zero-filled across the whole window ────────────────────
   const byDay = new Map<string, number>()
-  for (const r of billed) {
+  for (const r of flowBilled) {
     const k = dayKey(r.created_at)
     byDay.set(k, (byDay.get(k) ?? 0) + (r.cost_cents ?? 0))
   }
@@ -119,7 +149,7 @@ export function computeCostIntel(
   // days and asserting the rate — worth stating because burn is not a display
   // figure, it is the input to both runway and the month-end projection, so an
   // off-by-one here propagates into "your credits run out on the 7th".
-  const firstBilledDay = billed.reduce<string | null>(
+  const firstBilledDay = flowBilled.reduce<string | null>(
     (min, r) => { const d = dayKey(r.created_at); return min === null || d < min ? d : min },
     null,
   )
@@ -128,14 +158,21 @@ export function computeCostIntel(
     : Math.max(1, Math.min(30,
         Math.round((Date.parse(`${todayKey}T00:00:00Z`) - Date.parse(`${firstBilledDay}T00:00:00Z`)) / DAY) + 1))
   const windowStartDay = new Date(now.getTime() - (burnSampleDays - 1) * DAY).toISOString().slice(0, 10)
-  const windowCents = billed
+  const windowCents = flowBilled
     .filter((r) => dayKey(r.created_at) >= windowStartDay)
     .reduce((s, r) => s + (r.cost_cents ?? 0), 0)
   const burnPerDayCents = burnSampleDays === 0 ? 0 : windowCents / burnSampleDays
 
   // ── runway ──────────────────────────────────────────────────────────────
-  const runwayDays = burnPerDayCents > 0 && opts.balanceCents > 0
-    ? Math.floor(opts.balanceCents / burnPerDayCents)
+  // RUNWAY DIVIDES BY FLOW **PLUS** THE STANDING DAILY FLOOR. A studio that
+  // stops generating still owes for the storage it holds and the seats it
+  // occupies, so runway computed from variable spend alone would promise days
+  // that do not exist. The floor is 0 today and the arithmetic is already right
+  // for the day it is not.
+  const standingPerDayCents = burnSampleDays > 0 ? standingCents / burnSampleDays : 0
+  const totalPerDayCents = burnPerDayCents + standingPerDayCents
+  const runwayDays = totalPerDayCents > 0 && opts.balanceCents > 0
+    ? Math.floor(opts.balanceCents / totalPerDayCents)
     : null
 
   // ── projection, only above the sample floor ─────────────────────────────
@@ -192,12 +229,37 @@ export function computeCostIntel(
     kindMap.set(r.kind, k)
   }
   const byKind = [...kindMap.entries()]
-    .map(([kind, v]) => ({ kind, ...v }))
+    .map(([kind, v]) => {
+      const m = meterFor(kind)
+      return { kind, label: m.label, shape: m.shape, ...v, meteredOnly: m.rateCents === 0 }
+    })
     .sort((a, b) => b.cents - a.cents || b.events - a.events)
+
+  // ── unit economics, per model ───────────────────────────────────────────
+  const modelMap = new Map<string, { cents: number; tokens: number; calls: number }>()
+  for (const r of billed) {
+    const model = typeof r.ref?.model === 'string' ? r.ref.model : null
+    if (!model) continue
+    const e = modelMap.get(model) ?? { cents: 0, tokens: 0, calls: 0 }
+    e.cents += r.cost_cents ?? 0
+    e.tokens += r.units ?? 0
+    e.calls += 1
+    modelMap.set(model, e)
+  }
+  const byModel = [...modelMap.entries()]
+    .map(([model, v]) => ({
+      model, ...v,
+      // Blended effective rate actually PAID, which is the honest figure — it
+      // includes the 1-cent floor every metered call carries, so a workload of
+      // many tiny calls shows the real cost per token rather than the list rate.
+      centsPer1kTokens: v.tokens > 0 ? Math.round((v.cents / v.tokens) * 1000 * 100) / 100 : null,
+    }))
+    .sort((a, b) => b.cents - a.cents)
 
   return {
     monthCents, burnPerDayCents, burnSampleDays, runwayDays,
-    projectedMonthCents, projectedPctOfCap, anomaly, byActor, byKind, daily,
+    projectedMonthCents, projectedPctOfCap, anomaly, byActor, byKind, byModel,
+    standingCents, daily,
   }
 }
 
@@ -213,7 +275,7 @@ export async function loadCostIntel(
   const since = new Date(now.getTime() - 30 * DAY).toISOString()
   const { data, error } = await db
     .from('usage_events')
-    .select('kind, units, cost_cents, created_at, created_by')
+    .select('kind, units, cost_cents, created_at, created_by, ref')
     .gte('created_at', since)
     .order('created_at', { ascending: false })
     .limit(5000)

@@ -149,6 +149,7 @@ export default async function ControlTowerPage() {
               {intel.burnPerDayCents > 0 ? (
                 <>
                   Spending {money(Math.round(intel.burnPerDayCents))} a day
+                  {intel.standingCents > 0 && <> on top of a standing {money(intel.standingCents)}</>}
                   {intel.runwayDays !== null
                     ? <> — about {intel.runwayDays} days left at that rate.</>
                     : <>.</>}
@@ -197,15 +198,51 @@ export default async function ControlTowerPage() {
         </section>
       )}
 
-      {intel.byKind.some((k) => k.cents > 0) && (
+      {/* ── UNIT ECONOMICS — the figure that changes behaviour ─────────────
+          What each model actually costs for this studio's own workload, at the
+          rate PAID rather than the list rate. A studio seeing one model cost
+          many times another for the same job moves the job. No production tool
+          on the market shows this, because none meters the call. */}
+      {intel.byModel.length > 0 && (
         <section className="mb-5">
-          <h2 className="mb-2 font-display text-[13px] font-semibold text-muted-foreground">What it went on</h2>
+          <h2 className="mb-2 font-display text-[13px] font-semibold text-muted-foreground">Cost by model</h2>
           <div className="squircle overflow-hidden border border-border bg-card">
-            {intel.byKind.filter((k) => k.cents > 0).map((k) => (
+            {intel.byModel.map((m) => (
+              <div key={m.model} className="flex items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0">
+                <span className="min-w-0 flex-1 truncate text-sm text-foreground">{m.model}</span>
+                {m.centsPer1kTokens !== null && (
+                  <span className="text-[11px] tabular-nums text-faint">
+                    {m.centsPer1kTokens}¢ / 1k tokens
+                  </span>
+                )}
+                <span className="text-[11px] text-faint">{m.calls} call{m.calls === 1 ? '' : 's'}</span>
+                <span className="w-16 text-right text-sm tabular-nums text-muted-foreground">{money(m.cents)}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── WHAT IS METERED, and what is merely counted ────────────────────
+          Storage and seats are recorded but not charged. Rendering them as a
+          confident $0.00 would read as "free" when it means "not billed yet",
+          so they say which they are and carry their economic shape — a stock
+          held or a seat occupied behaves nothing like a call made. */}
+      {intel.byKind.length > 0 && (
+        <section className="mb-5">
+          <h2 className="mb-2 font-display text-[13px] font-semibold text-muted-foreground">Metered</h2>
+          <div className="squircle overflow-hidden border border-border bg-card">
+            {intel.byKind.map((k) => (
               <div key={k.kind} className="flex items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0">
-                <span className="min-w-0 flex-1 truncate text-sm text-foreground">{k.kind}</span>
-                <span className="text-[11px] text-faint">{k.units.toLocaleString()} units</span>
-                <span className="w-16 text-right text-sm tabular-nums text-muted-foreground">{money(k.cents)}</span>
+                <span className="min-w-0 flex-1 truncate text-sm text-foreground">{k.label}</span>
+                <span className="text-[11px] text-faint">
+                  {k.shape === 'stock' ? 'held' : k.shape === 'recurring' ? 'per period' : 'per use'}
+                </span>
+                <span className="w-16 text-right text-sm tabular-nums text-muted-foreground">
+                  {k.meteredOnly && k.cents === 0
+                    ? <span className="text-faint">not billed</span>
+                    : money(k.cents)}
+                </span>
               </div>
             ))}
           </div>

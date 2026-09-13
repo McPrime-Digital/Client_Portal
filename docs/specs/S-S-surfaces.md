@@ -1,6 +1,7 @@
 # Genreline — S-S: Surfaces
 
-**Status:** DRAFT — for approval. No surface in §6 is built until this is settled.
+**Status:** Phases A and B BUILT (2026-09-13). §5's four questions are answered
+by the owner and recorded in §5. Phase C and D are not started.
 **Date:** 2026-09-13
 **Depends on:** `S-R` §8 (S-1…S-4) · `S-V` §1–§12 · `S-F` §7 (the v1 cap) · `S0` I-1…I-12
 **Owner instruction this answers:** research the world-leading equivalent of every
@@ -189,5 +190,73 @@ surface work and none should be scheduled as if they were.
 
 ---
 
-*End of S-S. Draft. Governs what a surface contains; `S-R` §8 governs what it may
-show to whom.*
+## 6. What Phases A and B actually shipped
+
+**A · the spine.** `/studio` is a projection (S-1) — a call sheet written as a
+sentence, then held surfaces grouped by space, built ones leading. ⌘K over
+`heldSurfaces()`, with NO open/close animation (a 100+/day keyboard action earns
+none) and combobox semantics. The coming-soon card stopped publishing the
+roadmap. Motion tokens added: the shell had TEN hand-typed cubic-beziers and 202
+`transition-all`, and no shared curve at all.
+
+**B · the four live-engine surfaces.**
+
+`crew/control-tower` — and the engine had a hole. **Every usage row that cost
+money was unattributed; every row that cost nothing carried an actor.** The muse
+route put the user in a JSONB blob and `chargeCredits` never forwarded it to the
+column. Fixed at the writer and backfilled (0061), 18/18 recovered, 0
+unresolvable.
+
+`crew/tasks` — grouped by WHO IS BLOCKING, not by status, which is only possible
+because a task carries `requires_approval` / `approval_status`. Shows the
+auto-advance deadline, but ONLY where `review_requested_at` is non-null: all 24
+live pending gates predate the engine and have no clock running, and a countdown
+from a null start would be fiction on the number a producer acts on.
+
+`suite/library` — org-wide DAM, every facet addressable so a filtered view is a
+shareable URL (which is the mechanism behind Frame.io's Collections), plus
+storage footprint per production — the number that becomes the bill.
+
+`client/documents` — the index the engine never had. Links INTO Script Design
+rather than opening a second editor over the same Yjs document, which is a
+recorded remount hazard in this codebase.
+
+### 6.1 The economics model, added because of a constraint stated late
+
+The owner noted that **storage and seats may become billable**. The naive version
+of that change — give them a rate, let them into the same total — produces wrong
+numbers in the place that must not be wrong, because they are not the same kind
+of cost:
+
+| shape | meaning | today |
+|---|---|---|
+| **flow** | an event costs once (an AI call) | `ai.text.tokens`, `primeos` |
+| **stock** | a quantity HELD costs per period (storage) | `storage.bytes`, rate 0 |
+| **recurring** | a count OCCUPIED costs per period (seats) | `seat.invited`, rate 0 |
+
+`lib/billing/meters.ts` declares this now, while every rate is zero and nothing
+can break. Mixing them would break three things at once: burn (meaningless for a
+standing charge), runway (must divide by flow PLUS floor), and the anomaly
+detector (a monthly seat charge would read as a 30× spike every month, on
+schedule). Measured: ignoring the floor overstates runway **1000 days instead of
+117** — an 8.5× error.
+
+Allocation is recorded per meter: storage is `via-file` (events carry `file_id`,
+files carry `project_id`) so it is billable to a production the day it is
+charged. **AI is `none`, and that is the highest-value engine gap left in cost** —
+a studio that cannot attribute AI spend to a production cannot re-bill it.
+
+### 6.2 Owner answers to §5
+
+1. Unbuilt stays "coming soon" — built surfaces lead, held-but-unbuilt sit behind
+   one line per space rather than hidden (hiding a held surface tells somebody
+   they lack a capability they have).
+2. Contractor and staff hold the SAME surfaces; scope filters rows, not surfaces
+   (R-5a). Recorded rather than changed.
+3. ⌘K built.
+4. One engine, two doors: Library is org-wide, Files stays per-company.
+
+---
+
+*End of S-S. Phases A and B built. Governs what a surface contains; `S-R` §8
+governs what it may show to whom.*

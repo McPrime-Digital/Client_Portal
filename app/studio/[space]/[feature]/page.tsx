@@ -56,10 +56,8 @@ export default async function FeaturePage({
   const MEANWHILE: Record<string, { text: string; href: string; label: string }> = {
     'crew/calendar': { text: 'Deadlines and kickoffs live on each production for now.', href: '/studio/client/projects', label: 'Productions' },
     'crew/meetings': { text: 'Use your own call link and keep the record in the room.', href: '/studio/crew/chat', label: 'Crew chat' },
-    'client/documents': { text: 'Documents are written and reviewed in Script Design.', href: '/studio/suite/script', label: 'Script Design' },
     'client/brand-kit': { text: 'Logo and business identity live in settings.', href: '/studio/crew/settings', label: 'Settings' },
     'client/guest-links': { text: 'Share a production with a client from its review page.', href: '/studio/client/review', label: 'Review' },
-    'suite/library': { text: 'Every file is in the vault, grouped by company.', href: '/studio/client/files', label: 'Files' },
   }
   const meanwhile = MEANWHILE[`${space.id}/${feature.slug}`]
 

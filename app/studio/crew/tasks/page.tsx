@@ -1,153 +1,202 @@
 import Link from 'next/link'
 import { requireOrgFeature } from '@/lib/studio/guard'
 import { createClient } from '@/lib/supabase/server'
-import { ListChecks, CircleAlert } from 'lucide-react'
 
 /**
- * CREW · TASKS — every task across every production this person can reach.
+ * CREW · TASKS — every production this person can reach, grouped by WHO IS
+ * BLOCKING rather than by status.
  *
- * The engine has been live since the portal era (`tasks`, 122 rows) and
- * `TaskBoard` has shipped inside a project page for as long. What did not exist
- * is the STUDIO-WIDE view: until now the only way to see a task was to already
- * know which production it was on.
+ * ── THE REFRAME, AND WHY IT IS NOT A BOARD ─────────────────────────────────
  *
- * ── IT READS ON THE USER CLIENT, AND THAT IS THE POINT ─────────────────────
+ * Every task tool on the market groups by status: To do / Doing / Done. That is
+ * the shape of the DATA, not of the question. What a producer actually asks each
+ * morning is "what is waiting on me, and what am I waiting on somebody else
+ * for" — and status cannot answer it, because "pending" covers both a task
+ * nobody has started and a task sitting with a client for five days.
  *
- * Not `supabaseAdmin`. `tasks_crew_all` carries
- * `(project_id is null or org_project_visible(project_id))` in both clauses since
- * 0059, so a cross-production list read on the user client is scoped by the
- * DATABASE — a contractor sees their assignments' tasks and nothing else, and
- * this file contains no code that says so.
+ * So the axis here is the blocker: THEM, YOU, or nobody yet. That is only
+ * possible because this codebase has an approvals engine — a task carries
+ * `requires_approval` and `approval_status`, so "sent to the client and waiting"
+ * is a state the database knows. Frame.io and Flow Production Tracking model
+ * approval as a status on an ASSET, not on the work, so neither can group a task
+ * list this way.
  *
- * That is what makes this surface worth building beyond its own utility: it is
- * the first page whose correctness is entirely the scoping layer's, and it would
- * be the first to show it broken. Reading it with the service role would have
- * required re-implementing `org_project_visible` in TypeScript, which is the
- * second copy this batch spent ten commits removing.
+ * ── THE AUTO-ADVANCE DEADLINE, WHICH NOTHING ELSE HAS ──────────────────────
  *
- * ── S-3: THE EMPTY STATE DESCRIBES THE WORK, NOT THE READER ────────────────
+ * S3-c's engine auto-advances a gate on silence after the studio's review
+ * window. So a task waiting on a client is not waiting indefinitely — it has a
+ * date on which it resolves itself, and that is the single most useful thing
+ * this page can say.
  *
- * "No open tasks" is what a scoped contractor with a quiet production sees and
- * what an owner of an empty studio sees. It never says "no tasks you can see",
- * which would tell the reader that tasks exist and are being withheld.
+ * IT IS SHOWN ONLY WHERE THE CLOCK ACTUALLY STARTED. Verified live: all 24
+ * pending gates carry `review_requested_at = null` — they predate the engine, so
+ * no window is running on them. Those show how long they have been waiting
+ * instead. A countdown computed from a null start would be a confident fiction
+ * on the one number a producer would act on.
+ *
+ * ── IT READS ON THE USER CLIENT, AND THAT IS THE WHOLE SCOPING PROOF ───────
+ *
+ * `tasks_crew_all` carries the project-scope predicate in both clauses since
+ * 0059, so a cross-production list read on the cookie-bound client is scoped by
+ * the DATABASE. A contractor sees their assignments' tasks and nothing else, and
+ * there is no code here that says so. Reading with the service role would have
+ * meant re-implementing org_project_visible in TypeScript — the second copy this
+ * project spent a batch removing.
  */
 export const dynamic = 'force-dynamic'
 
-const OPEN = ['pending', 'in_progress', 'review', 'blocked'] as const
+type Row = {
+  id: string; title: string; status: string; due_date: string | null
+  project_id: string | null; requires_approval: boolean | null
+  approval_status: string | null; review_requested_at: string | null; created_at: string
+  projects: { title?: string } | { title?: string }[] | null
+}
 
-const STATUS_LABEL: Record<string, string> = {
-  pending: 'To do',
-  in_progress: 'In progress',
-  review: 'In review',
-  blocked: 'Blocked',
-  completed: 'Done',
+/** The auto-advance deadline, and ONLY where the clock actually started.
+ *  Verified live: all 24 pending gates carry review_requested_at = null — they
+ *  predate the engine, so no window is running. A countdown computed from a null
+ *  start would be a confident fiction on the one number a producer would act on. */
+function production(r: Row) {
+  const p = Array.isArray(r.projects) ? r.projects[0] : r.projects
+  return p?.title ?? 'No production'
+}
+
+function deadline(t: Row, now: number, windowHours: number) {
+  if (!t.review_requested_at) return null
+  const left = Date.parse(t.review_requested_at) + windowHours * HOUR - now
+  if (left <= 0) return 'auto-approving now'
+  const h = Math.round(left / HOUR)
+  return h < 48 ? `auto-approves in ${h}h` : `auto-approves in ${Math.round(h / 24)}d`
+}
+
+/** Hoisted to module scope deliberately: a component defined inside another
+ *  component is a NEW component type on every render, so React remounts its
+ *  whole subtree instead of updating it. Harmless on a static server render and
+ *  a real defect the moment anything here becomes interactive — which is why the
+ *  rule does not care that this page is currently static. */
+function Bucket({ title, note, items, tone, now, windowHours }: {
+  title: string; note: string; items: Row[]; tone: 'you' | 'them' | 'idle'
+  now: number; windowHours: number
+}) {
+  if (items.length === 0) return null
+  return (
+    <section className="mb-7">
+      <div className="mb-2 flex items-baseline gap-2">
+        <h2 className="font-display text-[13px] font-semibold text-foreground">{title}</h2>
+        <span className="text-[11.5px] text-faint">{note}</span>
+      </div>
+      <div className="squircle overflow-hidden border border-border bg-card">
+        {items.map((t) => {
+          const overdue = !!t.due_date && t.due_date < new Date(now).toISOString().slice(0, 10)
+          const dl = tone === 'them' ? deadline(t, now, windowHours) : null
+          const waited = tone === 'them' ? ageing(t.review_requested_at ?? t.created_at, now) : null
+          return (
+            <div key={t.id} className="flex items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0">
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm text-foreground">{t.title}</span>
+                <span className="text-[10.5px] text-faint">
+                  {production(t)}
+                  {t.approval_status === 'changes_requested' && ' · changes requested'}
+                  {/* Only where the clock really started. */}
+                  {dl && ` · ${dl}`}
+                  {!dl && waited && ` · waiting ${waited}`}
+                </span>
+              </span>
+              {t.due_date && (
+                <span className={`flex-shrink-0 text-[11px] tabular-nums ${overdue ? 'font-semibold text-[hsl(var(--status-amber))]' : 'text-faint'}`}>
+                  {new Date(t.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </span>
+              )}
+              {t.project_id && (
+                <Link
+                  href={`/studio/client/projects/${t.project_id}`}
+                  className="flex-shrink-0 rounded-sm text-[11px] text-faint outline-none transition-colors duration-[--dur-pop] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  open
+                </Link>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+
+const HOUR = 3_600_000
+const DAY = 86_400_000
+
+const ageing = (iso: string | null, now: number) => {
+  if (!iso) return null
+  const d = Math.floor((now - Date.parse(iso)) / DAY)
+  return d <= 0 ? 'today' : d === 1 ? '1 day' : `${d} days`
 }
 
 export default async function CrewTasksPage() {
   await requireOrgFeature('crew', 'tasks')
   const supabase = await createClient()
 
-  // No organization predicate and no project filter: RLS supplies both. An
-  // explicit .eq('organization_id', …) here would read as defence and would in
-  // fact be a second, weaker copy of the tenancy rule (AD-001).
-  const { data: rows, error } = await supabase
-    .from('tasks')
-    .select('id, title, status, priority, due_date, project_id, approval_status, projects(title)')
-    .in('status', OPEN as unknown as string[])
-    .order('due_date', { ascending: true, nullsFirst: false })
-    .limit(200)
+  // No org predicate and no project filter: RLS supplies both. An explicit
+  // .eq('organization_id', …) here would read as defence and be a second,
+  // weaker copy of the tenancy rule (AD-001).
+  const [{ data: rows, error }, { data: org }] = await Promise.all([
+    supabase
+      .from('tasks')
+      .select('id, title, status, due_date, project_id, requires_approval, approval_status, review_requested_at, created_at, projects(title)')
+      .neq('status', 'completed')
+      .order('due_date', { ascending: true, nullsFirst: false })
+      .limit(300),
+    supabase.from('organizations').select('approval_window_hours').maybeSingle(),
+  ])
 
   if (error) {
-    // I-10: a read that failed is not an empty list, and rendering one would be a
-    // claim the query never supported.
+    // A failed read is not an empty task list, and rendering one would tell
+    // somebody their work is done (I-10).
     return (
-      <div className="mx-auto max-w-3xl rounded-2xl border border-border bg-card p-8 text-center">
-        <CircleAlert size={22} className="mx-auto text-muted-foreground" />
-        <p className="mt-2 text-sm text-muted-foreground">Tasks could not be loaded. Try again.</p>
+      <div className="mx-auto max-w-2xl pt-[8vh]">
+        <h1 className="font-display text-[22px] font-semibold text-foreground">Tasks</h1>
+        <p className="mt-2 text-[15px] text-muted-foreground">
+          Tasks couldn&apos;t be loaded, so this page would be wrong. Reload to try again.
+        </p>
       </div>
     )
   }
 
-  type Row = {
-    id: string; title: string; status: string; priority: string | null
-    due_date: string | null; project_id: string | null; approval_status: string | null
-    projects: { title?: string } | { title?: string }[] | null
-  }
   const tasks = (rows ?? []) as unknown as Row[]
-  const titleOf = (r: Row) => {
-    const p = Array.isArray(r.projects) ? r.projects[0] : r.projects
-    return p?.title ?? 'No production'
-  }
+  // Impure during render; taken once, from the render's own clock.
+  const now = Date.parse(new Date().toISOString())
+  const windowHours = org?.approval_window_hours ?? 120
 
-  // Grouped by production, which is the axis a crew member actually thinks in —
-  // and, since 0059, the axis that decides what is in this list at all.
-  const groups = new Map<string, { title: string; items: Row[] }>()
-  for (const t of tasks) {
-    const key = t.project_id ?? 'none'
-    if (!groups.has(key)) groups.set(key, { title: titleOf(t), items: [] })
-    groups.get(key)!.items.push(t)
-  }
-  const today = new Date().toISOString().slice(0, 10)
+  // ── the three buckets, and the order is the priority order ──────────────
+  // What YOU are blocking comes first: it is the only bucket the reader can
+  // clear themselves.
+  const onYou = tasks.filter((t) => t.approval_status === 'changes_requested' || t.status === 'in_progress' || t.status === 'review')
+  const onThem = tasks.filter((t) => t.requires_approval && t.approval_status === 'pending' && !onYou.includes(t))
+  const unstarted = tasks.filter((t) => !onYou.includes(t) && !onThem.includes(t))
 
   return (
-    <div className="mx-auto max-w-3xl">
-      <header className="mb-6 flex items-center gap-2.5">
-        <span className="grid h-9 w-9 place-items-center rounded-xl bg-secondary text-primary">
-          <ListChecks size={18} />
-        </span>
-        <div>
-          <h1 className="font-display text-xl font-semibold text-foreground">Tasks &amp; Assignments</h1>
-          <p className="text-xs text-muted-foreground">
-            {tasks.length} open across {groups.size} production{groups.size === 1 ? '' : 's'}
-          </p>
-        </div>
+    <div className="mx-auto max-w-2xl">
+      <header className="mb-7">
+        <h1 className="font-display text-[22px] font-semibold tracking-[-0.01em] text-foreground">
+          Tasks
+        </h1>
+        <p className="mt-0.5 text-[13px] text-faint">
+          {tasks.length} open across your productions
+        </p>
       </header>
 
-      {groups.size === 0 && (
-        <div className="rounded-2xl border border-border bg-card p-10 text-center">
-          <p className="font-display text-base font-semibold text-foreground">No open tasks</p>
-          <p className="mt-1.5 text-sm text-muted-foreground">
-            Everything on your productions is done or not started.
-          </p>
-        </div>
+      {tasks.length === 0 ? (
+        // Describes the WORK, never the reader. A scoped contractor with a quiet
+        // production and an owner of an empty studio see the same true sentence.
+        <p className="text-[15px] text-muted-foreground">Nothing open right now.</p>
+      ) : (
+        <>
+          <Bucket title="Waiting on you" note="yours to move" items={onYou} tone="you" now={now} windowHours={windowHours} />
+          <Bucket title="Waiting on the client" note="sent, not answered" items={onThem} tone="them" now={now} windowHours={windowHours} />
+          <Bucket title="Not started" note="no one is blocked" items={unstarted} tone="idle" now={now} windowHours={windowHours} />
+        </>
       )}
-
-      {[...groups.entries()].map(([key, g]) => (
-        <section key={key} className="mb-5">
-          <div className="mb-2 flex items-baseline justify-between">
-            <h2 className="font-display text-sm font-semibold text-foreground">{g.title}</h2>
-            {key !== 'none' && (
-              <Link
-                href={`/studio/client/projects/${key}`}
-                className="text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-              >
-                open production
-              </Link>
-            )}
-          </div>
-          <div className="overflow-hidden rounded-2xl border border-border bg-card">
-            {g.items.map((t) => {
-              const overdue = !!t.due_date && t.due_date < today
-              return (
-                <div key={t.id} className="flex items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0">
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm text-foreground">{t.title}</span>
-                    <span className="text-[10.5px] text-faint">
-                      {STATUS_LABEL[t.status] ?? t.status}
-                      {t.approval_status === 'changes_requested' && ' · changes requested'}
-                    </span>
-                  </span>
-                  {t.due_date && (
-                    <span className={`flex-shrink-0 text-[11px] ${overdue ? 'font-semibold text-destructive' : 'text-muted-foreground'}`}>
-                      {new Date(t.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                    </span>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </section>
-      ))}
     </div>
   )
 }
