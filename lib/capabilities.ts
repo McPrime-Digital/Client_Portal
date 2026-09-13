@@ -382,7 +382,6 @@ export type Capability =
   | 'record.ledger.read' | 'record.certificate.export'
   | 'record.provenance.read' | 'record.provenance.write'
   | 'record.contract.read' | 'record.contract.write'
-  | 'work.booking.read' | 'work.booking.write'
   // org.*  — S-R-A A-5's own capability. §4 enumerates no business-settings
   // key; read and write are genuinely different questions here (the rail asks
   // read, the logo writer asks write), which is the only reason both exist.
@@ -511,11 +510,6 @@ export const CAP_RESOLUTION: Readonly<
   // can land in an extra_caps row and strip access when it is renamed.
   'record.contract.read': 'work.projects',
   'record.contract.write': 'work.projects',
-  // Availability and booking types (0066). Scheduling a person's time is work,
-  // not administration: an owner sets their own availability without holding
-  // people.manage, and 0066's policies already say so on the row.
-  'work.booking.read': 'work.projects',
-  'work.booking.write': 'work.projects',
 
   // org — A-5. NOT platform.billing: billing is owner-only and ungrantable
   // under G-2, while the studio's business profile is legitimately an admin's.

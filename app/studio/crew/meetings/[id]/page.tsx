@@ -1,0 +1,155 @@
+import Link from 'next/link'
+import { redirect } from 'next/navigation'
+import { ArrowLeft, Clock } from 'lucide-react'
+import { createClient } from '@/lib/supabase/server'
+import { isAdmin } from '@/lib/auth/role'
+import { requireOrgFeature } from '@/lib/studio/guard'
+import { readMeeting, MODE_LABEL, STATUS_LABEL, participantMinutes } from '@/lib/meetings'
+import { livekitConfigured } from '@/lib/livekit'
+import { getSignedDownloadUrl } from '@/lib/r2'
+import MeetingRoom from '@/components/studio/MeetingRoom'
+import PickReviewFile from '@/components/studio/PickReviewFile'
+import ActionButton from '@/components/studio/ActionButton'
+
+/**
+ * ONE MEETING — the room, and what it costs.
+ *
+ * READING THIS PAGE IS THE AUTHORIZATION FOR THE MEDIA (S3-b §2.3). The join
+ * token is minted only after `readMeeting()` comes back non-null on the USER
+ * client, so RLS decides who is in the call. There is no separate permission
+ * model for video, which is the trap a "meeting link" design falls into: a URL
+ * that works for whoever holds it.
+ *
+ * THE SIGNED URL IS MINTED HERE, not handed to the browser as a path. R2 objects
+ * are private; the player gets a short-lived URL for the file the room has
+ * chosen, and only when it can already see the meeting.
+ */
+
+export default async function MeetingPage(
+  { params }: { params: Promise<{ id: string }> }
+) {
+  await requireOrgFeature('crew', 'meetings')
+  const { id } = await params
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user || !isAdmin(user)) redirect('/login')
+
+  const detail = await readMeeting(supabase, id)
+  // Absent rather than forbidden — RLS makes a foreign meeting invisible and
+  // the redirect cannot tell the two apart either (R-6).
+  if (!detail) redirect('/studio/crew/meetings')
+
+  const { meeting, participants, sync } = detail
+  const isReview = meeting.mode === 'review_session'
+  const over = meeting.status === 'ended' || meeting.status === 'cancelled'
+
+  // What the room is watching, if anything.
+  let fileUrl: string | null = null
+  if (isReview && sync?.file_id) {
+    const { data: f } = await supabase
+      .from('files').select('file_path, bucket, file_name, mime_type')
+      .eq('id', sync.file_id).maybeSingle()
+    const row = f as { file_path: string; bucket: string; file_name: string; mime_type: string | null } | null
+    if (row?.bucket === 'r2') {
+      // Inline, and long enough to outlast a review — a two-minute URL that
+      // expires mid-session is a broken player nobody can explain.
+      fileUrl = await getSignedDownloadUrl(row.file_path, 3600, {
+        disposition: 'inline',
+        fileName: row.file_name,
+        contentType: row.mime_type ?? undefined,
+      })
+    }
+  }
+
+  // Candidates for the picker: video in the vault this person can already see.
+  const { data: videoFiles } = isReview
+    ? await supabase
+        .from('files').select('id, file_name, mime_type')
+        .is('deleted_at', null)
+        .like('mime_type', 'video/%')
+        .order('created_at', { ascending: false })
+        .limit(50)
+    : { data: [] }
+
+  const minutes = participantMinutes(participants)
+
+  return (
+    <div className="mx-auto max-w-5xl">
+      <Link
+        href="/studio/crew/meetings"
+        className="mb-6 inline-flex items-center gap-1.5 text-[13px] text-faint outline-none transition-colors duration-[--dur-pop] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <ArrowLeft size={14} /> Meetings
+      </Link>
+
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="font-display text-2xl font-semibold tracking-[-0.01em] text-foreground">
+            {MODE_LABEL[meeting.mode]}
+          </h1>
+          <p className="mt-1 flex flex-wrap items-center gap-x-3 text-[13px] text-muted-foreground">
+            <span>{STATUS_LABEL[meeting.status]}</span>
+            {participants.length > 0 && (
+              <span>{participants.length} {participants.length === 1 ? 'person' : 'people'}</span>
+            )}
+            {minutes > 0 && (
+              <span className="inline-flex items-center gap-1">
+                <Clock size={11} /> {minutes} participant-minute{minutes === 1 ? '' : 's'}
+              </span>
+            )}
+          </p>
+        </div>
+        {!over && (
+          <ActionButton
+            endpoint="/api/studio/meetings"
+            body={{ action: 'end', meetingId: meeting.id }}
+            label="End meeting"
+            tone="danger"
+            confirm="End this for everybody?"
+          />
+        )}
+      </div>
+
+      {isReview && !over && (
+        <div className="squircle mb-4 border border-border bg-card px-4 py-3">
+          <PickReviewFile
+            meetingId={meeting.id}
+            current={sync?.file_id ?? null}
+            files={(videoFiles ?? []).map((f) => ({
+              id: f.id as string, name: f.file_name as string,
+            }))}
+          />
+        </div>
+      )}
+
+      {over ? (
+        <p className="squircle border border-dashed border-border px-4 py-8 text-center text-[13px] text-muted-foreground">
+          This meeting is over. The record of who attended and for how long stays here.
+        </p>
+      ) : !livekitConfigured() ? (
+        <p className="squircle border border-border bg-card px-4 py-3 text-[13px] text-muted-foreground">
+          Video is not configured on this deployment, so there is no room to join yet.
+        </p>
+      ) : (
+        <MeetingRoom meetingId={meeting.id} mode={meeting.mode} fileUrl={fileUrl} />
+      )}
+
+      {participants.length > 0 && (
+        <section className="mt-8">
+          <h2 className="mb-3 font-display text-sm font-semibold text-foreground">Who was here</h2>
+          <ul className="space-y-1.5">
+            {participants.map((p) => (
+              <li key={p.id} className="flex items-baseline justify-between gap-3 text-[12px]">
+                <span className="text-foreground">{p.role}</span>
+                <span className="text-muted-foreground">
+                  {Math.round(p.duration_seconds / 60)} min
+                  {p.left_at === null && p.joined_at ? ' · in the room' : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  )
+}

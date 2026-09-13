@@ -38,6 +38,12 @@ export async function proxy(request: NextRequest) {
     '/reset-password',
     '/set-password',    // ← critical: never redirect this
     '/auth/callback',   // ← for OAuth if added later
+    // A single-use signing link (S3-b §3.7). The person opening it is an
+    // outside counterparty — a background actor signing an AI-likeness release,
+    // a location owner — who has no account and never will. The TOKEN is the
+    // authority, and it is checked in the route; redirecting them to /login
+    // would make the whole path impossible.
+    '/sign',
   ]
 
   const isPublicRoute = publicRoutes.some((route) =>

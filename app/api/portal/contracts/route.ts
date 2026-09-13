@@ -6,6 +6,8 @@ import {
   readContract, recordConsent, markViewed, sign, declineContract,
   actorFromHeaders, CONSENT_TEXT,
 } from '@/lib/contracts'
+import { finalizeContract } from '@/lib/contractFinalize'
+import { tenantBrand } from '@/lib/tenantBrand'
 import { captureError } from '@/lib/errors'
 
 /**
@@ -109,7 +111,18 @@ export async function POST(req: NextRequest) {
         }[out.reason]
         return NextResponse.json({ error: message }, { status: out.reason === 'GONE' ? 404 : 409 })
       }
-      return NextResponse.json({ ok: true, completed: out.completed })
+      if (out.completed) {
+        // The signature is already recorded; the artifact is a convenience copy,
+        // so a failure here is reported and never unwinds the signature.
+        const brand = await tenantBrand(detail.contract.organization_id)
+        const fin = await finalizeContract(supabase, b.contractId, brand.name)
+        return NextResponse.json({
+          ok: true, completed: true,
+          sealed: fin.ok ? fin.sealed : false,
+          note: fin.ok ? fin.reason : fin.reason,
+        })
+      }
+      return NextResponse.json({ ok: true, completed: false })
     }
 
     const declined = await declineContract(

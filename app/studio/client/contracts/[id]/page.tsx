@@ -8,6 +8,7 @@ import { capGate } from '@/lib/capabilities.server'
 import { readContract, STATUS_LABEL } from '@/lib/contracts'
 import ActionButton from '@/components/studio/ActionButton'
 import AddSigner from '@/components/studio/AddSigner'
+import SigningLink from '@/components/studio/SigningLink'
 
 /**
  * ONE CONTRACT, and its certificate of completion.
@@ -114,10 +115,18 @@ export default async function ContractRecordPage(
                   </span>
                   <span className="block truncate text-[11px] text-faint">{s.email}</span>
                 </span>
-                <span className="inline-flex items-center gap-1 text-[12px] text-muted-foreground">
-                  {s.status === 'signed' && <Check size={12} className="text-primary" />}
-                  {s.status === 'declined' && <XIcon size={12} className="text-destructive" />}
-                  {s.status === 'signed' && s.signed_at ? `Signed ${ts(s.signed_at)}` : s.status}
+                <span className="inline-flex items-center gap-3">
+                  {/* Only an OUTSIDE signer needs a link — somebody with an
+                      account signs in the portal, where the identity proof is
+                      stronger. */}
+                  {s.user_id === null && s.status !== 'signed' && contract.status !== 'draft' && (
+                    <SigningLink contractId={contract.id} signerId={s.id} signerName={s.name} />
+                  )}
+                  <span className="inline-flex items-center gap-1 text-[12px] text-muted-foreground">
+                    {s.status === 'signed' && <Check size={12} className="text-primary" />}
+                    {s.status === 'declined' && <XIcon size={12} className="text-destructive" />}
+                    {s.status === 'signed' && s.signed_at ? `Signed ${ts(s.signed_at)}` : s.status}
+                  </span>
                 </span>
               </li>
             ))}

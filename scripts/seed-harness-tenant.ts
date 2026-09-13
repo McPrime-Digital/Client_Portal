@@ -45,7 +45,7 @@ import {
   loadEnv, requireEnv, assertEnvLocalIgnored,
   OM_OWNER_ID, OM_CREW_ID, OM_REVOKED_ID, OM_FINANCE_ID, OM_CONTRACTOR_ID,
   DOC_P1_ID, DOC_P2_ID,
-  CAL_C1_ID, CAL_P2_ID, CONTRACT_C1_ID, CONTRACT_EVENT_ID, CONTRACT_SIGNER_ID,
+  CAL_C1_ID, CAL_P2_ID, CONTRACT_C1_ID, CONTRACT_EVENT_ID, CONTRACT_SIGNER_ID, SIGNING_LINK_ID,
   CM_C1OWN_ID, CM_C1MATE_ID, CM_C2OWN_ID,
 } from './harness-constants'
 
@@ -410,6 +410,19 @@ async function main() {
         name: 'Harness C1 Owner', email: PERSONAS.c1own.email, seq: 0, status: 'sent' },
     ], { onConflict: 'id' })
     if (error) throw new Error(`contract_signers: ${error.message}`)
+  }
+
+  // A signing link, so assertion 54 has something to fail to read. Inserted
+  // directly: contract_signing_links has RLS enabled and NO policy at all, so
+  // seedRows' own guard (which wants organization_id) does not apply and no
+  // persona could write it anyway.
+  {
+    const { error } = await admin.from('contract_signing_links').upsert([
+      { id: SIGNING_LINK_ID, contract_id: CONTRACT_C1_ID, signer_id: CONTRACT_SIGNER_ID,
+        token_hash: 'zz-harness-not-a-real-token-hash',
+        expires_at: at(30 * DAY) },
+    ], { onConflict: 'id' })
+    if (error) throw new Error(`contract_signing_links: ${error.message}`)
   }
 
   // contract_events carries NO organization_id — it reaches its tenant through

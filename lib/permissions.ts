@@ -299,10 +299,6 @@ const ORG_FEATURE_CAP: Record<FeatureKey, OrgCap | null> = {
   'crew/tasks': 'work.projects',
   'crew/calendar': null,
   'crew/meetings': null,
-  // Scheduling is WORK, not administration: a person sets their own
-  // availability without holding people.manage, and 0066's policies already
-  // scope each row to its owner.
-  'crew/scheduling': 'work.projects',
   'crew/crm': 'client.manage',
   'crew/leads': 'client.manage',
   'crew/control-tower': 'money.costs',

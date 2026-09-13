@@ -57,11 +57,15 @@ export type Contract = {
   project_id: string | null
   is_template: boolean
   title: string
+  release_kind: 'appearance' | 'ai_likeness' | 'location' | 'music' | null
+  subject_file_id: string | null
+  ai_training: 'allowed' | 'notAllowed' | 'constrained'
   body: { text?: string } | null
   source_file_id: string | null
   status: ContractStatus
   expires_at: string | null
   content_hash: string | null
+  final_file_id: string | null
   created_at: string
 }
 
@@ -90,7 +94,7 @@ export type ContractEvent = {
 }
 
 const CONTRACT_COLUMNS =
-  'id, organization_id, client_id, project_id, is_template, title, body, source_file_id, status, expires_at, content_hash, created_at'
+  'id, organization_id, client_id, project_id, is_template, title, release_kind, subject_file_id, ai_training, body, source_file_id, status, expires_at, content_hash, final_file_id, created_at'
 const SIGNER_COLUMNS =
   'id, contract_id, user_id, email, name, seq, status, verification, signed_at'
 const EVENT_COLUMNS =
@@ -198,6 +202,9 @@ export async function createContract(
     clientId?: string | null
     projectId?: string | null
     expiresAt?: string | null
+    releaseKind?: Contract['release_kind']
+    subjectFileId?: string | null
+    aiTraining?: Contract['ai_training']
   },
   actor: Actor
 ): Promise<Contract | null> {
@@ -209,6 +216,9 @@ export async function createContract(
     body: { text: p.bodyText },
     status: 'draft',
     expires_at: p.expiresAt ?? null,
+    release_kind: p.releaseKind ?? null,
+    subject_file_id: p.subjectFileId ?? null,
+    ai_training: p.aiTraining ?? 'notAllowed',
   }).select(CONTRACT_COLUMNS).maybeSingle()
 
   if (error) throw new Error(`createContract: ${error.message}`)

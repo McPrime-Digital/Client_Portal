@@ -54,7 +54,6 @@ export default async function FeaturePage({
    * today, this says so and links it.
    */
   const MEANWHILE: Record<string, { text: string; href: string; label: string }> = {
-    'crew/meetings': { text: 'Use your own call link and keep the record in the room.', href: '/studio/crew/chat', label: 'Crew chat' },
     'client/brand-kit': { text: 'Logo and business identity live in settings.', href: '/studio/crew/settings', label: 'Settings' },
     'client/guest-links': { text: 'Share a production with a client from its review page.', href: '/studio/client/review', label: 'Review' },
   }

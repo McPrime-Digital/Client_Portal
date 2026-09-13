@@ -550,6 +550,91 @@ colleague (assertion 53).
 - **Client-facing booking pages.** Booking is studio-side today; `booking_types`
   already carries `client_id` for the day a client picks their own slot.
 
+### 6.7 Phase G — bookings out, meetings in, and the research that changed the code
+
+#### Bookings is removed (0076), and §6.6 already said why
+
+The owner's call, and it agrees with the assessment recorded here when it
+shipped: a slot picker is a SaaS reflex, not a film feature. All three tables
+held zero rows. **The reframe settles it** — this is an AI/HYBRID FILM OS, and
+the features that earn their place are the ones answering *what is real and who
+agreed to it*. Scheduling was never that.
+
+#### Meetings, and why it is not a Zoom link
+
+`review_session` (AD-006) is the reason to build rather than paste a link. In a
+hybrid production the meeting that matters is three people arguing about ONE
+SHOT, half of which came out of a model. A screenshare gives the others no
+control and anchors nothing they say.
+
+**What was taken from the state of the art, and what was built on top.**
+Syncplay (GPL — studied, not copied, and no code is shared with it) settled the
+core insight years ago: a play command that arrives 180ms late lands 180ms
+behind, because the sender kept playing while it was in flight. The first draft
+of `MeetingRoom` had exactly that bug. Three things go beyond it:
+
+1. **A clock-offset handshake.** Compensation needs the sender's clock and two
+   browsers do not share one, so an NTP-style ping/pong over the data channel
+   estimates the offset per peer. Syncplay gets this from its central server;
+   there is no server here, so the peers work it out between themselves.
+2. **Rate nudging instead of seeking.** The frame-sync literature is consistent
+   that adding or removing a few frames a second is imperceptible while a seek is
+   not — so drift under 250ms is corrected by running at 0.97×–1.03× until it is
+   gone. A review session that hitches every few seconds is worse than one that
+   is quietly 80ms apart.
+3. **No infrastructure.** It rides a WebRTC data channel already open and already
+   authenticated by the same LiveKit token, which is also what keeps it inside
+   I-2's channel cap — a Supabase Realtime subscription would have been a seventh.
+
+`S3-b` §2.3's rule is kept literally: the join token is minted only after the
+meeting has been read on the USER client. There is no second permission model
+for media, which is the trap a "meeting link" design falls into.
+
+#### Signing, and a licence audit that changed the plan
+
+**Documenso and DocuSeal are both AGPL-3.0.** A network-served derivative would
+oblige this product to publish its source, so not a line of either is here. What
+was taken is the BAR — and it is the right thing to take from a licence you
+cannot use: they produce a **cryptographically signed PDF** (PKCS#12, PAdES),
+not merely an audit table. An audit table is a claim; a signed document is
+evidence. The crypto stack adopted is `@signpdf/*` + `pdf-lib`, both **MIT**.
+
+**Built on top:** the certificate of completion is rendered INTO the PDF before
+it is sealed, so the signature covers the evidence as well as the agreement.
+Documenso and DocuSeal keep the trail on their own side — fine until the day you
+need it and the vendor is gone. Here the artifact proves itself to anybody
+holding the file.
+
+**Single-use signing links (0078)** are built rather than deferred, because the
+reframe makes them the common case: the most frequent signature in a hybrid
+production comes from somebody who will never hold an account — a background
+actor signing an AI-likeness release. `/sign/<token>` is the only route in the
+application with no session; every failure returns one answer so a probe cannot
+enumerate, and the request has exactly one degree of freedom.
+
+#### 0079 — the join no single-purpose product can make
+
+`rights.talent_consent` was a boolean somebody typed. It is now a CONSEQUENCE of
+a signature: a release names its instrument, its asset and the AI-training
+permission in CAWG's own vocabulary, and completing it writes the asset's rights
+row.
+
+DocuSign cannot do this — a talent release is an opaque PDF to it, with no
+concept of an asset or a likeness. Frame.io cannot do it — it will not tell you
+whether the face in shot 47 agreed to be modelled. It works only because both
+halves are one system, which is the argument for a film OS rather than five
+tools.
+
+Proven with controls, including the one that matters: a **location** release
+does NOT assert a person's likeness.
+
+#### Still not built, named rather than implied
+
+- **Drag-and-drop PDF field placement.** `contract_fields` has the schema; v1
+  signs a text body rendered to PDF.
+- **Meeting recording.** v1.5, and a storage-curve decision before a schema one
+  (`S3-b` §7 answer 3).
+
 ### 6.2 Owner answers to §5
 
 1. Unbuilt stays "coming soon" — built surfaces lead, held-but-unbuilt sit behind
@@ -562,5 +647,5 @@ colleague (assertion 53).
 
 ---
 
-*End of S-S. Phases A–F built, plus allowance (§6.1.1). Governs what a surface contains; `S-R` §8
+*End of S-S. Phases A–G built, plus allowance (§6.1.1). Governs what a surface contains; `S-R` §8
 governs what it may show to whom.*

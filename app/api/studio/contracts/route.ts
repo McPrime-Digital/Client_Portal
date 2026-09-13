@@ -7,6 +7,8 @@ import { rosterName } from '@/lib/team'
 import {
   createContract, addSigner, sendContract, voidContract, actorFromHeaders,
 } from '@/lib/contracts'
+import { mintSigningLink, revokeSigningLinks } from '@/lib/signingLinks'
+import { appUrl } from '@/lib/appOrigin'
 import { captureError } from '@/lib/errors'
 
 /**
@@ -36,6 +38,14 @@ const Create = z.object({
   clientId: z.uuid().nullish(),
   projectId: z.uuid().nullish(),
   expiresAt: z.iso.datetime({ offset: true }).nullish(),
+  // A RELEASE is a contract that grants rights over an asset (0079). Naming the
+  // instrument and the asset is what lets a completed signature WRITE the rights
+  // record instead of leaving somebody to tick a box that nothing substantiates.
+  releaseKind: z.enum(['appearance', 'ai_likeness', 'location', 'music']).nullish(),
+  subjectFileId: z.uuid().nullish(),
+  // CAWG's own vocabulary, so it reaches `rights` untranslated. Defaults to
+  // notAllowed: a release silent about AI training did not grant it.
+  aiTraining: z.enum(['allowed', 'notAllowed', 'constrained']).optional(),
 })
 
 const AddSigner = z.object({
@@ -44,12 +54,27 @@ const AddSigner = z.object({
   email: z.email().max(320),
   name: z.string().trim().min(1).max(200),
   seq: z.number().int().min(0).max(50).optional(),
+  /** An outside counterparty — a background actor signing an AI-likeness
+   *  release, a location owner — who will never hold an account. They reach the
+   *  document through a single-use link instead of a session (S3-b §3.7). */
+  external: z.boolean().optional(),
 })
+
+const MintLink = z.object({
+  action: z.literal('mint-link'),
+  contractId: z.uuid(),
+  signerId: z.uuid(),
+  expiresInHours: z.number().int().min(1).max(720).optional(),
+})
+
+const RevokeLinks = z.object({ action: z.literal('revoke-links'), contractId: z.uuid() })
 
 const Send = z.object({ action: z.literal('send'), contractId: z.uuid() })
 const Void = z.object({ action: z.literal('void'), contractId: z.uuid() })
 
-const Body = z.discriminatedUnion('action', [Create, AddSigner, Send, Void])
+const Body = z.discriminatedUnion('action', [
+  Create, AddSigner, Send, Void, MintLink, RevokeLinks,
+])
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
@@ -83,6 +108,9 @@ export async function POST(req: NextRequest) {
         clientId: b.clientId ?? null,
         projectId: b.projectId ?? null,
         expiresAt: b.expiresAt ?? null,
+        releaseKind: b.releaseKind ?? null,
+        subjectFileId: b.subjectFileId ?? null,
+        aiTraining: b.aiTraining ?? 'notAllowed',
       }, actor)
       if (!contract) {
         return NextResponse.json(
@@ -92,7 +120,44 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ id: contract.id })
     }
 
+    if (b.action === 'mint-link') {
+      const link = await mintSigningLink(supabase, {
+        contractId: b.contractId,
+        signerId: b.signerId,
+        expiresInHours: b.expiresInHours,
+        createdBy: user.id,
+      })
+      if (!link) return NextResponse.json({ error: 'Not permitted.' }, { status: 403 })
+      // SHOWN ONCE. The token is hashed at rest and cannot be retrieved again,
+      // which is the property that makes a database leak yield no live links.
+      return NextResponse.json({
+        url: appUrl(`/sign/${link.token}`),
+        expiresAt: link.expiresAt,
+      })
+    }
+
+    if (b.action === 'revoke-links') {
+      const n = await revokeSigningLinks(supabase, b.contractId)
+      return NextResponse.json({ ok: true, revoked: n })
+    }
+
     if (b.action === 'add-signer') {
+      // An EXTERNAL signer is not looked up: by definition there is no account
+      // to find. They are verified by holding the link, and the row records
+      // that with verification='email_link'.
+      if (b.external) {
+        const { data: existing } = await supabase
+          .from('contract_signers').select('seq').eq('contract_id', b.contractId)
+          .order('seq', { ascending: false }).limit(1)
+        const seq = b.seq ?? ((existing?.[0]?.seq as number | undefined) ?? -1) + 1
+
+        const signer = await addSigner(supabase, {
+          contractId: b.contractId, name: b.name, email: b.email, userId: null, seq,
+        })
+        if (!signer) return NextResponse.json({ error: 'Not permitted.' }, { status: 403 })
+        return NextResponse.json({ id: signer.id, external: true })
+      }
+
       const { data: member } = await supabase
         .from('client_members')
         .select('user_id, name')
@@ -103,7 +168,7 @@ export async function POST(req: NextRequest) {
 
       if (!member?.user_id) {
         return NextResponse.json({
-          error: 'That address is not on a client team yet. Invite them first — v1 signs through a real account, not an emailed link.',
+          error: 'That address is not on a client team. Add them as an outside signer instead, and send them a single-use link.',
         }, { status: 409 })
       }
 

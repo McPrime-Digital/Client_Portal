@@ -1,7 +1,7 @@
 /**
  * scripts/test-rls.ts — S2 §6, Part B. The RLS test harness.
  *
- * FIFTY-THREE assertions, numbered 1–53, none reserved. Slot 21 was held open for
+ * FIFTY-FOUR assertions, numbered 1–54, none reserved. Slot 21 was held open for
  * the retention-purge assertion — "cannot be written against a function that
  * does not exist" — and 0071 built the function, so it is filled.
  * This count was "Twenty-nine" until Batch 26 item 1 and had been
@@ -31,6 +31,8 @@
  *          survives a hand edit and a hand delete
  *   53     0068 — a signature is IDENTITY: a colleague on the same company
  *          cannot mark somebody else as having signed
+ *   54     0078 — a signing link is a bearer credential and no session, owner
+ *          included, can read one
  *   50–51  0070/0073, 0072 — a soft-deleted row disappears for the CLIENT
  *          (crew keep it by design, so restore stays possible), and calendar
  *          credentials are invisible to everyone but the person they belong to,
@@ -63,7 +65,7 @@
  * rows that persona SHOULD see. Control zero → the assertion is reported
  * VACUOUS, not PASS, and the run does not exit clean.
  *
- * WHAT TO EXPECT NOW: all 53 green on a freshly seeded tenant. This paragraph
+ * WHAT TO EXPECT NOW: all 54 green on a freshly seeded tenant. This paragraph
  * used to read "expect most of this to be RED today" — true when S2 §6 asked for
  * a failing baseline, and false since the policy classes landed. Left as written
  * it tells the next reader that red output is normal, which is the one thing a
@@ -1294,6 +1296,28 @@ async function main() {
         judge(53, 'a client member cannot mark a colleague as having signed (control: they can READ the same row)',
           leaks, readable)
       }
+    }
+
+    // ── 54 · 0078 — a signing link is invisible to EVERY session ───────────
+    //
+    // A signing link is a bearer credential for a legal document. The table has
+    // RLS enabled and NO POLICY AT ALL, so the only readers are the minting
+    // route and the anonymous signing path, both server-side. If any persona
+    // can read a token hash, the whole design is decoration.
+    {
+      const seen = await Promise.all([
+        countRows(owner, 'contract_signing_links'),
+        countRows(crew, 'contract_signing_links'),
+        countRows(c1own, 'contract_signing_links'),
+        countRows(finance, 'contract_signing_links'),
+      ])
+      const leaks = seen.some((n) => n > 0)
+        ? [`a session read ${Math.max(...seen)} signing-link row(s)`] : []
+      // CONTROL: the same owner reads the CONTRACT those links belong to — so
+      // the four zeros above cannot be explained by a blind session.
+      const control = await countRows(owner, 'contracts', [{ op: 'eq', col: 'id', val: CONTRACT_C1_ID }])
+      judge(54, 'no session reads a signing link, owner included (control: the owner reads the contract it belongs to)',
+        leaks, control)
     }
 
     // ── 52 · 0074 — a projected calendar entry is not editable by hand ─────

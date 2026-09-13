@@ -115,8 +115,8 @@ Note: dynamic-route `params` and `next/headers` `cookies()` are async (Promises)
 There is no unit-test framework configured. There are now TWO test surfaces, and both must
 be run after anything touching policies, auth, capabilities or tenancy:
 
-- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **53 assertions**, numbered
-  1–53 with none reserved (slot 21 was held for the retention purge and 0071 filled
+- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **54 assertions**, numbered
+  1–54 with none reserved (slot 21 was held for the retention purge and 0071 filled
   it), every one with a positive control, seeded by
   `npm run seed:harness -- --apply`). Seed, then run ONCE:
   assertion 17 is single-use and reports VACUOUS on a second run without a re-seed.
@@ -323,9 +323,9 @@ Walk each of these paths mentally before saving an edit to `proxy.ts`.
 - `app/api/` — route handlers for files, portal, admin, studio, rooms, cron,
   presence, push, and the Stripe webhook. This entry was off by one twice when
   it carried a number — count it (`find app/api -name route.ts | wc -l`),
-  don't quote it (**63** today — Batch 26 ended at 57; `admin/budgets`,
-  `studio/provenance`, `studio/calendar`, `studio/scheduling`,
-  `studio/contracts` and `portal/contracts` are the six added since). `app/api/rooms*` (Batch 23) is the
+  don't quote it (**64** today). `studio/scheduling` was added and then REMOVED
+  with the bookings feature (0076); `sign` is the only route in the application
+  with no session at all. `app/api/rooms*` (Batch 23) is the
   S3-d surface: room list/create (channels, groups, broadcast, DMs), seating,
   and room-addressed messages — zod-validated, and the WRITES run on the user
   client so the 0046 policies are the authorization (AD-001 as written; the
@@ -470,6 +470,30 @@ CASCADE. That guard closed a live defect — `activity_log.project_id` and
 `.client_id` were `ON DELETE CASCADE`, so deleting a client company destroyed
 its ledger silently. Both are `SET NULL` now.
 
+## The release → rights chain (0079) — the hybrid-film join
+
+`rights.talent_consent` used to be a boolean somebody typed. 0079 makes it a
+CONSEQUENCE of a signature: a contract carries `release_kind`
+(appearance | ai_likeness | location | music), `subject_file_id` and
+`ai_training` (CAWG's `allowed | notAllowed | constrained`), and when the last
+signer signs, a trigger writes the asset's `rights` row.
+
+**An e-signature product cannot do this** — to DocuSign a talent release is an
+opaque PDF, with no concept of an asset, a likeness or a training permission.
+**A review tool cannot do it either** — Frame.io will not tell you whether the
+face in shot 47 agreed to be modelled. It only works because both halves are the
+same system.
+
+Rules that are load-bearing:
+
+- **Only `appearance` and `ai_likeness` may set `talent_consent`.** A location
+  agreement carries no person's likeness and must never assert one — that is the
+  difference between a record and a rubber stamp, and it has an assertion.
+- **A voided or declined release resets consent to false.** A withdrawn release
+  is not a quiet one.
+- **`ai_training` defaults to `notAllowed`.** A release silent about AI training
+  did not grant it. The enum exists precisely because prose is ambiguous.
+
 ## Contracts and signatures — what carries enforceability
 
 `lib/contracts.ts` is the one write path; `/api/studio/contracts` drafts, staffs
@@ -491,9 +515,30 @@ Three things carry ESIGN/UETA and all three are mechanical, not cosmetic:
   `auth.uid()` and never from the request body, and
   `contract_signers_self_update` enforces it on the row (assertion 53).
 
-NOT BUILT, deliberately: PDF field placement, and the single-use signing link
-for a non-member. `S3-b` §7 answer 2 puts v1 on real accounts, and that link is
-a service-role surface on a legal document.
+**THE SIGNED ARTIFACT (0079-era, `lib/contractPdf.ts`).** Documenso and DocuSeal
+were studied and are **both AGPL-3.0**, so no code from either is here — a
+network-served derivative would oblige this product to publish its source. What
+was taken is the BAR: they produce a cryptographically signed PDF (PKCS#12,
+PAdES), not merely an audit table. The crypto stack here is `@signpdf/*` and
+`pdf-lib`, both MIT.
+
+**Built on top of that bar:** the certificate of completion is rendered INTO the
+PDF before it is sealed, so the signature covers the evidence as well as the
+agreement and the artifact proves itself to anybody holding the file. Documenso
+and DocuSeal keep the trail on their own side, which is fine until the day you
+need it and the vendor is gone. Without a certificate configured the PDF is still
+produced and still carries the certificate page — and `signContractPdf` SAYS it
+is unsealed rather than downgrading silently.
+
+**SINGLE-USE SIGNING LINKS (0078)** are built, because in a hybrid production the
+most common signature comes from somebody who will never hold an account — a
+background actor signing an AI-likeness release. `/sign/<token>` is the only
+route with no session; `lib/signingLinks.ts` and `app/api/sign/route.ts` carry
+the I-8 justification. Every failure returns one answer so a probe cannot
+enumerate, and the request has exactly one degree of freedom: the body carries a
+token and nothing else.
+
+NOT BUILT: drag-and-drop PDF field placement. `contract_fields` has the schema.
 
 ## Provenance — the disclosure a studio can be asked for
 
@@ -518,8 +563,22 @@ generations. `lib/provenance.ts` is the one write path and
 
 `supabase/migrations/` holds one numbering scheme (`00NN`); the retired `2026*` scheme is fenced in `_archive/`:
 
-- `0000_baseline_schema.sql` … `0075_booking_calendar.sql` — the current
+- `0000_baseline_schema.sql` … `0079_release_to_rights.sql` — the current
   source of truth, **all applied** (verified live 2026-09-13).
+  **0076 DROPS bookings** (`bookings`, `booking_types`, `availability_rules`) on
+  the owner's decision — all three held zero rows, so nothing was lost. If a
+  contended resource ever appears, the part worth bringing back is 0066's
+  `EXCLUDE USING gist` constraint, not the UI.
+  **0077** adds `meeting_sync_state` — the review session's shared playhead. It
+  stores `position_ms` where `S3-b` §2.2 sketched `frame`, deliberately: a frame
+  number is not a position without a rate, and 0038 already settled that a
+  timecode is `{ms}`. A second representation is how a comment lands on the
+  wrong shot.
+  **0078** adds `contract_signing_links` — RLS enabled with **no policy at all**,
+  because the only legitimate readers are server-side. The token is never
+  stored, only its SHA-256.
+  **0079 is the join nobody else can make**: a completed release WRITES the
+  `rights` row it proves. See below.
   **0075 closes the edge between bookings and the calendar** — `S3-b` §1.1:
   "Bookings produce calendar entries." A confirmed booking projects onto the
   calendar and a cancelled one is REMOVED, because a calendar holding cancelled

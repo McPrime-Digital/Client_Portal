@@ -324,7 +324,16 @@ The audited era, each batch with what it *found*:
 - **Branch:** `throughline` (main ⊆ throughline, fast-forward). Not renamed —
   S0-B §6 excludes the branch, and renaming it is a remote/CI change, not a
   code one.
-- **Migrations applied: 0000–0075, every one of them.** Verified live
+- **Migrations applied: 0000–0079, every one of them.** Verified live
+  2026-09-13. **0076 REMOVES bookings** on the owner's decision (zero rows in
+  all three tables, so nothing was lost); **0077** is the review session's shared
+  playhead and the meeting→calendar projection; **0078** is single-use signing
+  links for a signer with no account; **0079 makes a signed release WRITE the
+  `rights` record it proves** — the join between the provenance engine (0064)
+  and the signature engine (0068) that no single-purpose product can make.
+  Harness **53 → 54**.
+  The pre-0076 line, kept because it is what this file claimed:
+  **Migrations applied: 0000–0075, every one of them.** Verified live
   2026-09-13. **0075 is the last projection edge** — `S3-b` §1.1's "bookings
   produce calendar entries", which neither 0066 nor 0074 could own alone.
   Cancelling removes the entry and nulls the link, because a calendar holding
@@ -1044,6 +1053,33 @@ Not dropped here, deliberately: dropping a column is destructive and belongs in
 its own migration with a deploy gate (`S3-core` migration 12's shape), not as a
 side effect of an additive one. Recorded so it is a decision rather than a
 discovery.
+
+#### REMOVED (0076) — bookings, on the owner's call
+
+`bookings`, `booking_types` and `availability_rules` are dropped. All three held
+zero rows. The owner's judgement, and it matches what `S-S` §6.6 recorded when
+it shipped: a Cal.com-style slot picker is a SaaS reflex rather than a film
+feature, and for a studio with no contended resource there is nothing for the
+exclusion constraint to protect.
+
+**What is worth remembering if a contended resource ever appears** — a casting
+session with slots, a shared grade suite, an ADR booth — is not the UI. It is
+0066's `EXCLUDE USING gist (owner_user_id WITH =, tstzrange(…) WITH &&)`, which
+stops two people claiming one person under a race the application cannot win,
+plus its header explaining why the owner must be stamped by trigger rather than
+supplied. Roughly ten lines.
+
+#### NEW ENV — LiveKit and the contract seal
+
+Both optional; both degrade with a stated reason rather than silently.
+
+- `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `NEXT_PUBLIC_LIVEKIT_URL` — without
+  them Meetings renders the reason and no Join button.
+- `CONTRACT_SIGNING_P12_BASE64`, `CONTRACT_SIGNING_P12_PASSPHRASE` — a PKCS#12
+  bundle. Without it a completed contract still produces its PDF and its
+  certificate page; it is simply not cryptographically sealed, and the result
+  says so. **A silent downgrade from sealed to unsealed on a legal document
+  would be the worst failure available**, so it is reported.
 
 ### 8.4 Structural (sequenced, not forgotten)
 

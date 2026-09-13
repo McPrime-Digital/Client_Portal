@@ -92,6 +92,17 @@ export const METERS: Readonly<Record<string, Meter>> = {
     // to a production the day it becomes billable. The join exists.
     allocation: 'via-file',
   },
+  'meeting.minutes': {
+    kind: 'meeting.minutes', shape: 'flow', unit: 'minutes', label: 'Meeting minutes',
+    // Participant-minutes, which is how LiveKit bills and therefore how this
+    // must measure (S3-b §2.1). FLOW: a minute spent is spent once, unlike
+    // storage HELD or a seat OCCUPIED — mixing it with those would poison burn
+    // and make the anomaly detector fire on schedule.
+    rateCents: 0,
+    // The meeting carries project_id, so a review session is chargeable to the
+    // production it was about from the day it costs anything.
+    allocation: 'direct',
+  },
   'seat.invited': {
     kind: 'seat.invited', shape: 'recurring', unit: 'seats', label: 'Seats',
     rateCents: 0, allocation: 'none',

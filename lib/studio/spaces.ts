@@ -11,7 +11,7 @@ import {
   MessageSquare, ListChecks, GitBranchPlus, Radar, Gauge, Video, Contact,
   LayoutDashboard, FolderOpen, ScanEye, Files, MessageCircle, Receipt, Link2, Building2,
   Film, Workflow, Aperture, MonitorPlay, ImageUpscale, Fingerprint, Scale, Library, ShieldCheck, NotebookPen, SlidersHorizontal,
-  CalendarDays, CalendarClock, FileSignature, Settings, Palette, FileText, Package,
+  CalendarDays, FileSignature, Settings, Palette, FileText, Package,
 } from 'lucide-react'
 
 export type SpaceId = 'crew' | 'client' | 'suite'
@@ -48,7 +48,6 @@ const SPACES_LITERAL = defineSpaces([
       { slug: 'tasks', label: 'Tasks & Assignments', icon: ListChecks, phase: 4 },
       { slug: 'calendar', label: 'Calendar', icon: CalendarDays, phase: 4 },
       { slug: 'meetings', label: 'Meetings', icon: Video, phase: 5 },
-      { slug: 'scheduling', label: 'Scheduling', icon: CalendarClock, phase: 4 },
       // House-only (plan feature 'internal.pipeline'): the platform operator's
       // own selling tools from the client-portal era. Tenants never see these.
       { slug: 'crm', label: 'CRM · Pipeline', icon: GitBranchPlus, phase: 5, planFeature: 'internal.pipeline' },
