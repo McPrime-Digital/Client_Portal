@@ -1,21 +1,37 @@
 /**
  * scripts/test-rls.ts — S2 §6, Part B. The RLS test harness.
  *
- * Twenty-nine assertions (10 from S2 §6; 11–14 from S3-core §7, Batch 13 item
- * 7; 15 — the watermark privacy assertion, Batch 14 item 6; 16–20 from S3-c
- * §7, Batch 22 item 6 — internal approvals, decision forgery, comment
- * permission, comment visibility, and the one that keeps a lapse from ever
- * reading as approval; 22–29 from S3-d §7, Batch 23 — membership as a ROW:
- * non-member isolation, the collaborator's blast radius, can_post, leaving
- * without erasure, per-seat history, DM privacy against the org owner,
- * same-company group isolation, and access parity across the 0046 flip).
+ * THIRTY-SIX assertions, numbered 1–37 with 21 RESERVED (the retention-purge
+ * assertion, which cannot be written against a function that does not exist —
+ * HANDOFF §9). This count was "Twenty-nine" until Batch 26 item 1 and had been
+ * stale since Batch 25 added seven; a header that miscounts the thing it heads is
+ * the §12 lesson 4 shape inside the test file, so it is corrected here rather
+ * than left for the recompile to contradict.
+ *
+ *   1–10   S2 §6
+ *   11–14  S3-core §7 (Batch 13 item 7)
+ *   15     the watermark privacy assertion (Batch 14 item 6)
+ *   16–20  S3-c §7 (Batch 22 item 6) — internal approvals, decision forgery,
+ *          comment permission, comment visibility, and the one that keeps a
+ *          lapse from ever reading as approval
+ *   21     RESERVED — the purge refuses an approval row
+ *   22–29  S3-d §7 (Batch 23) — membership as a ROW: non-member isolation, the
+ *          collaborator's blast radius, can_post, leaving without erasure,
+ *          per-seat history, DM privacy against the org owner, same-company
+ *          group isolation, and access parity across the 0046 flip
+ *   30–36  S-R §11 (Batch 25) — the money boundary, a denial beating a role
+ *          baseline, and the four delegation rules no route test can prove
+ *   37     S-R-A A-3 (Batch 26 item 1) — a grant and a deny held at once, which
+ *          the tables could not hold before migration 0055
+ *
  * Most are a row count that must be zero; 12 and 19 are deliberately POSITIVE
  * assertions, because both models' failure mode is hiding what they must show. Every one runs through a
  * REAL user session obtained with signInWithPassword against the anon key.
  * This script never constructs a service-role client and never reads
  * SUPABASE_SERVICE_ROLE_KEY — a service-role read bypasses RLS entirely and
- * would pass all ten while proving nothing. assertAnonKey() below enforces
- * that at runtime rather than by convention.
+ * would pass EVERY ONE of them while proving nothing. assertAnonKey() below
+ * enforces that at runtime rather than by convention. (This said "all ten" —
+ * true of the original ten, and left behind by four batches of growth.)
  *
  * VACUITY IS TRACKED SEPARATELY, and this is the part that matters.
  * "Reads zero of the other tenant's rows" is also satisfied by a persona who
@@ -26,8 +42,15 @@
  * rows that persona SHOULD see. Control zero → the assertion is reported
  * VACUOUS, not PASS, and the run does not exit clean.
  *
- * Expect most of this to be RED today. That failing output is the baseline
- * S2 §6 calls for; later batches turn groups green one policy class at a time.
+ * WHAT TO EXPECT NOW: all 36 green on a freshly seeded tenant. This paragraph
+ * used to read "expect most of this to be RED today" — true when S2 §6 asked for
+ * a failing baseline, and false since the policy classes landed. Left as written
+ * it tells the next reader that red output is normal, which is the one thing a
+ * test harness's header must never say. If anything here is red, something broke.
+ *
+ * Corrected in Batch 26 item 1 alongside the assertion count above; both had
+ * gone stale the same way, and both were describing a harness that no longer
+ * exists.
  *
  * Assertions 17 and 18 WRITE. 17's positive control inserts a real decision and
  * approval_decisions is append-only for everyone (0038 gives it no DELETE
@@ -109,6 +132,23 @@ async function countRows(c: SupabaseClient, table: string, filters: Filter[] = [
   // silently folded into "0 rows visible".
   if (error) throw new Error(`${table}: ${error.message}`)
   return count ?? 0
+}
+
+/**
+ * `public.has_cap(cap)` AS THE PERSONA — the policy layer's own answer, asked
+ * through the persona's own session because the function reads `auth.uid()` and
+ * `current_org()`. Asked as the service role it would answer about nobody.
+ *
+ * Returns `boolean | null`, and the null matters: an RPC ERROR is not `false`.
+ * Folding the two together is the trap HANDOFF §12 lesson 6 records in its
+ * second half — a probe that cannot tell "refused" from "did nothing" is
+ * dangerous in reverse, and here it would let a missing grant on the function
+ * masquerade as a capability correctly withheld.
+ */
+async function capOf(c: SupabaseClient, cap: string): Promise<boolean | null> {
+  const { data, error } = await c.rpc('has_cap', { p_cap: cap })
+  if (error) return null
+  return data as boolean
 }
 
 /** Counts foreign rows across several tables, returning "table=n" for each leak. */
@@ -855,6 +895,57 @@ async function main() {
       judge(36, 'an expired grant does not resolve (control: the same grant, live)', leaks, whileLive)
       await owner.from('org_member_cap_grants').delete().eq('member_id', OM_CREW_ID)
       await owner.from('organization_members').update({ extra_caps: [] }).eq('id', OM_CREW_ID)
+    }
+
+    // ── 37 · A GRANT AND A DENY, HELD AT ONCE — DENY WINS ──────────────────
+    //
+    // THE ASSERTION S-R-A A-3 NAMES AS OWED, and it exists because of what
+    // assertion 31 canNOT witness. 31 tests a denial beating the ROLE BASELINE,
+    // which was constructible under the narrow index and is R-3's own
+    // Producer/rates example — so 31 is not vacuous and is deliberately not
+    // rewritten. But it passes IDENTICALLY before and after migration 0055, so
+    // it cannot prove the behaviour the migration exists to enable. A migration
+    // whose justification no test can see is indistinguishable from a migration
+    // nobody needed (HANDOFF §12 lesson 9, one step later in time).
+    //
+    // THE PERSONA IS `finance` AND THE CAPABILITY IS work.suite, DELIBERATELY:
+    // the finance baseline carries money.invoices and money.costs and NOT
+    // work.suite, so the only thing that can grant it here is the GRANT ROW.
+    // That isolates grant-vs-deny with no baseline in the answer — which is the
+    // state the tables could never hold, and it is why this cannot be folded
+    // into 31.
+    //
+    // THE CONTROL IS THE GRANT ALONE, reached by REVOKING the deny rather than
+    // by deleting it and re-inserting. That ordering is the point: A-3 chose
+    // widening over "latest row wins" because revoking a denial must RESTORE the
+    // underlying grant. Under latest-wins the grant row would have been
+    // overwritten and revoking the deny would leave nothing — the person
+    // silently below where an admin put them. So this control does not merely
+    // make the zero mean something; it asserts the reason the index is shaped
+    // this way.
+    {
+      const g = await rowsOf(owner, 'org_member_cap_grants', grant(OM_FINANCE_ID, 'work.suite', 'grant'))
+      const d = await rowsOf(owner, 'org_member_cap_grants', grant(OM_FINANCE_ID, 'work.suite', 'deny'))
+      const leaks: string[] = []
+      let control = 0
+      if (!g.ok) leaks.push(`grant row refused: ${g.code}`)
+      // The whole precondition. Before 0055 this insert failed with a
+      // unique_violation on org_member_cap_grants_live_idx, and an assertion
+      // whose precondition cannot be constructed reports nothing and looks like
+      // a pass. It must FAIL loudly instead.
+      if (!d.ok) leaks.push(`deny row refused — the 0055 index widening is NOT applied: ${d.code}`)
+      if (g.ok && d.ok) {
+        const held = await capOf(finance, 'work.suite')
+        if (held !== false) leaks.push(`deny did not win: has_cap('work.suite') = ${held}`)
+        // Control: revoke the DENY, and the GRANT must come back.
+        await owner.from('org_member_cap_grants')
+          .update({ revoked_at: new Date().toISOString() })
+          .eq('member_id', OM_FINANCE_ID).eq('capability', 'work.suite').eq('mode', 'deny')
+        control = (await capOf(finance, 'work.suite')) === true ? 1 : 0
+      }
+      judge(37, 'a grant and a deny on one capability coexist and the deny wins (control: revoking the deny restores the grant)',
+        leaks, control)
+      await owner.from('org_member_cap_grants').delete().eq('member_id', OM_FINANCE_ID)
     }
   }
 
