@@ -44,7 +44,25 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { modelId, instruction, selection, history, persona } = await req.json().catch(() => ({}))
+  const { modelId, instruction, selection, history, persona, projectId } = await req.json().catch(() => ({}))
+
+  // ── WHICH PRODUCTION THIS SPEND BELONGS TO (0062) ────────────────────────
+  //
+  // VALIDATED, NEVER TRUSTED. `projectId` arrives in the request body, so it is
+  // a claim by the caller — and an unvalidated one would let a session attribute
+  // its own AI spend to another studio's production, which is both a
+  // cross-tenant write and a way to make somebody else's chargeback report wrong.
+  //
+  // The check is a READ ON THE USER CLIENT: projects_crew_all carries the tenancy
+  // predicate AND the project-scope predicate (0059), so a production the caller
+  // cannot see returns no row and the spend is recorded UNALLOCATED rather than
+  // misallocated. Unallocated is an honest state; wrong is not.
+  let allocatedProjectId: string | null = null
+  if (typeof projectId === 'string' && projectId) {
+    const { data: proj } = await supabase
+      .from('projects').select('id').eq('id', projectId).maybeSingle()
+    allocatedProjectId = proj?.id ?? null
+  }
   if (!instruction || typeof instruction !== 'string') {
     return NextResponse.json({ error: 'instruction is required' }, { status: 400 })
   }
@@ -113,6 +131,7 @@ export async function POST(req: NextRequest) {
       tokensIn + tokensOut,            // usage_events.units — native measure
       'ai.text.tokens',                // usage_events.kind — S-V §11 taxonomy
       user.id,                         // usage_events.created_by — WHO spent it
+      allocatedProjectId,              // usage_events.project_id — WHICH JOB for
     )
   }
 

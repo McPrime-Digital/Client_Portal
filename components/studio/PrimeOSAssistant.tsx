@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCurrentProjectId } from '@/lib/studio/currentProject'
 import {
   ChevronDown, X, CornerDownLeft, Replace, CornerDownRight, Copy, Check,
   GripHorizontal, Wand2, Bookmark, RotateCcw, Pencil, Square, Plus, Sparkles,
@@ -35,6 +36,8 @@ export default function PrimeOSAssistant({
   /** whether an editor is available to receive Replace/Insert (false on non-editor pages) */
   canApply?: boolean
 }) {
+  // The production on screen, for cost allocation (0062).
+  const projectId = useCurrentProjectId()
   const textModels = useMemo(() => modelsByModality('text'), [])
   const [model, setModelState] = useState(textModels[1]?.id ?? textModels[0]?.id ?? 'anthropic/claude-sonnet')
   // Remember the last-used model across sessions.
@@ -212,6 +215,9 @@ export default function PrimeOSAssistant({
           modelId: model,
           persona: PERSONAS.find((p) => p.id === persona)?.sys,
           instruction: text,
+          // Allocates this call's cost to the production on screen (0062). The
+          // route re-validates it; this is a hint, never an authority.
+          projectId,
           selection: scope === 'document' ? (docText || selText) : selText,
           history,
         }),

@@ -38,6 +38,9 @@ export type UsageRow = {
   cost_cents: number | null
   created_at: string
   created_by: string | null
+  /** The production this spend belongs to (0062). NULL is an honest state —
+   *  unallocated, never guessed. */
+  project_id?: string | null
   /** Carries `model` on AI rows and `file_id` on storage rows. The model is what
    *  makes unit economics possible; the file is what makes storage allocatable
    *  to a production the day it becomes billable. */
@@ -79,6 +82,13 @@ export type CostIntel = {
    *  meter the AI call in the first place. Read from `ref->>'model'`, which
    *  every AI row carries. */
   byModel: { model: string; cents: number; tokens: number; calls: number; centsPer1kTokens: number | null }[]
+  /** CHARGEBACK — spend per production, descending, plus what could not be
+   *  attributed. A studio bills its clients, so spend it cannot tie to a job is
+   *  spend it cannot re-bill; `unallocatedCents` is reported rather than hidden,
+   *  because a chargeback view that quietly drops what it cannot place lets a
+   *  studio under-bill and never know. */
+  byProduction: { projectId: string; cents: number; events: number }[]
+  unallocatedCents: number
   /** The standing floor: stock + recurring spend in the window. Excluded from
    *  burn and from the spike detector, included in runway. Zero today, and
    *  correct on the day storage or seats start costing money. */
@@ -246,6 +256,19 @@ export function computeCostIntel(
     e.calls += 1
     modelMap.set(model, e)
   }
+  const prodMap = new Map<string, { cents: number; events: number }>()
+  let unallocatedCents = 0
+  for (const r of billed) {
+    if (!r.project_id) { unallocatedCents += r.cost_cents ?? 0; continue }
+    const e = prodMap.get(r.project_id) ?? { cents: 0, events: 0 }
+    e.cents += r.cost_cents ?? 0
+    e.events += 1
+    prodMap.set(r.project_id, e)
+  }
+  const byProduction = [...prodMap.entries()]
+    .map(([projectId, v]) => ({ projectId, ...v }))
+    .sort((a, b) => b.cents - a.cents)
+
   const byModel = [...modelMap.entries()]
     .map(([model, v]) => ({
       model, ...v,
@@ -259,7 +282,7 @@ export function computeCostIntel(
   return {
     monthCents, burnPerDayCents, burnSampleDays, runwayDays,
     projectedMonthCents, projectedPctOfCap, anomaly, byActor, byKind, byModel,
-    standingCents, daily,
+    byProduction, unallocatedCents, standingCents, daily,
   }
 }
 
@@ -275,7 +298,7 @@ export async function loadCostIntel(
   const since = new Date(now.getTime() - 30 * DAY).toISOString()
   const { data, error } = await db
     .from('usage_events')
-    .select('kind, units, cost_cents, created_at, created_by, ref')
+    .select('kind, units, cost_cents, created_at, created_by, ref, project_id')
     .gte('created_at', since)
     .order('created_at', { ascending: false })
     .limit(5000)

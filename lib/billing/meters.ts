@@ -72,15 +72,16 @@ export const METERS: Readonly<Record<string, Meter>> = {
   'ai.text.tokens': {
     kind: 'ai.text.tokens', shape: 'flow', unit: 'tokens', label: 'AI generation',
     rateCents: null,
-    // THE GAP, NAMED: app/api/studio/muse/route.ts has no production in scope, so
-    // AI spend cannot be billed back to the job it was done for. That is the
-    // single highest-value engine fix left in cost — a studio that cannot
-    // attribute AI spend to a production cannot re-bill it.
-    allocation: 'none',
+    // CLOSED (0062). The muse route now takes a production, VALIDATES it on the
+    // user client — so a caller cannot attribute their spend to a job they
+    // cannot see — and writes it to usage_events.project_id. Calls made with no
+    // production in scope stay unallocated, which is honest; guessing would put
+    // real money on the wrong client's invoice.
+    allocation: 'direct',
   },
   primeos: {
     kind: 'primeos', shape: 'flow', unit: 'tokens', label: 'PrimeOS',
-    rateCents: null, allocation: 'none',
+    rateCents: null, allocation: 'direct',
   },
   'storage.bytes': {
     kind: 'storage.bytes', shape: 'stock', unit: 'bytes', label: 'Storage',

@@ -89,6 +89,13 @@ export default async function ControlTowerPage() {
       : Promise.resolve({ data: [] as { user_id: string; name: string | null; email: string }[] }),
     can(user, 'money.credits.topup'),
   ])
+  const { data: prods } = intel.byProduction.length
+    ? await supabase.from('projects').select('id, title')
+        .in('id', intel.byProduction.map((p) => p.projectId))
+    : { data: [] as { id: string; title: string }[] }
+  const prodName = (id: string) =>
+    (prods ?? []).find((p) => p.id === id)?.title ?? 'A production you cannot see'
+
   const nameOf = (id: string) => {
     const m = (roster ?? []).find((r) => r.user_id === id)
     return m?.name ?? m?.email ?? 'Someone no longer on the team'
@@ -194,6 +201,44 @@ export default async function ControlTowerPage() {
                 <span className="w-16 text-right text-sm tabular-nums text-muted-foreground">{money(a.cents)}</span>
               </div>
             ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── CHARGEBACK — which job the money went to ──────────────────────
+          The enterprise question, and the one neither Frame.io nor Flow can
+          answer because neither meters the call. Unallocated is shown rather
+          than dropped: a chargeback view that silently omits what it cannot
+          place lets a studio under-bill and never find out. */}
+      {(intel.byProduction.length > 0 || intel.unallocatedCents > 0) && (
+        <section className="mb-5">
+          <h2 className="mb-2 font-display text-[13px] font-semibold text-muted-foreground">
+            Which production
+          </h2>
+          <div className="squircle overflow-hidden border border-border bg-card">
+            {intel.byProduction.map((p) => (
+              <Link
+                key={p.projectId}
+                href={`/studio/client/projects/${p.projectId}`}
+                className="flex items-center gap-3 border-b border-border px-4 py-2.5 outline-none transition-colors duration-[--dur-pop] last:border-b-0 hover:bg-secondary/50 focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                  {prodName(p.projectId)}
+                </span>
+                <span className="text-[11px] text-faint">{p.events}</span>
+                <span className="w-16 text-right text-sm tabular-nums text-muted-foreground">{money(p.cents)}</span>
+              </Link>
+            ))}
+            {intel.unallocatedCents > 0 && (
+              <div className="flex items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0">
+                <span className="min-w-0 flex-1 truncate text-sm text-faint">
+                  Not tied to a production
+                </span>
+                <span className="w-16 text-right text-sm tabular-nums text-faint">
+                  {money(intel.unallocatedCents)}
+                </span>
+              </div>
+            )}
           </div>
         </section>
       )}

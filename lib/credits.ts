@@ -102,10 +102,14 @@ export async function chargeCredits(
    *  per-member attribution is the first thing any organisation asks of an AI
    *  spend surface. Migration 0061 backfills the existing rows from `ref`. */
   actorId?: string,
+  /** WHICH PRODUCTION it was spent on (0062). Spend a studio cannot attribute to
+   *  a job is spend it cannot re-bill, which is the difference between AI being
+   *  a cost centre and a line on an invoice. */
+  projectId?: string | null,
 ): Promise<number | null> {
   // Journal the raw usage event through THE write path (lib/usage.ts —
   // "never a second"), not a local insert. Control Tower reads usage_events.
-  await recordUsage(orgId, kind ?? reason, units ?? cents, cents, ref, actorId)
+  await recordUsage(orgId, kind ?? reason, units ?? cents, cents, ref, actorId, projectId)
   const { data, error } = await supabaseAdmin.rpc('charge_credits', {
     p_org: orgId,
     p_cents: cents,

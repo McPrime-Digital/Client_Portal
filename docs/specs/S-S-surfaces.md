@@ -241,10 +241,15 @@ detector (a monthly seat charge would read as a 30× spike every month, on
 schedule). Measured: ignoring the floor overstates runway **1000 days instead of
 117** — an 8.5× error.
 
-Allocation is recorded per meter: storage is `via-file` (events carry `file_id`,
-files carry `project_id`) so it is billable to a production the day it is
-charged. **AI is `none`, and that is the highest-value engine gap left in cost** —
-a studio that cannot attribute AI spend to a production cannot re-bill it.
+Allocation is recorded per meter and is now CLOSED on both sides (0062).
+`usage_events.project_id` is a real column with an FK — not a `ref` key, for the
+same reason 0061 gave about the actor: a JSONB value cannot be indexed, grouped
+or joined. Storage was backfilled from the file it already names (18 of 22 rows;
+the other four are company-level files with no production, which is correct). AI
+is written going forward: the muse route takes a production, **validates it on
+the user client** so a caller cannot attribute spend to a job they cannot see,
+and records unallocated rather than misallocated when they cannot. Nothing was
+guessed — a wrong production bills the wrong client.
 
 ### 6.2 Owner answers to §5
 

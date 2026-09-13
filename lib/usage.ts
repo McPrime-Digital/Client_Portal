@@ -24,13 +24,18 @@ export async function recordUsage(
   units: number,
   costCents = 0,
   ref: Record<string, unknown> = {},
-  createdBy?: string
+  createdBy?: string,
+  /** The production this spend belongs to, for chargeback (0062). Optional and
+   *  NULLABLE by design: unallocated is an honest state, and guessing a
+   *  production would bill the wrong client. */
+  projectId?: string | null,
 ): Promise<void> {
   try {
     const { error } = await supabaseAdmin.from('usage_events').insert({
       organization_id: organizationId,
       kind,
       units,
+      project_id: projectId ?? null,
       cost_cents: Math.round(costCents),
       ref,
       created_by: createdBy ?? null,

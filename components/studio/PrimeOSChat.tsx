@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCurrentProjectId } from '@/lib/studio/currentProject'
 import {
   ChevronDown, CornerDownLeft, Copy, Check, RotateCcw, Pencil, Square, Plus,
   Wand2, Mic, History as HistoryIcon, Trash2, Sparkles,
@@ -14,6 +15,8 @@ import Markdown from './Markdown'
 // Shares the engine (/api/studio/muse), prompt library, voice, history and model
 // memory with the floating assistant, in an enterprise full-height layout.
 export default function PrimeOSChat() {
+  // The production on screen, for cost allocation (0062).
+  const projectId = useCurrentProjectId()
   const textModels = useMemo(() => modelsByModality('text'), [])
   const [model, setModelState] = useState(textModels[1]?.id ?? textModels[0]?.id ?? 'anthropic/claude-sonnet')
   useEffect(() => {
@@ -71,7 +74,7 @@ export default function PrimeOSChat() {
       const res = await fetch('/api/studio/muse', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ modelId: model, persona: PERSONAS.find((p) => p.id === persona)?.sys, instruction: text, selection: '', history: history2 }),
+        body: JSON.stringify({ modelId: model, persona: PERSONAS.find((p) => p.id === persona)?.sys, instruction: text, selection: '', history: history2, projectId }),
         signal: ac.signal,
       })
       const ct = res.headers.get('content-type') || ''
