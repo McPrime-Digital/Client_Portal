@@ -224,13 +224,18 @@ const eslintConfig = [
     },
   },
   {
-    // The three legitimate readers of a role baseline (see NO_BASELINE_AS_ORACLE).
+    // The TWO legitimate readers of a role baseline (see NO_BASELINE_AS_ORACLE).
     // Only that ban is lifted; everything else is still in force, which is the
     // whole point of `except()`.
+    //
+    // THE RATCHET SHRANK BY ONE. app/api/cron/approval-sweep/route.ts was the
+    // third, because it hand-rolled the resolution to answer about somebody else.
+    // That copy had drifted three ways and is deleted — it now calls
+    // resolveCapsForMember(), so it reads no baseline and needs no exemption.
+    // Removing an entry is the migration; this is what that looks like.
     files: [
       'lib/capabilities.server.ts',
       'scripts/gen-capability-sql.ts',
-      'app/api/cron/approval-sweep/route.ts',
     ],
     rules: {
       'no-restricted-syntax': ['error', ...except(NO_BASELINE_AS_ORACLE)],

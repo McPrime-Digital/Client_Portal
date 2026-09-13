@@ -294,6 +294,84 @@ export async function hasCap(user: User, cap: OrgCap | ClientCap, db?: SupabaseC
 }
 
 /**
+ * THE SAME RESOLUTION, ABOUT SOMEBODY ELSE — for a caller with no session.
+ *
+ * `resolveCaps()` answers for the CALLER, through their own cookie-bound client,
+ * because `auth.uid()` is what the self-read policies key on. A cron has no
+ * session and must answer about a THIRD PARTY, so it cannot use it. That is a
+ * real constraint, not a shortcut, and it is why a second entry point exists.
+ *
+ * IT TAKES AN INJECTED CLIENT rather than importing one. The only caller today is
+ * the R-11 approval sweep, which already holds `supabaseAdmin` legitimately (it
+ * is a cron). Importing the service role HERE would put it on the hottest
+ * user-session path in the authorization layer, which the I-8 ratchet refuses and
+ * this file's header argues against at length. The caller brings its own
+ * authority; this function brings the algorithm.
+ *
+ * ── WHY IT EXISTS AT ALL: THE SWEEP HAD DRIFTED THREE WAYS ─────────────────
+ *
+ * It was a hand-rolled copy of this algorithm, and copies drift. All three were
+ * found by reading it against this file rather than by a failure:
+ *
+ *   1 · it added `extra_caps` and grant rows WITHOUT normalizing them, so a row
+ *       still holding a pre-0051 snake_case value (`client_money`) would not match
+ *       the dot-form capability being asked for. 0052 exists because that exact
+ *       mismatch shipped once already.
+ *   2 · it did not union PROJECT-ROLE baselines. That divergence is MINE, created
+ *       when item 5 taught `resolveCaps()` and `has_cap()` about R-10 and left the
+ *       sweep behind — so a person whose authority to decide comes from their
+ *       project role would have read as UNABLE, and the sweep would have reported
+ *       a stage blocked on a permission change that had not happened. That is the
+ *       wrong record R-11 exists to prevent, produced by the code meant to
+ *       prevent it — which is the shape Batch 25 already recorded for this very
+ *       function.
+ *   3 · it had no expiry filter on project assignments, because it had no project
+ *       assignments.
+ *
+ * The lesson is the one this file's header already states about `has_cap()`: two
+ * copies of a resolution algorithm are kept honest by a check, not by care. There
+ * is no parity check for this third copy, so the copy is removed instead.
+ */
+export async function resolveCapsForMember(
+  db: SupabaseClient,
+  side: 'crew' | 'portal',
+  member: { id: string; role: string; roles?: string[] | null; extra_caps?: string[] | null },
+): Promise<Set<string>> {
+  const norm = side === 'crew' ? normalizeOrgCap : normalizeClientCap
+  const caps = new Set<string>()
+
+  if (side === 'crew') {
+    const roles = [member.role, ...((member.roles ?? []).filter((r) => r !== member.role))]
+    for (const r of roles) for (const c of ORG_ROLE_BASELINE[r as OrgRole] ?? []) caps.add(c)
+    // R-10 (0058): live, unexpired project assignments carry capability too.
+    const { data: assigned } = await db
+      .from('organization_member_projects').select('project_role')
+      .eq('member_id', member.id)
+      .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
+    for (const a of assigned ?? []) {
+      for (const c of PROJECT_ROLE_BASELINE[a.project_role as ProjectRole] ?? []) caps.add(c)
+    }
+  } else {
+    for (const c of CLIENT_ROLE_BASELINE[member.role as ClientRole] ?? []) caps.add(c)
+  }
+
+  for (const c of member.extra_caps ?? []) caps.add(norm(c))
+
+  const { data: grants } = await db
+    .from(side === 'crew' ? 'org_member_cap_grants' : 'client_member_cap_grants')
+    .select('capability, mode, expires_at')
+    .eq('member_id', member.id).is('revoked_at', null)
+  const now = Date.now()
+  const live = (grants ?? []).filter((g) => !g.expires_at || Date.parse(g.expires_at as string) > now)
+  for (const g of live) if (g.mode === 'grant') caps.add(norm(g.capability as string))
+  // DENY SUBTRACTS LAST (R-3) — from the baselines, the project roles, the
+  // extras and the grants alike.
+  for (const g of live) if (g.mode === 'deny') caps.delete(norm(g.capability as string))
+
+  return caps
+}
+
+/**
  * APPROVAL ACTIONS, RESOLVED — the direct replacement for `orgCanApproval` and
  * `clientCanApproval`, which Batch 26 item 8 deleted.
  *

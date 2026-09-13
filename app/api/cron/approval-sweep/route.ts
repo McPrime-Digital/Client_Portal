@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { advanceOnSilence } from '@/lib/approvals'
 import { approvalActionCap } from '@/lib/permissions'
-import { ORG_ROLE_BASELINE, CLIENT_ROLE_BASELINE, type OrgRole, type ClientRole } from '@/lib/capabilities'
+import { resolveCapsForMember } from '@/lib/capabilities.server'
 import { recordActivity } from '@/lib/logActivity.server'
 import { createNotification, createAdminNotification } from '@/lib/notify'
 import { tenantBrand } from '@/lib/tenantBrand'
@@ -156,9 +156,11 @@ async function recipientsForStage(
  * states below (no session, and the question is about somebody else).
  *
  * The resolution reads the ROSTER per assignee (S-R R-2), including their
- * individual grants and denials — a DENY is exactly how someone loses the
- * ability to decide, so a check that only read role baselines would miss the case
- * this function exists for.
+ * individual grants and denials AND their project-role baselines — a DENY is
+ * exactly how someone loses the ability to decide, so a check that only read role
+ * baselines would miss the case this function exists for. It goes through
+ * resolveCapsForMember(), which is the same algorithm resolveCaps() and
+ * has_cap() use; the local copy that used to live below drifted from all three.
  */
 async function anyAssigneeCanDecide(
   stageId: string,
@@ -182,9 +184,10 @@ async function anyAssigneeCanDecide(
         .maybeSingle()
       if (!m) continue
       const want = approvalActionCap('crew', 'decide')
-      const roles = [m.role as OrgRole, ...((m.roles ?? []) as OrgRole[])]
-      const base = new Set<string>(roles.flatMap((x) => [...(ORG_ROLE_BASELINE[x] ?? [])]))
-      const set = await resolveEffective(base, 'org_member_cap_grants', m.id as string, m.extra_caps as string[] | null)
+      const set = await resolveCapsForMember(supabaseAdmin, 'crew', {
+        id: m.id as string, role: m.role as string,
+        roles: m.roles as string[] | null, extra_caps: m.extra_caps as string[] | null,
+      })
       if (set.has(want)) return { any: true, examined: recipients.length }
     } else {
       const { data: m } = await supabaseAdmin
@@ -195,44 +198,22 @@ async function anyAssigneeCanDecide(
       if (!m) continue
       const want = approvalActionCap('client', 'decide')
       if (want === 'never') continue
-      const base = new Set<string>([...(CLIENT_ROLE_BASELINE[m.role as ClientRole] ?? [])])
-      const set = await resolveEffective(base, 'client_member_cap_grants', m.id as string, m.extra_caps as string[] | null)
+      const set = await resolveCapsForMember(supabaseAdmin, 'portal', {
+        id: m.id as string, role: m.role as string,
+        extra_caps: m.extra_caps as string[] | null,
+      })
       if (set.has(want)) return { any: true, examined: recipients.length }
     }
   }
   return { any: false, examined: recipients.length }
 }
 
-/**
- * A member's EFFECTIVE capability set: role baseline ∪ extra_caps ∪ live grants,
- * MINUS live denials — the same order has_cap() uses, and the order is the rule.
- *
- * DENY SUBTRACTS LAST, and it must subtract from the BASELINE too. The first
- * version of this check handed the extras to the deleted clientCanApproval()
- * instead, which ORed the role baseline — so a client owner DENIED portal.approve still read as
- * able to decide, because `owner` carries it by baseline. The probe's negative
- * run caught it: the stage lapsed when it should have been blocked, which is
- * exactly the wrong record R-11 exists to prevent.
- *
- * Not resolveCaps(): that answers for the CALLER through their own session, and
- * this cron has no session and must answer about somebody else.
- */
-async function resolveEffective(
-  baseline: Set<string>,
-  table: 'org_member_cap_grants' | 'client_member_cap_grants',
-  memberId: string,
-  extraCaps: string[] | null,
-): Promise<Set<string>> {
-  const set = new Set<string>([...baseline, ...(extraCaps ?? [])])
-  const { data } = await supabaseAdmin
-    .from(table).select('capability, mode, expires_at')
-    .eq('member_id', memberId).is('revoked_at', null)
-  const now = Date.now()
-  const live = (data ?? []).filter((g) => !g.expires_at || Date.parse(g.expires_at as string) > now)
-  for (const g of live) if (g.mode === 'grant') set.add(g.capability as string)
-  for (const g of live) if (g.mode === 'deny') set.delete(g.capability as string)
-  return set
-}
+/* resolveEffective() WAS HERE — a third copy of the resolution algorithm, now
+   deleted. It had drifted three ways (no alias normalization, no project-role
+   baselines, no assignment expiry); lib/capabilities.server.ts's
+   resolveCapsForMember() is the one implementation, and it takes the client this
+   cron already holds. See that function's header for what each drift would have
+   cost. */
 
 async function sweepOrg(orgId: string) {
   const now = Date.now()
