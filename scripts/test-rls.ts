@@ -1,12 +1,12 @@
 /**
  * scripts/test-rls.ts — S2 §6, Part B. The RLS test harness.
  *
- * THIRTY-SIX assertions, numbered 1–37 with 21 RESERVED (the retention-purge
+ * FORTY assertions, numbered 1–41 with 21 RESERVED (the retention-purge
  * assertion, which cannot be written against a function that does not exist —
  * HANDOFF §9). This count was "Twenty-nine" until Batch 26 item 1 and had been
  * stale since Batch 25 added seven; a header that miscounts the thing it heads is
  * the §12 lesson 4 shape inside the test file, so it is corrected here rather
- * than left for the recompile to contradict.
+ * than left for the recompile to contradict. Keep it correct.
  *
  *   1–10   S2 §6
  *   11–14  S3-core §7 (Batch 13 item 7)
@@ -23,6 +23,11 @@
  *          baseline, and the four delegation rules no route test can prove
  *   37     S-R-A A-3 (Batch 26 item 1) — a grant and a deny held at once, which
  *          the tables could not hold before migration 0055
+ *   38–41  S-R §2, §3.2, R-10, G-5 (Batch 26 item 9) — the SCOPED seat: a
+ *          contractor with no assignments reads nothing, a scoped member cannot
+ *          reach a sibling production, an expired assignment stops resolving
+ *          without being deleted, and a project role grants its baseline while
+ *          widening no rows
  *
  * Most are a row count that must be zero; 12 and 19 are deliberately POSITIVE
  * assertions, because both models' failure mode is hiding what they must show. Every one runs through a
@@ -42,7 +47,7 @@
  * rows that persona SHOULD see. Control zero → the assertion is reported
  * VACUOUS, not PASS, and the run does not exit clean.
  *
- * WHAT TO EXPECT NOW: all 36 green on a freshly seeded tenant. This paragraph
+ * WHAT TO EXPECT NOW: all 40 green on a freshly seeded tenant. This paragraph
  * used to read "expect most of this to be RED today" — true when S2 §6 asked for
  * a failing baseline, and false since the policy classes landed. Left as written
  * it tells the next reader that red output is normal, which is the one thing a
@@ -64,6 +69,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { randomUUID } from 'node:crypto'
 
+import { takeLock, releaseLock } from './harness-lock'
 import {
   HARNESS_ORG_ID, COMPANY_1_ID, COMPANY_2_ID,
   PROJECT_1_ID, PROJECT_2_ID, PROJECT_3_ID,
@@ -203,6 +209,7 @@ async function signIn(
 // ── main ────────────────────────────────────────────────────────────────────
 
 async function main() {
+  takeLock('test:rls')
   const env = loadEnv()
   const url = requireEnv(env, 'NEXT_PUBLIC_SUPABASE_URL')
   const anonKey = requireEnv(env, 'NEXT_PUBLIC_SUPABASE_ANON_KEY')
@@ -222,6 +229,7 @@ async function main() {
   const c2own   = await signIn(url, anonKey, 'c2own', env)
   const collab  = await signIn(url, anonKey, 'collab', env)
   const finance = await signIn(url, anonKey, 'finance', env)
+  const contractor = await signIn(url, anonKey, 'contractor', env)
   const anon    = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } })
 
   // Company 1's room, read as the client rather than carried as a constant —
@@ -947,6 +955,114 @@ async function main() {
         leaks, control)
       await owner.from('org_member_cap_grants').delete().eq('member_id', OM_FINANCE_ID)
     }
+
+    // ── 38-41 · S-R §2, §3.2, R-10 and G-5: the SCOPED seat (Batch 26) ──────
+    //
+    // These four are why the `contractor` persona exists. It holds the SAME
+    // company role as the staff crew persona — `crew`, baseline work.projects +
+    // work.suite — and differs only in seat_class and scope_mode. That pairing is
+    // what makes 38's zero mean "scope did it" rather than "they hold nothing",
+    // which an owner control could never distinguish (the same argument the
+    // `finance` persona settles for assertion 30).
+
+    // 38 · a contractor with NO assignments reads nothing. Control: the owner,
+    // scope_mode 'all', reads the same tables.
+    //
+    // THE FIXTURE IS THE ABSENCE. B1's footgun is that an empty project set means
+    // EVERY project under scope_mode 'all' and NO project under 'selected', so
+    // this assertion is the one that proves the STATED value is what gets read.
+    // If scope were ever inferred from row count, this persona would read the
+    // whole tenant and this assertion would be the thing that said so.
+    {
+      const leaks: string[] = []
+      for (const t of ['projects', 'tasks', 'files', 'messages']) {
+        const n = await countRows(contractor, t)
+        if (n > 0) leaks.push(`${t}=${n}`)
+      }
+      const control = await countRows(owner, 'projects')
+      judge(38, 'a contractor with no project assignments reads no projects, tasks, files or messages (control: an all-scope member reads them)',
+        leaks, control)
+    }
+
+    // 39 · a SCOPED member cannot read a sibling production's rows. Control: they
+    // read their own production's. The crew persona is assigned to PROJECT_1 only.
+    {
+      const sibling = await countRows(crew, 'tasks', [{ col: 'project_id', op: 'eq', val: PROJECT_2_ID }])
+      const own = await countRows(crew, 'tasks', [{ col: 'project_id', op: 'eq', val: PROJECT_1_ID }])
+      judge(39, 'a scoped member reads zero of a sibling production\'s tasks (control: their own production\'s)',
+        sibling > 0 ? [`sibling tasks=${sibling}`] : [], own)
+    }
+
+    // 40 · G-5 (0057): an EXPIRED assignment does not resolve. Control: the same
+    // assignment before expiry.
+    //
+    // Nothing is deleted — the row survives with its expiry, which is the whole
+    // difference between expiry and removal and the reason expires_at exists for a
+    // freelance bench (S-R §6 G-5). Asserted on `projects` because that is the
+    // table whose entire visibility is the assignment.
+    {
+      const before = await countRows(crew, 'projects')
+      const past = new Date(Date.now() - 3600_000).toISOString()
+      // Written inline rather than through updOf(): this table's PK is
+      // (member_id, project_id) and it has no `id` column, which updOf assumes.
+      // Still asks for rows back — a policy refusal is an empty result with no
+      // error (§12 lesson 6), and here that would silently make the assertion
+      // measure nothing.
+      const { data: stamped, error: stampErr } = await owner
+        .from('organization_member_projects').update({ expires_at: past })
+        .eq('member_id', OM_CREW_ID).eq('project_id', PROJECT_1_ID).select('project_id')
+      const e = { ok: !stampErr && (stamped ?? []).length > 0, code: stampErr?.code ?? 'RLS-ZERO-ROWS' }
+      const whileExpired = e.ok ? await countRows(crew, 'projects') : -1
+      // The row must still be there: an expiry that deleted the record would pass
+      // the visibility half of this assertion and destroy what R-8 exists to keep.
+      const { data: survives } = await owner.from('organization_member_projects')
+        .select('project_id, expires_at')
+        .eq('member_id', OM_CREW_ID).eq('project_id', PROJECT_1_ID)
+      const leaks: string[] = []
+      if (!e.ok) leaks.push(`could not set expires_at: ${e.code}`)
+      if (whileExpired > 0) leaks.push(`expired assignment still resolves (projects=${whileExpired})`)
+      if ((survives ?? []).length === 0) leaks.push('the assignment row was DELETED rather than expired')
+      await owner.from('organization_member_projects').update({ expires_at: null })
+        .eq('member_id', OM_CREW_ID).eq('project_id', PROJECT_1_ID)
+      judge(40, 'an expired project assignment does not resolve, and the row survives (control: the same assignment before expiry)',
+        leaks, before)
+    }
+
+    // 41 · R-10 (0058): a project role carries a capability baseline on the
+    // assigned production. Control: an `observer` on the SAME production gets none.
+    //
+    // The capability is `record.approval_policy` and the role is `line_producer`,
+    // deliberately: the crew COMPANY baseline is work.projects + work.suite, so a
+    // role granting either of those would prove nothing — the persona already holds
+    // them. record.approval_policy is held by neither, so the only thing that can
+    // put it in the set is the project role.
+    //
+    // "AND NOWHERE ELSE" is the second half and is asserted as the ROW FILTER
+    // rather than as a second capability set: S-R §5 produces ONE set and then
+    // filters rows (R-5a), so the honest statement is that the capability resolves
+    // while the sibling production stays unreadable. The imprecision that follows
+    // from that model — a colorist on A and an observer on B holds work.suite on
+    // both — is recorded in PROJECT_ROLE_BASELINE's comment, not asserted away.
+    {
+      const CAP = 'record.approval_policy'
+      const setRole = (r: string | null) => owner.from('organization_member_projects')
+        .update({ project_role: r }).eq('member_id', OM_CREW_ID).eq('project_id', PROJECT_1_ID).select('project_id')
+
+      await setRole('line_producer')
+      const withRole = await capOf(crew, CAP)
+      const stillScoped = await countRows(crew, 'tasks', [{ col: 'project_id', op: 'eq', val: PROJECT_2_ID }])
+
+      await setRole('observer')
+      const asObserver = await capOf(crew, CAP)
+
+      await setRole(null)
+      const leaks: string[] = []
+      if (withRole !== true) leaks.push(`line_producer did not grant ${CAP} (got ${withRole})`)
+      if (asObserver !== false) leaks.push(`observer granted ${CAP} (got ${asObserver})`)
+      if (stillScoped > 0) leaks.push(`the role widened row visibility: sibling tasks=${stillScoped}`)
+      judge(41, 'a project role grants its baseline on the assigned production and widens no rows (control: an observer on the same production gets none)',
+        leaks, withRole === true ? 1 : 0)
+    }
   }
 
   // ── report ────────────────────────────────────────────────────────────────
@@ -969,7 +1085,15 @@ async function main() {
   console.log(`  [diagnostic] business_settings rows of other tenants visible to harness-owner: ${bankLeak}`)
   console.log('               business_settings holds bank details (S2 §4 Class D).\n')
 
+  releaseLock()
   process.exit(fail + vac + err === 0 ? 0 : 1)
 }
 
-main().catch((e) => { console.error(`\n✖ ${e instanceof Error ? e.message : String(e)}\n`); process.exit(1) })
+main().catch((e) => {
+  // Released on the failure path too, or one crash leaves the lock behind and
+  // every later run refuses — a guard that turns into an outage is worse than
+  // the race it prevents.
+  releaseLock()
+  console.error(`\n✖ ${e instanceof Error ? e.message : String(e)}\n`)
+  process.exit(1)
+})

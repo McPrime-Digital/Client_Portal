@@ -43,7 +43,7 @@ import {
   ROOM_GROUP_A_ID, ROOM_GROUP_B_ID, ROOM_DM_ID,
   GA_MSG_OLD_ID, GA_MSG_NEW_ID, GA_MSG_CREW_ID, GB_MSG_ID, DM_MSG_ID,
   loadEnv, requireEnv, assertEnvLocalIgnored,
-  OM_OWNER_ID, OM_CREW_ID, OM_REVOKED_ID, OM_FINANCE_ID,
+  OM_OWNER_ID, OM_CREW_ID, OM_REVOKED_ID, OM_FINANCE_ID, OM_CONTRACTOR_ID,
   CM_C1OWN_ID, CM_C1MATE_ID, CM_C2OWN_ID,
 } from './harness-constants'
 
@@ -261,7 +261,7 @@ async function main() {
   const passwords: Record<string, string> = {}
   const userIds = {} as Record<PersonaKey, string>
   const clientOf: Record<PersonaKey, string | null> = {
-    owner: null, crew: null, revoked: null, finance: null,
+    owner: null, crew: null, revoked: null, finance: null, contractor: null,
     c1own: COMPANY_1_ID, c1mate: COMPANY_1_ID, c2own: COMPANY_2_ID,
     // MD-4 made literal: the collaborator gets NO roster row anywhere — their
     // only foothold is a room_members row, seeded below.
@@ -335,6 +335,20 @@ async function main() {
     { id: OM_FINANCE_ID, organization_id: HARNESS_ORG_ID, user_id: userIds.finance,
       name: 'Harness Finance', email: PERSONAS.finance.email, role: 'finance', status: 'active',
       seat_class: 'staff', scope_mode: 'all', accepted_at: at(0) },
+    // THE CONTRACTOR (Batch 26 item 9). A `crew` COMPANY role — so its baseline
+    // is work.projects + work.suite, exactly like the staff crew persona — and a
+    // CONTRACTOR SEAT with scope_mode 'selected' and NO organization_member_projects
+    // row. That pairing is the whole point: same capabilities, opposite reach,
+    // which is what makes assertion 38's zero mean "scope did it" rather than
+    // "they hold nothing".
+    //
+    // The absence of an assignment row is a FIXTURE, not an omission. Assertion 38
+    // asserts that a scoped seat with no assignments reads nothing, and B1's
+    // footgun is exactly that an empty set means the opposite under the other
+    // scope_mode — so this row is what proves the stated value is being read.
+    { id: OM_CONTRACTOR_ID, organization_id: HARNESS_ORG_ID, user_id: userIds.contractor,
+      name: 'Harness Contractor', email: PERSONAS.contractor.email, role: 'crew', status: 'active',
+      seat_class: 'contractor', scope_mode: 'selected', accepted_at: at(0) },
   ])
 
   record(`\n-- ═══ client rosters ═══`)

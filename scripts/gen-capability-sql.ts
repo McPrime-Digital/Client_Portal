@@ -13,6 +13,7 @@
  * resolver). This script is the thing that fails loudly instead.
  */
 import { readFileSync } from 'fs'
+import { takeLock, releaseLock } from './harness-lock'
 import {
   ORG_ROLE_BASELINE, CLIENT_ROLE_BASELINE, PROJECT_ROLE_BASELINE,
   ORG_CAPS_ALL, CLIENT_CAPS_ALL, type ProjectRole,
@@ -342,6 +343,8 @@ function loadEnv(): Record<string, string> {
 }
 
 async function main() {
+  // --print only emits SQL and touches no rows, so it takes no lock. Everything
+  // below phase 3 writes to the harness crew member (see test-rls.ts's note).
   if (process.argv.includes('--print')) {
     console.log(orgBaselineSql())
     console.log()
@@ -352,6 +355,7 @@ async function main() {
     console.log(validCapSql())
     return
   }
+  takeLock('check:caps')
   console.log('1/3 · live role_baseline()/client_role_baseline()/project_role_baseline() vs lib/capabilities.ts …')
   let bad = await check()
   const env = loadEnv()
@@ -360,9 +364,17 @@ async function main() {
   console.log('\n3/3 · the legacy snake_case alias path, on a real row …')
   bad += await legacyAliasParity(env)
   if (bad > 0) {
+    releaseLock()
     console.error(`\n✗ ${bad} mismatch(es). Regenerate with --print and apply, or fix the constant.`)
     process.exit(1)
   }
+  releaseLock()
   console.log('\n✓ the capability table, the generated SQL and the TS resolver all agree')
 }
-main().catch((e) => { console.error('FAILED:', e instanceof Error ? e.message : e); process.exit(1) })
+main().catch((e) => {
+  // Released on the failure path too — see test-rls.ts's note: a lock that
+  // survives a crash turns a guard into an outage.
+  releaseLock()
+  console.error('FAILED:', e instanceof Error ? e.message : e)
+  process.exit(1)
+})

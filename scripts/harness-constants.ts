@@ -67,6 +67,10 @@ export type PersonaKey =
   // be the OWNER — who reads everything, so the control would prove that money
   // is readable rather than that money.invoices is what makes it readable.
   | 'finance'
+  // Batch 26 item 9. Same argument one axis over: assertions 38/39/41 assert what
+  // a SCOPED seat can reach, and their controls must be a persona in that exact
+  // state — contractor + scope_mode 'selected' + zero assignments.
+  | 'contractor'
 
 export interface Persona {
   key: PersonaKey
@@ -138,6 +142,25 @@ export const PERSONAS: Record<PersonaKey, Persona> = {
     role: 'admin',
     label: 'studio B finance (money.invoices + money.costs, no craft floor)',
   },
+  // ── THE CONTRACTOR (Batch 26 item 9) ──────────────────────────────────────
+  // seat_class 'contractor', scope_mode 'selected', and DELIBERATELY NO project
+  // assignment. Assertions 38, 39 and 41 cannot be proven without a persona in
+  // this state, and a control that cannot be constructed reports nothing and
+  // looks like a pass (§12 lesson 9).
+  //
+  // NOT THE SAME THING AS `collab` BELOW, and the two are adjacent here so the
+  // difference is unmissable: `collab` is S3-d's MD-4 EXTERNAL collaborator, who
+  // holds a room seat and NO ROSTER ROW ANYWHERE. This one is a crew member with
+  // a roster row whose access is narrowed to their assignments. The batch renamed
+  // seat_class's values to staff/contractor precisely because one word was doing
+  // both jobs (0056's header).
+  contractor: {
+    key: 'contractor',
+    email: `harness-contractor@${DOMAIN}`,
+    envKey: 'HARNESS_CONTRACTOR_PASSWORD',
+    role: 'admin',
+    label: 'studio B contractor (seat_class contractor, scope_mode selected, NO assignments)',
+  },
   collab: {
     key: 'collab',
     email: `harness-collab@${DOMAIN}`,
@@ -158,6 +181,7 @@ export const OM_OWNER_ID   = '0f0f0f0f-0004-4000-8000-000000000001'
 export const OM_CREW_ID    = '0f0f0f0f-0004-4000-8000-000000000002'
 export const OM_REVOKED_ID = '0f0f0f0f-0004-4000-8000-000000000003'
 export const OM_FINANCE_ID = '0f0f0f0f-0004-4000-8000-000000000004'
+export const OM_CONTRACTOR_ID = '0f0f0f0f-0004-4000-8000-000000000005'
 export const CM_C1OWN_ID   = '0f0f0f0f-0003-4000-8000-000000000001'
 export const CM_C1MATE_ID  = '0f0f0f0f-0003-4000-8000-000000000002'
 export const CM_C2OWN_ID   = '0f0f0f0f-0003-4000-8000-000000000003'
