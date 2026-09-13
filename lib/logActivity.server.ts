@@ -52,6 +52,28 @@ export const EVENT_TYPES = [
   'member_cap_denied',
   'member_cap_revoked',
   'member_role_changed',
+  // THE STAFFING LEDGER (Batch 26 item 7, S-R R-8). Who was put on which
+  // production, as what, by whom, and when they came off it. R-8's argument
+  // applies unchanged: "a permission change is precisely the fact you need a
+  // record of when something has gone wrong."
+  //
+  // It applies harder here than to a capability grant, because a project
+  // assignment is what a scoped person's ENTIRE access is made of — remove the
+  // last one and they see nothing. Without a ledger row, "I could see this
+  // yesterday" has no answer.
+  //
+  // `member_unassigned_project` is deliberately its own event rather than an
+  // assignment with a null role: coming OFF a production and being on it with no
+  // stated role are different facts, and 0057's project_role comment insists on
+  // exactly that distinction one layer down.
+  'member_assigned_project',
+  'member_project_role_changed',
+  'member_unassigned_project',
+  // Seat class and scope are separate events for the same reason they are
+  // separate columns: one is a label, the other is access, and item 4's rule is
+  // that scope is STATED rather than derived from the label.
+  'member_seat_class_changed',
+  'member_scope_changed',
 ] as const
 
 export type EventType = (typeof EVENT_TYPES)[number]

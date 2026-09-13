@@ -9,6 +9,7 @@ import {
   SEAT_CLASS_SCOPE_MODE, type OrgRole, type SeatClass,
 } from '@/lib/capabilities'
 import CapabilityGrants, { GrantSummary, type Grant } from '@/components/shared/CapabilityGrants'
+import MemberAssignments from '@/components/studio/MemberAssignments'
 
 // THREE LOCAL COPIES OF THE VOCABULARY LIVED HERE and all three were stale: a
 // six-value role union, an ASSIGNABLE list of five that could not offer
@@ -25,6 +26,7 @@ type Member = {
   extra_caps?: string[]
   title?: string | null
   seat_class?: SeatClass
+  scope_mode?: 'all' | 'selected'
   status: 'invited' | 'active' | 'paused' | 'revoked'
   invited_at: string
   accepted_at: string | null
@@ -47,6 +49,8 @@ export default function TeamManager() {
    *  into a bug report. */
   const [myCaps, setMyCaps] = useState<string[]>([])
   const [openCaps, setOpenCaps] = useState<string | null>(null)
+  const [openProjects, setOpenProjects] = useState<string | null>(null)
+  const [projects, setProjects] = useState<{ id: string; title: string }[]>([])
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   // TWO DEFAULTS, AND THE FIRST ONE WAS A BUG (Batch 26 item 4).
@@ -76,6 +80,7 @@ export default function TeamManager() {
         setCanManage(!!json.canManage)
         setGrants(json.grants ?? {})
         setMyCaps(json.myCaps ?? [])
+        setProjects(json.projects ?? [])
       }
     } catch {}
     setLoading(false)
@@ -111,6 +116,22 @@ export default function TeamManager() {
       }
     } catch { setError('Invite failed.') }
     setSending(false)
+  }
+
+  /** Seat class and scope are separate PATCH fields and separate decisions —
+   *  changing the LABEL never moves the ACCESS. See the route's comment: deriving
+   *  one from the other turns a correction into a lockout, because an empty
+   *  project set means everything under 'all' and nothing under 'selected'. */
+  async function patchMember(memberId: string, body: Record<string, unknown>) {
+    setBusy(memberId); setError(null)
+    const res = await fetch('/api/admin/team', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memberId, ...body }),
+    })
+    if (!res.ok) setError((await res.json()).error ?? 'Could not save.')
+    else await load()
+    setBusy(null)
   }
 
   async function setRole(memberId: string, role: string) {
@@ -343,6 +364,48 @@ export default function TeamManager() {
                 )}
                 {!canManage && (m.roles?.length ?? 0) > 0 && (
                   <p className="mt-0.5 text-[10px] text-faint">also: {m.roles!.join(', ')}</p>
+                )}
+                {/* SEAT, SCOPE, PRODUCTIONS — the three halves of "why does this
+                    person see what they see". The owner is excluded from the
+                    controls for the same reason they are excluded from the role
+                    picker: G-3/G-4 refuse it at the row anyway, and offering a
+                    click the database will refuse reads as a bug. */}
+                {canManage && m.role !== 'owner' && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <select
+                      value={m.seat_class ?? 'staff'} disabled={busy === m.id}
+                      onChange={(e) => patchMember(m.id, { seatClass: e.target.value })}
+                      aria-label="Seat class"
+                      className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                    >
+                      {SEAT_CLASSES.map((sc) => (
+                        <option key={sc} value={sc}>{SEAT_CLASS_LABEL[sc]}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={m.scope_mode ?? 'all'} disabled={busy === m.id}
+                      onChange={(e) => patchMember(m.id, { scopeMode: e.target.value })}
+                      aria-label="Project scope"
+                      className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+                    >
+                      <option value="all">every production</option>
+                      <option value="selected">assigned only</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setOpenProjects(openProjects === m.id ? null : m.id)}
+                      className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      Productions
+                    </button>
+                  </div>
+                )}
+                {canManage && openProjects === m.id && (
+                  <MemberAssignments
+                    memberId={m.id}
+                    projects={projects}
+                    scopeMode={m.scope_mode ?? 'all'}
+                  />
                 )}
                 {canManage && m.role !== 'owner' && (
                   <div className="mt-1.5 flex flex-wrap items-center gap-1">

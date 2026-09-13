@@ -5,6 +5,7 @@ import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { orgRolesOf, canManageOrg } from '@/lib/team'
 import { ORG_GRANTABLE } from '@/lib/permissions'
 import { SEAT_CLASSES, SEAT_CLASS_SCOPE_MODE, type SeatClass } from '@/lib/capabilities'
+import { setSeatClass, setScopeMode, isSeatClass } from '@/lib/assignments'
 import { can, resolveCaps } from '@/lib/capabilities.server'
 import { setMemberGrants, recordRoleChange, listMemberGrants, type DesiredGrant } from '@/lib/grants'
 import { rosterName } from '@/lib/team'
@@ -90,8 +91,18 @@ export async function GET() {
   // refuse — and a refusal the user could not have predicted reads as a bug.
   // The trigger stays the control; this is the courtesy.
   const mine = await resolveCaps(user)
+
+  // The productions this manager may staff — on the USER client, so the list is
+  // bounded by their OWN project scope (item 7). A scoped person holding
+  // people.manage cannot put anybody on a production they cannot see, and that
+  // falls out of projects_crew_all rather than needing a rule.
+  const { data: projectRows } = full
+    ? await supabase.from('projects').select('id, title').order('created_at', { ascending: false })
+    : { data: [] }
+
   return NextResponse.json({
     members: rows,
+    projects: projectRows ?? [],
     grants: Object.fromEntries(grants),
     myCaps: [...mine.caps],
     myRole: me,
@@ -271,7 +282,8 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const gate = await requireManager()
   if ('error' in gate) return gate.error
-  const { memberId, role, roles: extraRoles, status, extraCaps, title, grants } = await req.json().catch(() => ({}))
+  const { memberId, role, roles: extraRoles, status, extraCaps, title, grants,
+          seatClass, scopeMode } = await req.json().catch(() => ({}))
   // PATCH's list, which differs from POST's by ONE value and must: an existing
   // owner may promote someone to 'owner', an invite form may not create one.
   // Widened with 'coordinator' and 'crew' alongside the 0050 CHECK — a second
@@ -293,11 +305,56 @@ export async function PATCH(req: NextRequest) {
   // one tenant patching another tenant's crew row.
   const { data: target } = await supabaseAdmin
     .from('organization_members')
-    .select('id, user_id, role, name')
+    .select('id, user_id, role, name, seat_class, scope_mode')
     .eq('id', memberId)
     .eq('organization_id', userOrgId(gate.user))
     .maybeSingle()
   if (!target) return NextResponse.json({ error: 'Member not found.' }, { status: 404 })
+
+  // ── SEAT CLASS AND SCOPE: TWO FIELDS, TWO DECISIONS, TWO LEDGER EVENTS ────
+  //
+  // They are handled separately and neither implies the other, which is the same
+  // rule item 4 wrote at the invite and the reason SEAT_CLASS_SCOPE_MODE is
+  // documented as "what to WRITE" rather than "what an existing row means".
+  //
+  // Relabelling somebody staff→contractor must NOT silently narrow them from
+  // every production to none — an empty project set means EVERYTHING under
+  // scope_mode 'all' and NOTHING under 'selected' (B1, S-R §10), so deriving one
+  // from the other would turn a correction into a lockout. Widening or narrowing
+  // is its own act, with its own event, and an admin has to mean it.
+  //
+  // Both go through lib/assignments.ts on the USER client so 0053's
+  // has_cap('people.manage') predicate is the control, and both refuse a no-op
+  // rather than writing a ledger row that records nothing.
+  const actor = {
+    id: gate.user.id,
+    name: (await rosterName(gate.user)) ?? gate.user.email?.split('@')[0] ?? 'Member',
+    organizationId: userOrgId(gate.user),
+  }
+  if (seatClass !== undefined) {
+    if (!isSeatClass(seatClass)) {
+      return NextResponse.json({ error: 'seatClass must be "staff" or "contractor".' }, { status: 400 })
+    }
+    try {
+      await setSeatClass(gate.supabase, actor, {
+        memberId, seatClass, from: target.seat_class as SeatClass, targetName: target.name ?? null,
+      })
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Seat class failed.' }, { status: 500 })
+    }
+  }
+  if (scopeMode !== undefined) {
+    if (scopeMode !== 'all' && scopeMode !== 'selected') {
+      return NextResponse.json({ error: 'scopeMode must be "all" or "selected".' }, { status: 400 })
+    }
+    try {
+      await setScopeMode(gate.supabase, actor, {
+        memberId, scopeMode, from: target.scope_mode as string, targetName: target.name ?? null,
+      })
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Scope change failed.' }, { status: 500 })
+    }
+  }
   if (target.role === 'owner' && !gate.role.includes('owner')) {
     return NextResponse.json({ error: 'Only an owner can change an owner.' }, { status: 403 })
   }

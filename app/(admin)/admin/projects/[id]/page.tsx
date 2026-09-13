@@ -6,6 +6,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { redirect, notFound } from 'next/navigation'
 import AdminProjectDetail from '@/components/admin/AdminProjectDetail'
 import RealtimeRefresh from '@/components/shared/RealtimeRefresh'
+import ProjectStaffing from '@/components/studio/ProjectStaffing'
 
 export default async function AdminProjectDetailPage({
   params,
@@ -142,6 +143,9 @@ export default async function AdminProjectDetailPage({
         tables={['project_phases', 'projects', 'tasks', 'files']}
         pollMs={15000}
       />
+      {/* Item 7's other direction: who is staffed on this production, and as
+          what. Renders nothing without people.roster.read (R-6). */}
+      <ProjectStaffing projectId={id} />
       <AdminProjectDetail
         project={project}
         client={client}
