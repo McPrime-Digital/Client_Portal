@@ -115,11 +115,46 @@ export async function erasePerson(rawEmail: string): Promise<ErasureOutcome> {
       { table: 'activity_log', run: () => supabaseAdmin.from('activity_log').update({ actor_name: pseudonym }, { count: 'exact' }).eq('actor_id', uid) },
       { table: 'document_versions', run: () => supabaseAdmin.from('document_versions').update({ created_by_name: pseudonym }, { count: 'exact' }).eq('created_by', uid) },
       { table: 'document_comments', run: () => supabaseAdmin.from('document_comments').update({ author_name: pseudonym }, { count: 'exact' }).eq('author_id', uid) },
+      // S3-core §4.3 names `approval_decisions` EXPLICITLY and this sweep did
+      // not cover it, so an erased person's name survived on every sign-off
+      // they had ever made — the one place a name is most likely to be read
+      // back years later. The decision row itself stays, timestamps intact:
+      // deleting a person never deletes their work (AD-003).
+      { table: 'approval_decisions', run: () => supabaseAdmin.from('approval_decisions').update({ actor_name: pseudonym }, { count: 'exact' }).eq('actor_id', uid) },
+      // The signer's display name on the signing record. The EMAIL and the IP
+      // stay: S3-b §3.5 records that tension deliberately, because removing
+      // them destroys the evidentiary value the record exists for.
+      { table: 'contract_signers', run: () => supabaseAdmin.from('contract_signers').update({ name: pseudonym }, { count: 'exact' }).eq('user_id', uid) },
     ]
     for (const sweep of nameSweeps) {
       const { count: n, error } = await sweep.run()
       if (error) throw new Error(`${sweep.table} tombstone: ${error.message}`)
       count(sweep.table, n)
+    }
+
+    // ── the signing record, through the ONE gap 0071 opens in it ────────────
+    //
+    // contract_events is append-only by trigger (0068) for everyone including
+    // the service role. 0071 permits exactly one change: `actor_name`, and only
+    // when every other column is identical. So this update must set that column
+    // ALONE — adding a second field here would be refused outright, which is
+    // the guard working rather than a bug.
+    //
+    // It is keyed through the signer because contract_events has no user_id: the
+    // identity on that table is `signer_id`, and it stays exactly as it is.
+    {
+      const { data: signerRows, error: sErr } = await supabaseAdmin
+        .from('contract_signers').select('id').eq('user_id', uid)
+      if (sErr) throw new Error(`contract_signers scan: ${sErr.message}`)
+      const signerIds = (signerRows ?? []).map((r) => r.id as string)
+      if (signerIds.length > 0) {
+        const { count: n, error } = await supabaseAdmin
+          .from('contract_events')
+          .update({ actor_name: pseudonym }, { count: 'exact' })
+          .in('signer_id', signerIds)
+        if (error) throw new Error(`contract_events tombstone: ${error.message}`)
+        count('contract_events', n)
+      }
     }
 
     // ── the raw address, scrubbed from copy that embedded it ────────────────

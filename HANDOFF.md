@@ -324,7 +324,18 @@ The audited era, each batch with what it *found*:
 - **Branch:** `throughline` (main ⊆ throughline, fast-forward). Not renamed —
   S0-B §6 excludes the branch, and renaming it is a remote/CI change, not a
   code one.
-- **Migrations applied: 0000–0068, every one of them.** Verified live
+- **Migrations applied: 0000–0073, every one of them.** Verified live
+  2026-09-13. **0069–0073 finish every specified engine that was still
+  unbuilt**: `S3-core` migration 9 (file version stacking, 0069), migration 10
+  (soft delete on the remaining six tables, 0070), migration 11 (the purge and
+  the 7-year ledger guard, 0071), and `S3-b` migration 4
+  (`calendar_connections`, 0072 — the token question answered with Supabase
+  Vault, which is already installed, so no key-management scheme had to be
+  invented). 0073 corrects 0070, which was wrong twice and turned the harness
+  red both times. Harness **48 → 51**, and slot 21 — reserved since the
+  retention engine was specified — is filled.
+  The pre-0069 line, kept because it is what this file claimed:
+  **Migrations applied: 0000–0068, every one of them.** Verified live
   2026-09-13. **0065–0068 are `S3-b` migrations 2, 3, 5 and 6** — calendar
   entries and attendees (0065), availability/booking types/bookings with the
   double-booking exclusion constraint (0066), meetings and participants (0067),
@@ -990,6 +1001,36 @@ the decision is the owner's. `S-S` §6.3 lists the three options. What Phase C
 did do is refuse to let it be invisible: `approvalIntel()` grades any such
 record `broken` and says so in plain words on the Review surface.
 
+#### CLOSED (0071) — deleting a client company destroyed its activity ledger
+
+`activity_log.project_id` and `activity_log.client_id` were both **ON DELETE
+CASCADE** (migration 0001). `delete-client` is a live route that hard-deletes a
+`clients` row, so every ledger entry about that company went with it — silently,
+because a cascade is not an error. S0 §4's seven-year retention has been
+contradicted by a foreign key since the beginning.
+
+Both are `SET NULL` now. The ledger row survives with its `organization_id`
+intact (NOT NULL on all 59 live rows, checked before the change) and becomes an
+org-level entry, which `activity_log_crew_all` already renders correctly through
+its `project_id is null` branch.
+
+The guard is a BEFORE DELETE trigger rather than an omission from the purge's
+table list, and this defect is exactly why: nobody wrote `delete from
+activity_log`, and rows disappeared anyway. Proven by probe — deleting a project
+now spares its ledger; assertion 21 holds the rule.
+
+#### OWED — `files.version` and `files.version_no` now both exist
+
+0069 added `version_no` per `S3-core` §3.1. `files` already carried a dormant
+`version` column from migration 0001: value 1 on all 43 rows, **zero readers and
+zero writers anywhere in the repo**. Two columns meaning the same thing is drift
+and the next person will pick the wrong one.
+
+Not dropped here, deliberately: dropping a column is destructive and belongs in
+its own migration with a deploy gate (`S3-core` migration 12's shape), not as a
+side effect of an additive one. Recorded so it is a decision rather than a
+discovery.
+
 ### 8.4 Structural (sequenced, not forgotten)
 
 The I-8 **migration** — the ratchet exists (7.9), no file has moved; read-path
@@ -1566,6 +1607,24 @@ one is recognised rather than rediscovered.
     failed. **INSERT is the one command USING cannot reach**, which is why WITH
     CHECK is not a redundant copy of it. An audit that reads policies without
     probing them gets this backwards in both directions, as item 0 did.
+
+    **AND THE LESSON ABOUT THE LESSON.** This entry's second half — "a `FOR ALL`
+    policy's USING expression is applied to the NEW row as well as the old" —
+    was proven in Batch 26, written down here, and then **contradicted by
+    migration 0070's own header**, which states flatly that "USING is evaluated
+    against the OLD row." That error refused every soft delete in the product:
+    the new row has `deleted_at` set, so a FOR ALL policy carrying
+    `deleted_at is null` in USING rejects the very update that performs one.
+
+    The harness caught it (assertion 50), and the obvious repair — one
+    RESTRICTIVE `FOR SELECT` policy per table — failed IDENTICALLY on PG 17,
+    which applies a restrictive SELECT policy to the new row of an UPDATE too.
+    A PERMISSIVE SELECT policy does not. All three behaviours were established
+    by running them as a real `authenticated` session, not by reading the docs.
+
+    **A lesson in a file is not a lesson in the head.** The cost of this one was
+    two wrong migrations and two red assertions, on a rule this repository had
+    already paid to learn once.
 
     **A FOURTH form, and it bit while writing harness 49 — after the third
     was already written down.** `contract_events` has no UPDATE policy and no

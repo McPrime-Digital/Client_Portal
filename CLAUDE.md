@@ -115,8 +115,9 @@ Note: dynamic-route `params` and `next/headers` `cookies()` are async (Promises)
 There is no unit-test framework configured. There are now TWO test surfaces, and both must
 be run after anything touching policies, auth, capabilities or tenancy:
 
-- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **48 assertions**, numbered
-  1–49 with 21 reserved, every one with a positive control, seeded by
+- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **51 assertions**, numbered
+  1–51 with none reserved (slot 21 was held for the retention purge and 0071 filled
+  it), every one with a positive control, seeded by
   `npm run seed:harness -- --apply`). Seed, then run ONCE:
   assertion 17 is single-use and reports VACUOUS on a second run without a re-seed.
   **THE TWO TEST SURFACES REFUSE TO RUN CONCURRENTLY** (`scripts/harness-lock.ts`):
@@ -447,6 +448,27 @@ Rules that are not style preferences:
   for the party that has to act on it, not for the party it may one day be used
   against.
 
+## Soft delete — and the obligation it puts on crew queries
+
+`deleted_at` is on nine tables (`S3-core` §4.1). **RLS hides soft-deleted rows
+from CLIENTS only.** Crew policies are deliberately unfiltered, because a crew
+policy that filtered them could not perform the soft delete at all (see the
+0073 rules above) and could not restore one either.
+
+**So every crew-side read must exclude them in the query**: `.is('deleted_at',
+null)`. This is a real obligation on application code and the reason it is worth
+the trade is that a trash view and an undelete are now ordinary queries rather
+than service-role work.
+
+`purge_deleted_rows(p_org, p_grace_days)` (0071) hard-deletes past the grace
+window, one organization at a time, and **returns the R2 objects the caller must
+then destroy** — SQL cannot reach the bucket, and row-before-blob is the order
+`lib/fileDelete.ts` already uses. It never touches `activity_log`, and could
+not: `activity_log_retention()` refuses any delete inside 7 years, including a
+CASCADE. That guard closed a live defect — `activity_log.project_id` and
+`.client_id` were `ON DELETE CASCADE`, so deleting a client company destroyed
+its ledger silently. Both are `SET NULL` now.
+
 ## Provenance — the disclosure a studio can be asked for
 
 `asset_provenance` (0001, dormant until 0064) records **accepted** AI
@@ -470,8 +492,26 @@ generations. `lib/provenance.ts` is the one write path and
 
 `supabase/migrations/` holds one numbering scheme (`00NN`); the retired `2026*` scheme is fenced in `_archive/`:
 
-- `0000_baseline_schema.sql` … `0068_contracts.sql` — the current
+- `0000_baseline_schema.sql` … `0073_soft_delete_correction.sql` — the current
   source of truth, **all applied** (verified live 2026-09-13).
+  **0069–0073 finish the specified engines.** 0069 is `S3-core` migration 9
+  (file version stacking — `parent_file_id`, `version_no`, `is_current`, one
+  current per stack via a partial unique index on `coalesce(parent_file_id, id)`,
+  and a trigger keeping stacks exactly two deep). 0070 is migration 10 (soft
+  delete on the remaining six tables). 0071 is migration 11 (the purge, plus the
+  7-year ledger guard). 0072 is `S3-b` migration 4 (`calendar_connections`).
+  0073 corrects 0070 — see the two rules below, both of which cost a red harness
+  to find.
+  · **A `FOR ALL` POLICY'S `USING` IS APPLIED TO THE NEW ROW.** So
+    `deleted_at is null` in a FOR ALL policy's USING refuses the very UPDATE
+    that performs a soft delete. A RESTRICTIVE `FOR SELECT` policy does the same
+    thing on PG 17; a PERMISSIVE SELECT policy does not. This is HANDOFF §12
+    lesson 11, learned in Batch 26 and contradicted by 0070's own header.
+  · **`create policy` with no roles clause is `TO PUBLIC`, not `TO authenticated`.**
+    Every policy written in 0063–0072 landed as PUBLIC, which made anonymous
+    reads return `401 permission denied for function is_org_member` instead of
+    an empty set (anon holds no EXECUTE on the scoping helpers). Harness
+    assertion 9 caught it. **Always write `to authenticated`.**
   **0065–0068 are `S3-b` migrations 2, 3, 5 and 6** — the calendar, bookings,
   meetings and the signing record. Migration 4 (`calendar_connections`) is
   deliberately NOT built: it needs a credential-storage decision the spec itself

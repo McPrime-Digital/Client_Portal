@@ -259,15 +259,16 @@ Primary key `(organization_id, user_id, period_start)`.
 
 Runs after `S3-core`. Additive first.
 
-**STATUS — five of six are LANDED.** Migration 4 is the only one outstanding and
-it is deferred by §7 answer 1, not forgotten.
+**STATUS — ALL SIX ARE LANDED.** Migration 4's blocking question (§1.6, token
+storage) is answered: Supabase Vault. External calendar SYNC remains deferred per
+§7 answer 1 — that is an integration, not a schema.
 
 | # | Contents | Shape | Landed as |
 |---|---|---|---|
 | 1 | `organization_members.seat_class` + backfill; `member_budgets` + RLS | Additive | **0056 + 0063** |
 | 2 | `calendar_entries`, `calendar_entry_attendees` + RLS | Additive | **0065** |
 | 3 | `availability_rules`, `booking_types`, `bookings` + exclusion constraint + RLS | Additive | **0066** |
-| 4 | `calendar_connections` + RLS — **blocked on the token-storage decision in §1.6** | Additive | **NOT BUILT** — §7 answer 1 recommends deferring external sync; the internal calendar is most of the value and this keeps a credential-storage decision off the critical path |
+| 4 | `calendar_connections` + RLS — **blocked on the token-storage decision in §1.6** | Additive | **LANDED — 0072.** §1.6's decision is answered: **Supabase Vault**, which is already installed on this project. The table has NO token column and must never gain one; `token_secret_id` references `vault.secrets`. The encrypted-column alternative would have meant inventing a key-management scheme — the improvisation §1.6 forbids — to reimplement what the platform ships. SYNC ITSELF is still deferred per §7 answer 1: this lands the shape, not the OAuth integrations |
 | 5 | `meetings`, `meeting_participants` + RLS. ~~`messages.timecode_ms`~~ — **removed; see §2.2. The anchor model in 0038 already carries a timecode and that column must not be added** | Additive | **0067** (and the column was NOT added — verified live) |
 | 6 | `contracts`, `contract_fields`, `contract_signers`, `contract_events` + RLS | Additive | **0068** |
 

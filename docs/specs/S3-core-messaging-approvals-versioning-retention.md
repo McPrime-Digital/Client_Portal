@@ -262,9 +262,12 @@ A function that, given a user id, replaces those strings with a stable pseudonym
 
 Additive first, destructive last, each applied and deployed before the next.
 
-| # | Contents | Shape |
-|---|---|---|
-| 1 | `message_rooms`, room RLS | Additive |
+**STATUS — all twelve are landed.** Migrations 9–12 were the outstanding tail
+and are complete as of 0069–0073.
+
+| # | Contents | Shape | Landed |
+|---|---|---|---|
+| 1 | `message_rooms`, room RLS | Additive | 0027 |
 | 2 | `messages`: add `room_id` (nullable), `thread_root_id`, `body_tsv`, `edited_at`, `deleted_at` | Additive |
 | 3 | **Backfill rooms and repoint messages.** Verify counts. | Data |
 | 4 | `messages.room_id` set NOT NULL; new message RLS; indexes | Constraining |
@@ -272,10 +275,52 @@ Additive first, destructive last, each applied and deployed before the next.
 | 6 | Supporting tables (reactions, mentions, pins, saves, prefs, attachments) + RLS | Additive |
 | 7 | **Backfill `message_attachments` from `"bucket::path"` strings.** Report unresolvable rows; do not guess | Data |
 | 8 | Approvals: four tables + RLS | Additive |
-| 9 | `files`: `parent_file_id`, `version_no`, `is_current` + partial unique index | Additive |
-| 10 | `deleted_at` across §4.1 tables; all SELECT policies updated | Constraining |
-| 11 | Purge function, tombstone function | Additive |
-| 12 | Drop `messages.read_at` and the attachment string column | **Destructive** |
+| 9 | `files`: `parent_file_id`, `version_no`, `is_current` + partial unique index | Additive | **LANDED — 0069** |
+| 10 | `deleted_at` across §4.1 tables; all SELECT policies updated | Constraining | **LANDED — 0070, corrected by 0073 (see §4.4)** |
+| 11 | Purge function, tombstone function | Additive | **LANDED — 0071** (purge). The tombstone was ALREADY BUILT in TypeScript (`lib/erasure.ts`, Batch 12.2) and was extended rather than duplicated in SQL — see §4.5 |
+| 12 | Drop `messages.read_at` and the attachment string column | **Destructive** | **ALREADY DONE** — both columns verified absent live |
+
+### 4.4 §4.1's predicate does not go where §4.1 says, and here is the evidence
+
+§4.1 says "every SELECT policy gains `deleted_at IS NULL`". Applied literally to
+the crew policies — which are `FOR ALL` — **it refuses the soft delete itself**.
+A `FOR ALL` policy's `USING` is applied to the NEW row as well as the old, so a
+row being given a `deleted_at` fails the predicate at the moment it is set.
+Harness assertion 50 went red on exactly this.
+
+The obvious repair, one RESTRICTIVE `FOR SELECT` policy per table, fails
+IDENTICALLY on PostgreSQL 17: a restrictive SELECT policy is also applied to the
+new row of an UPDATE. A PERMISSIVE SELECT policy is not. All three behaviours
+were established by running them as a real `authenticated` session.
+
+**So the boundary is enforced where it is a boundary.** Clients are blocked by
+RLS, in their permissive SELECT policies, because a client seeing a deleted row
+crosses a tenant boundary — and a client never sets `deleted_at`, so the
+predicate costs them nothing. Crew keep unfiltered policies, which is what makes
+soft delete writable and RESTORE possible at all. **Crew reads must therefore
+exclude deleted rows in the query.** That obligation is real and is the price of
+the row remaining writable; it also makes a trash view and an undelete ordinary
+queries rather than service-role work.
+
+### 4.5 The tombstone already existed, and what it was missing
+
+§4.3 asks for "a function that, given a user id, replaces those strings with a
+stable pseudonym". **That function has existed since Batch 12.2** as
+`lib/erasure.ts`, sweeping `messages.sender_name`, `files.uploaded_by_name`,
+`activity_log.actor_name`, `document_versions.created_by_name` and
+`document_comments.author_name`. Writing a SQL twin would have been a second
+implementation of one rule.
+
+It was extended instead, because it was missing tables §4.3 names or implies:
+**`approval_decisions.actor_name`** — explicitly named by §4.3 and never covered,
+so an erased person's name survived on every sign-off they had ever made — plus
+`contract_signers.name` and `contract_events.actor_name` from 0068. The email and
+the IP on a signing record deliberately stay (S3-b §3.5).
+
+`contract_events` is append-only by trigger, so 0071 opens exactly one gap in
+it: an UPDATE is permitted only when every column except `actor_name` is
+unchanged. Proven both ways — the tombstone passes, an event rewrite alongside it
+is still refused.
 
 **Rules that apply throughout,** from `HANDOFF` §10: printed never applied; forward-only and idempotent; `drop policy if exists` before every `create policy`; table-shape changes carry apply-then-deploy for additive and deploy-then-apply-then-reload for destructive. Migration 12 is the only deploy-first entry.
 

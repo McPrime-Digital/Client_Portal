@@ -1,9 +1,10 @@
 /**
  * scripts/test-rls.ts — S2 §6, Part B. The RLS test harness.
  *
- * FORTY-EIGHT assertions, numbered 1–49 with 21 RESERVED (the retention-purge
- * assertion, which cannot be written against a function that does not exist —
- * HANDOFF §9). This count was "Twenty-nine" until Batch 26 item 1 and had been
+ * FIFTY-ONE assertions, numbered 1–51, none reserved. Slot 21 was held open for
+ * the retention-purge assertion — "cannot be written against a function that
+ * does not exist" — and 0071 built the function, so it is filled.
+ * This count was "Twenty-nine" until Batch 26 item 1 and had been
  * stale since Batch 25 added seven; a header that miscounts the thing it heads is
  * the §12 lesson 4 shape inside the test file, so it is corrected here rather
  * than left for the recompile to contradict. Keep it correct.
@@ -14,7 +15,8 @@
  *   16–20  S3-c §7 (Batch 22 item 6) — internal approvals, decision forgery,
  *          comment permission, comment visibility, and the one that keeps a
  *          lapse from ever reading as approval
- *   21     RESERVED — the purge refuses an approval row
+ *   21     S3-core §4.2 — the activity ledger refuses deletion inside its
+ *          7-year window (FILLED by 0071; the slot was reserved for it)
  *   22–29  S3-d §7 (Batch 23) — membership as a ROW: non-member isolation, the
  *          collaborator's blast radius, can_post, leaving without erasure,
  *          per-seat history, DM privacy against the org owner, same-company
@@ -25,6 +27,10 @@
  *          the tables could not hold before migration 0055
  *   46–49  S3-b (0065, 0068) — the calendar scopes on BOTH axes, and the
  *          signing record refuses UPDATE and DELETE from everyone
+ *   50–51  0070/0073, 0072 — a soft-deleted row disappears for the CLIENT
+ *          (crew keep it by design, so restore stays possible), and calendar
+ *          credentials are invisible to everyone but the person they belong to,
+ *          org owner included
  *   44–45  0064 — content provenance cannot be forged: a disclosure can only
  *          be written by somebody who can see the script it is about
  *   42–43  0063 — per-member AI spend limits: a member sees their own cap and
@@ -53,7 +59,7 @@
  * rows that persona SHOULD see. Control zero → the assertion is reported
  * VACUOUS, not PASS, and the run does not exit clean.
  *
- * WHAT TO EXPECT NOW: all 48 green on a freshly seeded tenant. This paragraph
+ * WHAT TO EXPECT NOW: all 51 green on a freshly seeded tenant. This paragraph
  * used to read "expect most of this to be RED today" — true when S2 §6 asked for
  * a failing baseline, and false since the policy classes landed. Left as written
  * it tells the next reader that red output is normal, which is the one thing a
@@ -1078,6 +1084,111 @@ async function main() {
       if (stillScoped > 0) leaks.push(`the role widened row visibility: sibling tasks=${stillScoped}`)
       judge(41, 'a project role grants its baseline on the assigned production and widens no rows (control: an observer on the same production gets none)',
         leaks, withRole === true ? 1 : 0)
+    }
+
+    // ── 21 · S3-core §4.2 — the ledger the purge must never touch ──────────
+    //
+    // This slot has been RESERVED since the retention engine was specified.
+    // 0071 built it, so it is filled here.
+    //
+    // The guard is a TRIGGER rather than an omission from the purge's table
+    // list, because the defect it closes was a CASCADE: `activity_log`'s
+    // project and client FKs were ON DELETE CASCADE, so deleting a client
+    // company destroyed its ledger without anyone writing a delete statement.
+    {
+      const seeded = await owner.from('activity_log').insert({
+        organization_id: HARNESS_ORG_ID, actor_name: 'Harness',
+        event_type: 'project_created', title: 'zz retention probe',
+      }).select('id').maybeSingle()
+
+      if (!seeded.data) {
+        record(21, 'the activity ledger refuses deletion inside its 7-year window', 'ERROR',
+          `could not seed a ledger row: ${seeded.error?.message ?? 'no row returned'}`)
+      } else {
+        const rowId = (seeded.data as { id: string }).id
+        const del = await owner.from('activity_log').delete().eq('id', rowId).select('id')
+        const stillThere = await countRows(owner, 'activity_log', [{ op: 'eq', col: 'id', val: rowId }])
+        // THE ROW IS THE WITNESS (§12 lesson 11). Here the trigger DOES raise,
+        // so `error` is meaningful — but the property is that the row survived,
+        // and that is what is asserted.
+        judge(21, 'the activity ledger refuses deletion inside its 7-year window (control: the same row still reads)',
+          stillThere === 0 ? ['a ledger row inside the 7-year window was deleted'] : [],
+          stillThere)
+        if (!del.error && stillThere === 0) {
+          // Unreachable if the trigger works; left as a tripwire.
+          await owner.from('activity_log').delete().eq('id', rowId)
+        }
+      }
+    }
+
+    // ── 50-51 · 0070, 0072: soft delete, and calendar credentials ──────────
+    {
+      // 50 · SOFT DELETE, AND THE BOUNDARY IT ACTUALLY ENFORCES.
+      //
+      // 0073 settled where the predicate lives, on evidence: CLIENTS are
+      // blocked by RLS, crew are not. Crew keep an unfiltered policy because
+      // that is what makes the soft delete writable at all — a `FOR ALL`
+      // policy's USING is applied to the NEW row, so `deleted_at is null`
+      // there refuses the very update that sets it (HANDOFF §12 lesson 11,
+      // learned in Batch 26 and contradicted by 0070).
+      //
+      // So the assertion is the client's view, which is the security boundary,
+      // and the control is that they could see the row a moment earlier.
+      const t = await owner.from('tasks').insert({
+        organization_id: HARNESS_ORG_ID, project_id: PROJECT_1_ID,
+        title: 'zz soft-delete probe', visible_to_client: true,
+      }).select('id').maybeSingle()
+
+      if (!t.data) {
+        record(50, 'a soft-deleted task disappears for the client', 'ERROR',
+          `could not seed a task: ${t.error?.message ?? 'no row returned'}`)
+      } else {
+        const taskId = (t.data as { id: string }).id
+        const clientSawBefore = await countRows(c1own, 'tasks', [{ op: 'eq', col: 'id', val: taskId }])
+
+        const soft = await owner.from('tasks')
+          .update({ deleted_at: new Date().toISOString() }).eq('id', taskId).select('id')
+        const clientSeesAfter = await countRows(c1own, 'tasks', [{ op: 'eq', col: 'id', val: taskId }])
+
+        const leaks: string[] = []
+        if ((soft.data ?? []).length === 0) {
+          leaks.push(`the soft delete itself was refused (${soft.error?.code ?? 'zero rows'})`)
+        }
+        if (clientSeesAfter > 0) leaks.push('the client still reads a soft-deleted task')
+        judge(50, 'a soft-deleted task disappears for the client (control: the client could read it a moment before)',
+          leaks, clientSawBefore)
+
+        await owner.from('tasks').delete().eq('id', taskId)
+      }
+
+      // 51 · S3-b §1.7, and it is absolute: "Nobody else reads a person's
+      // calendar credentials." No org predicate, no people.manage escape, no
+      // owner exception — an owner reading a crew member's Google token is
+      // access to that person's private calendar, not administration.
+      const { data: crewUser } = await owner.from('organization_members')
+        .select('user_id').eq('id', OM_CREW_ID).maybeSingle()
+      const crewUid = (crewUser?.user_id as string) ?? null
+
+      if (!crewUid) {
+        record(51, 'a calendar connection is invisible to everyone but its owner', 'ERROR',
+          'no crew user_id to bind a connection to')
+      } else {
+        // Seeded BY THE CREW MEMBER: the policy is `user_id = auth.uid()`, so
+        // nobody else — the owner included — could create it for them.
+        const seeded = await crew.from('calendar_connections').insert({
+          organization_id: HARNESS_ORG_ID, user_id: crewUid,
+          provider: 'google', external_account_id: 'zz-harness@example.com',
+        }).select('id').maybeSingle()
+
+        const theirs = seeded.data ? await countRows(crew, 'calendar_connections') : -1
+        const ownerSees = seeded.data ? await countRows(owner, 'calendar_connections') : -1
+        judge(51, 'an org OWNER reads none of a crew member\'s calendar connections (control: the crew member reads their own)',
+          !seeded.data ? [`could not seed: ${seeded.error?.message ?? 'no row'}`]
+            : ownerSees > 0 ? [`the owner read ${ownerSees} calendar credential row(s)`] : [],
+          theirs)
+
+        await crew.from('calendar_connections').delete().eq('user_id', crewUid)
+      }
     }
 
     // ── 46-49 · S3-b (0065, 0068): the calendar and the signing record ─────
