@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getModel } from '@/lib/ai/models'
 import { userOrgId } from '@/lib/auth/role'
-import { getCreditState, chargeCredits, estimateCostCents, costCentsForTokens } from '@/lib/credits'
+import { chargeCredits, estimateCostCents, costCentsForTokens } from '@/lib/credits'
+import { checkSpendAllowed } from '@/lib/budgets'
 
 // Muse inline assistant. Takes the selected text + an instruction (+ short history)
 // and returns revised text. Provider keys come from env for now (per-org key
@@ -87,11 +88,37 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ needsKey: envName, provider: model.provider })
   }
 
-  // SaaS credit gate — block only when the org has a hard stop AND no balance.
+  // ── THE SPEND GATE: ORG **AND** PERSON, ASKED ONCE ───────────────────────
+  //
+  // S3-b §4.3: "The gate reads both. A call is permitted only if the org has
+  // budget AND the member has budget… building them separately means touching
+  // the gate three times." So this is one call, and lib/budgets.ts owns both
+  // rules plus the seat-class default a contractor inherits without anybody
+  // setting them a limit personally.
+  //
+  // Three outcomes that look identical from outside and must not be collapsed:
+  // out of ORG credit, over a PERSONAL cap that stops, and over a personal cap
+  // that only warns — the last proceeds, because a soft limit is a signal to
+  // whoever set it rather than a wall for the person working.
   const orgId = userOrgId(user as never)
-  const credit = await getCreditState(orgId)
-  if (credit.hardStop && credit.balanceCents <= 0) {
+  const decision = await checkSpendAllowed(orgId, user.id)
+  if (!decision.allowed && decision.blockedBy === 'org') {
     return NextResponse.json({ outOfCredits: true, message: 'You’re out of credits — top up to keep using PrimeOS AI.' })
+  }
+  if (!decision.allowed && decision.blockedBy === 'member') {
+    const { limitCents, period, resetsAt, source } = decision.member
+    const amount = `$${((limitCents ?? 0) / 100).toFixed(2)}`
+    const when = new Date(resetsAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    // Says the limit, the window, WHEN IT RESETS, and where it came from. A
+    // refusal that does not say when it lifts is indistinguishable from a
+    // permanent loss of access, and produces a support ticket instead of a wait.
+    return NextResponse.json({
+      overBudget: true,
+      message:
+        `You've reached your ${period === 'day' ? 'daily' : period === 'week' ? 'weekly' : 'monthly'} `
+        + `AI limit of ${amount}${source === 'seat-default' ? ' (your team default)' : ''}. `
+        + `It resets ${when}.`,
+    })
   }
 
   const turns: Turn[] = Array.isArray(history) ? history.slice(-8) : []

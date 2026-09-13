@@ -74,6 +74,9 @@ export const EVENT_TYPES = [
   // that scope is STATED rather than derived from the label.
   'member_seat_class_changed',
   'member_scope_changed',
+  // 0063. A spending limit is exactly the fact somebody needs a record of when a
+  // call was refused and nobody remembers setting the cap.
+  'member_budget_changed',
 ] as const
 
 export type EventType = (typeof EVENT_TYPES)[number]

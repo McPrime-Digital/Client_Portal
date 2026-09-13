@@ -1,7 +1,7 @@
 /**
  * scripts/test-rls.ts — S2 §6, Part B. The RLS test harness.
  *
- * FORTY assertions, numbered 1–41 with 21 RESERVED (the retention-purge
+ * FORTY-TWO assertions, numbered 1–43 with 21 RESERVED (the retention-purge
  * assertion, which cannot be written against a function that does not exist —
  * HANDOFF §9). This count was "Twenty-nine" until Batch 26 item 1 and had been
  * stale since Batch 25 added seven; a header that miscounts the thing it heads is
@@ -23,6 +23,8 @@
  *          baseline, and the four delegation rules no route test can prove
  *   37     S-R-A A-3 (Batch 26 item 1) — a grant and a deny held at once, which
  *          the tables could not hold before migration 0055
+ *   42–43  0063 — per-member AI spend limits: a member sees their own cap and
+ *          cannot raise it
  *   38–41  S-R §2, §3.2, R-10, G-5 (Batch 26 item 9) — the SCOPED seat: a
  *          contractor with no assignments reads nothing, a scoped member cannot
  *          reach a sibling production, an expired assignment stops resolving
@@ -47,7 +49,7 @@
  * rows that persona SHOULD see. Control zero → the assertion is reported
  * VACUOUS, not PASS, and the run does not exit clean.
  *
- * WHAT TO EXPECT NOW: all 40 green on a freshly seeded tenant. This paragraph
+ * WHAT TO EXPECT NOW: all 42 green on a freshly seeded tenant. This paragraph
  * used to read "expect most of this to be RED today" — true when S2 §6 asked for
  * a failing baseline, and false since the policy classes landed. Left as written
  * it tells the next reader that red output is normal, which is the one thing a
@@ -780,9 +782,17 @@ async function main() {
       return { ok: (data ?? []).length > 0, code: (data ?? []).length > 0 ? null : 'RLS-ZERO-ROWS' }
     }
     const updOf = async (
-      c: SupabaseClient, table: string, patch: Record<string, unknown>, id: string,
+      c: SupabaseClient, table: string, patch: Record<string, unknown>,
+      id: string | null, filters?: Filter[],
     ): Promise<{ ok: boolean; code: string | null }> => {
-      const { data, error } = await c.from(table).update(patch).eq('id', id).select('id')
+      // `filters` is for composite-key tables (member_budgets is keyed on
+      // organization_id + user_id and has no `id`). The returned column follows
+      // the table, because .select('id') on a table without one errors and would
+      // read as a refusal.
+      let q = c.from(table).update(patch)
+      if (id !== null) q = q.eq('id', id)
+      for (const f of filters ?? []) q = q.eq(f.col, (f as { val: Scalar }).val)
+      const { data, error } = await q.select(id !== null ? 'id' : 'organization_id')
       if (error) return { ok: false, code: error.code ?? 'ERR' }
       return { ok: (data ?? []).length > 0, code: (data ?? []).length > 0 ? null : 'RLS-ZERO-ROWS' }
     }
@@ -1062,6 +1072,52 @@ async function main() {
       if (stillScoped > 0) leaks.push(`the role widened row visibility: sibling tasks=${stillScoped}`)
       judge(41, 'a project role grants its baseline on the assigned production and widens no rows (control: an observer on the same production gets none)',
         leaks, withRole === true ? 1 : 0)
+    }
+
+    // ── 42-43 · 0063: per-member AI spend limits ───────────────────────────
+    //
+    // A spending cap is only a cap if the person it bounds cannot lift it. These
+    // two assert the halves that matter: they can SEE their own limit (a refused
+    // AI call must be explicable, or it reads as a bug) and they cannot WRITE
+    // one — not their own, not anybody's.
+    {
+      const row = {
+        organization_id: HARNESS_ORG_ID, user_id: null as string | null,
+        period: 'week', limit_cents: 500, hard_stop: true,
+      }
+      // Seeded by the owner, who holds money.costs through the owner baseline.
+      const { data: crewUser } = await owner.from('organization_members')
+        .select('user_id').eq('id', OM_CREW_ID).maybeSingle()
+      row.user_id = (crewUser?.user_id as string) ?? null
+
+      if (!row.user_id) {
+        record(42, 'a member reads their own spend limit', 'ERROR', 'no crew user_id to bind a budget to')
+        record(43, 'a member cannot set a spend limit', 'ERROR', 'no crew user_id to bind a budget to')
+      } else {
+        // Inserted directly, not through rowsOf(): that helper asks for `id`
+        // back, and member_budgets is keyed on (organization_id, user_id) with
+        // no id column — the select would ERROR and read as a refusal.
+        const ins = await owner.from('member_budgets').insert(row).select('organization_id')
+        const seeded = { ok: !ins.error && (ins.data ?? []).length > 0, code: ins.error?.code ?? null }
+        // 42 · self-read is UNGATED, deliberately: a person must be able to see
+        // the cap they are working under.
+        const mine = seeded.ok ? await countRows(crew, 'member_budgets') : -1
+        const ownerSees = await countRows(owner, 'member_budgets')
+        judge(42, 'a member reads their OWN spend limit without money.costs (control: the owner reads it too)',
+          !seeded.ok ? [`could not seed: ${seeded.code}`] : mine !== 1 ? [`member sees ${mine} rows, expected their own 1`] : [],
+          ownerSees)
+
+        // 43 · and cannot write one. A cap the capped can raise is not a cap.
+        const selfRaise = await updOf(crew, 'member_budgets', { limit_cents: 99999999 }, null,
+          [{ col: 'organization_id', op: 'eq', val: HARNESS_ORG_ID }, { col: 'user_id', op: 'eq', val: row.user_id }])
+        const ownerRaise = await updOf(owner, 'member_budgets', { limit_cents: 600 }, null,
+          [{ col: 'organization_id', op: 'eq', val: HARNESS_ORG_ID }, { col: 'user_id', op: 'eq', val: row.user_id }])
+        judge(43, 'a member cannot raise their own spend limit (control: an owner can)',
+          selfRaise.ok ? ['the capped member raised their own cap'] : [], ownerRaise.ok ? 1 : 0)
+
+        await owner.from('member_budgets').delete()
+          .eq('organization_id', HARNESS_ORG_ID).eq('user_id', row.user_id)
+      }
     }
   }
 

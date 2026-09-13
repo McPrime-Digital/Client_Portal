@@ -251,6 +251,49 @@ the user client** so a caller cannot attribute spend to a job they cannot see,
 and records unallocated rather than misallocated when they cannot. Nothing was
 guessed — a wrong production bills the wrong client.
 
+### 6.1.1 Allowance, added because the owner named the OTHER half
+
+Metering answers *what was spent*. It does not answer *what may be spent*, and
+the owner named the gap: **an owner, admin or org head must be able to cap a
+person's AI usage — daily, weekly or monthly — including a collaborator.**
+
+`member_budgets` and `org_seat_budgets` (0063) are the record; `lib/budgets.ts`
+is the one resolver, `checkSpendAllowed(orgId, userId)`, and the muse route's
+gate is now a single call to it.
+
+Four decisions worth stating, because each had a wrong version that looks right:
+
+1. **Keyed on GRANULARITY, not on `period_start`.** A row per person per period
+   accumulates forever and needs a rollover job that will one day not run; a
+   person's cap is ONE row that says "500¢ per week", and the window is computed
+   at read time (`windowStart`, weeks beginning Monday). Nothing to sweep.
+2. **The seat class carries the DEFAULT, the person carries the exception.**
+   Resolution is: their own row → else the `org_seat_budgets` row for their seat
+   class → else no limit. This is what makes "every contractor gets $20/week"
+   one row instead of one per contractor, and it is why the surface leads with
+   policy and calls the per-person rows exceptions.
+3. **A row with a NULL `limit_cents` is an explicit "no cap"**, not a missing
+   row — it is how you exempt one person from their seat's default without
+   deleting the default. Absence and exemption are different states and only one
+   of them is a decision.
+4. **Soft and hard are stated in words**, not as a boolean the reader must
+   interpret: `hard_stop` true "stops calls", false "warns only".
+
+The org-level gate is UNCHANGED and deliberately so: `orgBlocked` remains
+`orgHardStop && orgBalanceCents <= 0`. An intermediate version of this file
+dropped the first conjunct while claiming it "keeps its existing meaning
+exactly" — which would have blocked every org carrying a zero balance by design,
+the house org first. A regression assertion holds it: *zero balance + NO org
+hard stop → still allowed*.
+
+Enforcement, not display, is why `lib/budgets.ts` is on the I-8 allowlist: it
+must read the spend of somebody who is not the caller. The SURFACE is on the
+user client and the policy is the boundary — harness 42–43.
+
+**When storage and seats acquire a rate, this needs one decision, not a
+rewrite:** whether a cap bounds flow only or the standing charge too. `isFlow()`
+already exists to express either answer, and today the gate counts flow.
+
 ### 6.2 Owner answers to §5
 
 1. Unbuilt stays "coming soon" — built surfaces lead, held-but-unbuilt sit behind
@@ -263,5 +306,5 @@ guessed — a wrong production bills the wrong client.
 
 ---
 
-*End of S-S. Phases A and B built. Governs what a surface contains; `S-R` §8
+*End of S-S. Phases A and B built, plus allowance (§6.1.1). Governs what a surface contains; `S-R` §8
 governs what it may show to whom.*

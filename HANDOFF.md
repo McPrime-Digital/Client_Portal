@@ -324,7 +324,27 @@ The audited era, each batch with what it *found*:
 - **Branch:** `throughline` (main ⊆ throughline, fast-forward). Not renamed —
   S0-B §6 excludes the branch, and renaming it is a remote/CI change, not a
   code one.
-- **Migrations applied: 0000–0059, every one of them.** Verified live
+- **Migrations applied: 0000–0063, every one of them.** Verified live
+  2026-09-13. **0060–0063 are the S-S surfaces work**, and each one exists
+  because building the surface found the engine underneath it incomplete:
+  0060 gives the three parentless tables (`document_versions`,
+  `document_comments`, `storyboard_shots`) their own `org_document_visible()` /
+  `org_storyboard_visible()` helpers, because a child row cannot be scoped by a
+  `project_id` it does not have; 0061 backfills `usage_events.created_by` from
+  `ref->>'user'` — **every row that cost money was unattributed and every free
+  row was attributed**, 18/18 billed rows recovered with 0 unresolvable; 0062
+  adds `usage_events.project_id` so AI spend is chargeable to a production
+  (backfilled via `ref->>'file_id'` → `files.project_id`, 18 of 22, on a
+  tenant-guarded join); 0063 adds `member_budgets` + `org_seat_budgets` — the
+  per-person and per-seat-class AI spend limits, keyed on GRANULARITY rather
+  than period_start so a day/week/month cap is one row that never accumulates.
+  **Self-read on `member_budgets` is deliberately ungated** (`user_id =
+  auth.uid()`): a refused AI call has to be explicable to the person it
+  refused, or it reads as a bug. The admin half is gated on
+  `has_cap('money.costs')`, and harness 42–43 prove both halves — the capped
+  person SEES their cap and CANNOT raise it, each with a positive control.
+  The pre-S-S line, kept because it is what this file claimed:
+  **Migrations applied: 0000–0059, every one of them.** Verified live
   2026-09-13. **0055–0059 are Batch 26's** and complete `S-R`'s four axes:
   0055 widens both grant tables' live index to `(member_id, capability, mode)`
   so a grant and a denial can coexist (`S-R-A` A-3 — R-3 was unreachable in the
@@ -1474,3 +1494,13 @@ one is recognised rather than rediscovered.
     failed. **INSERT is the one command USING cannot reach**, which is why WITH
     CHECK is not a redundant copy of it. An audit that reads policies without
     probing them gets this backwards in both directions, as item 0 did.
+
+    **A third form of the same trap, found writing harness 42–43:** the shared
+    write helpers ask for `id` back, and `member_budgets` is keyed on
+    `(organization_id, user_id)` with **no `id` column at all**. `.select('id')`
+    there does not return zero rows — it ERRORS — and the helper turns an error
+    into `{ ok: false }`, i.e. into "RLS refused". A brand-new table would have
+    been reported as locked down when nothing had been tested. The rule
+    generalises past RLS: **when a probe's verdict comes from the shape of what
+    it asked for, the ask is part of the assertion** — so the column you read
+    back has to be one the table actually has.

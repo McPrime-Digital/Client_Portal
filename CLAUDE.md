@@ -115,8 +115,8 @@ Note: dynamic-route `params` and `next/headers` `cookies()` are async (Promises)
 There is no unit-test framework configured. There are now TWO test surfaces, and both must
 be run after anything touching policies, auth, capabilities or tenancy:
 
-- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **40 assertions**, numbered
-  1–41 with 21 reserved, every one with a positive control, seeded by
+- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **42 assertions**, numbered
+  1–43 with 21 reserved, every one with a positive control, seeded by
   `npm run seed:harness -- --apply`). Seed, then run ONCE:
   assertion 17 is single-use and reports VACUOUS on a second run without a re-seed.
   **THE TWO TEST SURFACES REFUSE TO RUN CONCURRENTLY** (`scripts/harness-lock.ts`):
@@ -412,8 +412,23 @@ into new code.
 
 `supabase/migrations/` holds one numbering scheme (`00NN`); the retired `2026*` scheme is fenced in `_archive/`:
 
-- `0000_baseline_schema.sql` … `0060_child_table_scoping.sql` — the current
-  source of truth, **all applied** (verified live 2026-09-13). **0060** takes the
+- `0000_baseline_schema.sql` … `0063_member_budgets.sql` — the current
+  source of truth, **all applied** (verified live 2026-09-13).
+  **0061–0063 are the metering half of the S-S surfaces work.** 0061 backfilled
+  `usage_events.created_by` — every row that had cost money was unattributed and
+  every free row was attributed, which is the inversion of what a cost surface
+  needs; 18/18 billed rows recovered from `ref->>'user'`, 0 unresolvable. 0062
+  adds `usage_events.project_id` (FK, `on delete set null`) so spend is
+  chargeable to a production — **a real column, not a `ref` key, because JSONB
+  cannot be indexed, grouped or joined**, which is the same argument 0061 made
+  about the actor. 0063 adds `member_budgets` + `org_seat_budgets`: per-person
+  and per-seat-class AI spend limits, day/week/month. They are keyed on
+  GRANULARITY, not on `period_start` — one row saying "500¢ per week" with the
+  window computed at read time, so there is no rollover job that can one day
+  fail to run. **Self-read is ungated on purpose** (`user_id = auth.uid()`): a
+  refused AI call must be explicable to the person refused. `lib/budgets.ts` is
+  the one resolver and the route gate is a single `checkSpendAllowed()`.
+  **0060** takes the
   scoping predicate to the three tables that carry no `project_id` of their own —
   `document_versions`, `document_comments`, `storyboard_shots` — through their
   PARENT, via `org_document_visible()` / `org_storyboard_visible()`. A child of an

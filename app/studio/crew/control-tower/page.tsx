@@ -5,6 +5,7 @@ import { getCurrentUser } from '@/lib/auth/currentUser'
 import { can } from '@/lib/capabilities.server'
 import { loadCostIntel } from '@/lib/costIntel'
 import Sparkline from '@/components/studio/Sparkline'
+import SpendLimits from '@/components/studio/SpendLimits'
 
 /**
  * CONTROL TOWER — AI spend governance, over an engine live since the credit
@@ -89,6 +90,17 @@ export default async function ControlTowerPage() {
       : Promise.resolve({ data: [] as { user_id: string; name: string | null; email: string }[] }),
     can(user, 'money.credits.topup'),
   ])
+  const canSetLimits = await can(user, 'money.budget.write')
+  // The roster, for the exceptions list. Read on the user client: a caller
+  // holding money.costs can see the roster through organization_members'
+  // policies, and a caller without it never reaches this branch.
+  const { data: limitPeopleRaw } = canSetLimits
+    ? await supabase.from('organization_members')
+        .select('user_id, name, email, seat_class').neq('status', 'revoked').order('name')
+    : { data: [] as { user_id: string; name: string | null; email: string; seat_class: 'staff' | 'contractor' }[] }
+  const limitPeople = (limitPeopleRaw ?? []).filter((p) => p.user_id) as {
+    user_id: string; name: string | null; email: string; seat_class: 'staff' | 'contractor'
+  }[]
   const { data: prods } = intel.byProduction.length
     ? await supabase.from('projects').select('id, title')
         .in('id', intel.byProduction.map((p) => p.projectId))
@@ -298,6 +310,18 @@ export default async function ControlTowerPage() {
         <p className="text-[15px] text-muted-foreground">
           Nothing has been spent on AI in the last 30 days.
         </p>
+      )}
+
+      {/* ── LIMITS, where the spend they bound is visible ──────────────────
+          Deliberately on this page rather than on the roster: somebody setting
+          a cap should be looking at what is actually being spent. Gated on
+          money.budget.write, which resolves to money.costs — the same capability
+          that opened this page, so it never renders for a reader who could not
+          act on it (R-6). */}
+      {canSetLimits && (
+        <div className="mb-6">
+          <SpendLimits people={limitPeople} />
+        </div>
       )}
 
       {canTopUp && (
