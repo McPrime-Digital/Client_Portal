@@ -214,6 +214,16 @@ export const WORK_TABLES = [
 export const DOC_P1_ID = '0f0f0f0f-000d-4000-8000-000000000001' // on PROJECT_1
 export const DOC_P2_ID = '0f0f0f0f-000d-4000-8000-000000000002' // on PROJECT_2
 
+// ── S3-b fixtures (0065, 0068) ─────────────────────────────────────────────
+// A calendar entry and a contract are both CLIENT-ADDRESSED objects on a
+// PROJECT, which is the combination that makes the scoping assertions mean
+// something: one wrong conjunct and either the wrong company or the wrong
+// production reads a row.
+export const CAL_C1_ID   = '0f0f0f0f-000e-4000-8000-000000000001' // PROJECT_1 + COMPANY_1
+export const CAL_P2_ID   = '0f0f0f0f-000e-4000-8000-000000000002' // PROJECT_2, internal
+export const CONTRACT_C1_ID    = '0f0f0f0f-000f-4000-8000-000000000001'
+export const CONTRACT_EVENT_ID = '0f0f0f0f-0010-4000-8000-000000000001'
+
 export const APPROVAL_CLIENT_ID = '0f0f0f0f-000a-4000-8000-000000000001'
 export const APPROVAL_CLIENT_STAGE_ID = '0f0f0f0f-000b-4000-8000-000000000001'
 /** INTERNAL — client_id null. Must be invisible to every client member. */

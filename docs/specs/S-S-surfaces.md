@@ -417,12 +417,23 @@ an absent assertion as "no statement made"; a database is not a manifest, and
 the failure mode of a permissive default is a studio's unreleased dailies
 becoming training data because nobody filled in a form.
 
-#### Phase D remainder
+#### Phase D remainder — now built (0065–0068)
 
-`S3-b` migrations 2, 3, 5 and 6 are the next engine batch and are NOT started.
-`rights` has a schema and no writer — a surface for it (per-file licence,
-talent consent, the training triple) is the smallest next step, and the file
-viewer is where it belongs.
+`S3-b` migrations 2, 3, 5 and 6 landed as 0065–0068: the calendar, bookings,
+meetings and the signing record. Migration 4 (`calendar_connections`) is the
+only one outstanding and is **deferred by S3-b §7 answer 1**, not skipped —
+external calendar sync needs a token-storage decision the spec itself says must
+not be improvised. See `S3-b` §5 for the landed table and §5.1 for the defect in
+§1.5 that building it exposed.
+
+**These are ENGINES: tables, constraints and policies with no surfaces yet.**
+That is the correct state — S-S SS-1 says build over engines, never ahead of
+them, and the reverse now holds: the engines are ahead, and the surfaces
+(a calendar, a booking page, a signing flow) are the next batch's work.
+
+Still open from Phase D proper: `rights` has a schema and no writer. A surface
+for it — per-file licence, talent consent, the CAWG training triple — is the
+smallest next step, and the file viewer is where it belongs.
 
 ### 6.2 Owner answers to §5
 

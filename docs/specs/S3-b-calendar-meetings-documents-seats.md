@@ -259,14 +259,48 @@ Primary key `(organization_id, user_id, period_start)`.
 
 Runs after `S3-core`. Additive first.
 
-| # | Contents | Shape |
-|---|---|---|
-| 1 | `organization_members.seat_class` + backfill; `member_budgets` + RLS | Additive |
-| 2 | `calendar_entries`, `calendar_entry_attendees` + RLS | Additive |
-| 3 | `availability_rules`, `booking_types`, `bookings` + exclusion constraint + RLS | Additive |
-| 4 | `calendar_connections` + RLS — **blocked on the token-storage decision in §1.6** | Additive |
-| 5 | `meetings`, `meeting_participants` + RLS. ~~`messages.timecode_ms`~~ — **removed; see §2.2. The anchor model in 0038 already carries a timecode and that column must not be added** | Additive |
-| 6 | `contracts`, `contract_fields`, `contract_signers`, `contract_events` + RLS | Additive |
+**STATUS — five of six are LANDED.** Migration 4 is the only one outstanding and
+it is deferred by §7 answer 1, not forgotten.
+
+| # | Contents | Shape | Landed as |
+|---|---|---|---|
+| 1 | `organization_members.seat_class` + backfill; `member_budgets` + RLS | Additive | **0056 + 0063** |
+| 2 | `calendar_entries`, `calendar_entry_attendees` + RLS | Additive | **0065** |
+| 3 | `availability_rules`, `booking_types`, `bookings` + exclusion constraint + RLS | Additive | **0066** |
+| 4 | `calendar_connections` + RLS — **blocked on the token-storage decision in §1.6** | Additive | **NOT BUILT** — §7 answer 1 recommends deferring external sync; the internal calendar is most of the value and this keeps a credential-storage decision off the critical path |
+| 5 | `meetings`, `meeting_participants` + RLS. ~~`messages.timecode_ms`~~ — **removed; see §2.2. The anchor model in 0038 already carries a timecode and that column must not be added** | Additive | **0067** (and the column was NOT added — verified live) |
+| 6 | `contracts`, `contract_fields`, `contract_signers`, `contract_events` + RLS | Additive | **0068** |
+
+### 5.1 A defect in §1.5, found by trying to write the constraint
+
+§1.5 specifies the exclusion constraint **"per `owner_user_id`"** and then lists
+the columns of `bookings`, **which contain no `owner_user_id`**. The owner lives
+on `booking_types.owner_user_id`, one table away, and an exclusion constraint
+cannot reach through a join. As specified it is unimplementable.
+
+Constraining per `booking_type_id` instead would be wrong and quietly so: one
+person with two booking types ("30-min call", "1-hour review") could be booked
+twice at the same instant — the exact thing the constraint exists to prevent —
+and it would pass every test written against a single booking type.
+
+0066 denormalises `owner_user_id` onto `bookings` and **stamps it with a
+trigger**, so the application cannot supply it and the column cannot disagree
+with its type. A first draft fired the trigger `before insert or update of
+booking_type_id`; a probe defeated that in one statement (`update bookings set
+owner_user_id = <somebody else>` never touches `booking_type_id`, so the trigger
+did not fire and the forged owner stuck — which both moves a booking onto
+another person's calendar and evades the constraint). It fires on every insert
+and update now.
+
+**Recorded limit:** a room-level booking type has a NULL owner, and NULL is not
+equal to NULL, so the constraint does not fire for those. A room cannot be
+double-booked by this shape. Room resources need their own key; that is S3-b's
+model, not an oversight in the migration.
+
+Proven live before the migration was trusted, all five with controls: the owner
+stamps · an overlap is refused `23P01` · an **adjacent** booking is accepted
+(the range is half-open, so 10–11 and 11–12 do not collide) · a **cancelled**
+booking frees its slot · a forged owner is re-derived.
 
 Every migration here is additive, so each is apply-then-deploy. No destructive step. Rules from `HANDOFF` §10 apply throughout: printed never applied, forward-only, idempotent, `drop policy if exists` first.
 

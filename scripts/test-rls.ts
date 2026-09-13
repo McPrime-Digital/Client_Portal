@@ -1,7 +1,7 @@
 /**
  * scripts/test-rls.ts — S2 §6, Part B. The RLS test harness.
  *
- * FORTY-FOUR assertions, numbered 1–45 with 21 RESERVED (the retention-purge
+ * FORTY-EIGHT assertions, numbered 1–49 with 21 RESERVED (the retention-purge
  * assertion, which cannot be written against a function that does not exist —
  * HANDOFF §9). This count was "Twenty-nine" until Batch 26 item 1 and had been
  * stale since Batch 25 added seven; a header that miscounts the thing it heads is
@@ -23,6 +23,8 @@
  *          baseline, and the four delegation rules no route test can prove
  *   37     S-R-A A-3 (Batch 26 item 1) — a grant and a deny held at once, which
  *          the tables could not hold before migration 0055
+ *   46–49  S3-b (0065, 0068) — the calendar scopes on BOTH axes, and the
+ *          signing record refuses UPDATE and DELETE from everyone
  *   44–45  0064 — content provenance cannot be forged: a disclosure can only
  *          be written by somebody who can see the script it is about
  *   42–43  0063 — per-member AI spend limits: a member sees their own cap and
@@ -51,7 +53,7 @@
  * rows that persona SHOULD see. Control zero → the assertion is reported
  * VACUOUS, not PASS, and the run does not exit clean.
  *
- * WHAT TO EXPECT NOW: all 44 green on a freshly seeded tenant. This paragraph
+ * WHAT TO EXPECT NOW: all 48 green on a freshly seeded tenant. This paragraph
  * used to read "expect most of this to be RED today" — true when S2 §6 asked for
  * a failing baseline, and false since the policy classes landed. Left as written
  * it tells the next reader that red output is normal, which is the one thing a
@@ -85,6 +87,7 @@ import {
   ALL_TABLES, readManifest, loadEnv, requireEnv,
   OM_OWNER_ID, OM_CREW_ID, OM_FINANCE_ID,
   DOC_P1_ID, DOC_P2_ID,
+  CAL_C1_ID, CAL_P2_ID, CONTRACT_C1_ID, CONTRACT_EVENT_ID,
 } from './harness-constants'
 
 // ── result model ────────────────────────────────────────────────────────────
@@ -1075,6 +1078,72 @@ async function main() {
       if (stillScoped > 0) leaks.push(`the role widened row visibility: sibling tasks=${stillScoped}`)
       judge(41, 'a project role grants its baseline on the assigned production and widens no rows (control: an observer on the same production gets none)',
         leaks, withRole === true ? 1 : 0)
+    }
+
+    // ── 46-49 · S3-b (0065, 0068): the calendar and the signing record ─────
+    //
+    // S3-b §6 asks for six assertions. Three of its six land here; §6.3
+    // (calendar_connections) has no table because migration 4 is deferred by the
+    // spec's own recommendation, and §6.6 (member_budgets) is already 42–43.
+    {
+      // 46 · the PRODUCTION axis. A crew member scoped to PROJECT_1 must not
+      // read an entry on its sibling, even though both are internal and both
+      // are their own org's.
+      const own = await countRows(crew, 'calendar_entries', [{ op: 'eq', col: 'id', val: CAL_C1_ID }])
+      const sibling = await countRows(crew, 'calendar_entries', [{ op: 'eq', col: 'id', val: CAL_P2_ID }])
+      judge(46, 'a scoped member reads no calendar entry from a sibling production (control: the entry on their own)',
+        sibling > 0 ? [`${sibling} sibling-production entr${sibling === 1 ? 'y' : 'ies'} visible`] : [],
+        own)
+
+      // 47 · the COMPANY axis, on the same table. Different failure, same row.
+      const mine = await countRows(c1own, 'calendar_entries', [{ op: 'eq', col: 'id', val: CAL_C1_ID }])
+      const theirs = await countRows(c2own, 'calendar_entries', [{ op: 'eq', col: 'id', val: CAL_C1_ID }])
+      judge(47, 'a client member reads no other company\'s calendar entry (control: their own company\'s)',
+        theirs > 0 ? ['another company\'s calendar entry was visible'] : [], mine)
+
+      // 48 · the same two axes on the signing record.
+      const myContract = await countRows(c1own, 'contracts', [{ op: 'eq', col: 'id', val: CONTRACT_C1_ID }])
+      const theirContract = await countRows(c2own, 'contracts', [{ op: 'eq', col: 'id', val: CONTRACT_C1_ID }])
+      judge(48, 'a client member reads no other company\'s contract (control: their own company\'s)',
+        theirContract > 0 ? ['another company\'s contract was visible'] : [], myContract)
+
+      // 49 · S3-b §6 calls this "the important one", and it is: the only
+      // assertion in the suite proving a NEGATIVE CAPABILITY rather than a
+      // scoping boundary. A certificate of completion that an administrator can
+      // edit is not evidence.
+      // THE ROW IS THE WITNESS, NOT THE ERROR — §12 lesson 6, and the first
+      // draft of this assertion walked straight into it. There is no UPDATE
+      // policy and no DELETE policy on contract_events, so RLS refuses by
+      // matching ZERO ROWS and PostgREST returns NO ERROR. Testing `error`
+      // reported a table that is working exactly as designed as a breach.
+      //
+      // Two layers protect this table and only one is testable from here. RLS
+      // (policy absence) is what a persona meets; the TRIGGER in 0068 is what
+      // the service role meets, and the harness runs as personas so it cannot
+      // reach that half — it was proven separately against a superuser
+      // connection, which is stricter than the service role.
+      const leaks: string[] = []
+      const upd = await owner.from('contract_events')
+        .update({ event: 'signed' }).eq('id', CONTRACT_EVENT_ID).select('id')
+      if ((upd.data ?? []).length > 0) leaks.push('an org OWNER updated the signing record')
+      const del = await owner.from('contract_events')
+        .delete().eq('id', CONTRACT_EVENT_ID).select('id')
+      if ((del.data ?? []).length > 0) leaks.push('an org OWNER deleted from the signing record')
+
+      // And the property itself, which neither of the above actually asserts:
+      // the record is still there, and it still says what it said.
+      const { data: after } = await owner.from('contract_events')
+        .select('id, event').eq('id', CONTRACT_EVENT_ID).maybeSingle()
+      if (!after) leaks.push('the signing record row is gone after the delete attempt')
+      else if ((after as { event: string }).event !== 'created') {
+        leaks.push(`the signing record was altered to '${(after as { event: string }).event}'`)
+      }
+
+      // The control is a SELECT: if the row were simply unreadable, every
+      // refusal above would be satisfied by an empty table.
+      const readable = await countRows(owner, 'contract_events', [{ op: 'eq', col: 'id', val: CONTRACT_EVENT_ID }])
+      judge(49, 'contract_events survives UPDATE and DELETE from an org owner, unchanged (control: the same row reads fine)',
+        leaks, readable)
     }
 
     // ── 44-45 · 0064: content provenance cannot be forged ──────────────────

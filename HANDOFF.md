@@ -324,7 +324,23 @@ The audited era, each batch with what it *found*:
 - **Branch:** `throughline` (main ⊆ throughline, fast-forward). Not renamed —
   S0-B §6 excludes the branch, and renaming it is a remote/CI change, not a
   code one.
-- **Migrations applied: 0000–0064, every one of them.** Verified live
+- **Migrations applied: 0000–0068, every one of them.** Verified live
+  2026-09-13. **0065–0068 are `S3-b` migrations 2, 3, 5 and 6** — calendar
+  entries and attendees (0065), availability/booking types/bookings with the
+  double-booking exclusion constraint (0066), meetings and participants (0067),
+  and contracts/fields/signers/events (0068). **`S3-b` migration 4
+  (`calendar_connections`) is NOT built and that is the spec's own call** (§7
+  answer 1): external calendar sync needs a token-storage decision — Vault vs an
+  encrypted column — that S3-b says explicitly must not be improvised. Migration
+  5 correctly did NOT add `messages.timecode_ms`; verified absent live.
+  Harness **44 → 48**. Three properties in this group were proven by probe
+  before the migrations were trusted, because none of them fails loudly:
+  the booking exclusion constraint refuses an overlap (`23P01`) while accepting
+  an **adjacent** slot and a **cancelled** one; the owner column is re-derived
+  when forged; and `contract_events` refuses UPDATE and DELETE **on a superuser
+  connection**, with `occurred_at` stamped over a 1999 backdate attempt.
+  The pre-S3-b line, kept because it is what this file claimed:
+  **Migrations applied: 0000–0064, every one of them.** Verified live
   2026-09-13. **0064 is `S-S` Phase D** and it wakes two tables that had been
   asleep since migration 0001: `asset_provenance` and `rights` existed with
   **zero code references anywhere in the repo** and zero rows — the dormant
@@ -1550,6 +1566,16 @@ one is recognised rather than rediscovered.
     failed. **INSERT is the one command USING cannot reach**, which is why WITH
     CHECK is not a redundant copy of it. An audit that reads policies without
     probing them gets this backwards in both directions, as item 0 did.
+
+    **A FOURTH form, and it bit while writing harness 49 — after the third
+    was already written down.** `contract_events` has no UPDATE policy and no
+    DELETE policy by design, so RLS refuses by matching zero rows and PostgREST
+    returns NO ERROR. The assertion tested `error` and reported a table working
+    exactly as designed as a breach by an org owner. Lesson 6 says ask for rows
+    back; the failure each time is asking and then not LOOKING at them. The
+    fixed assertion reads the row back and checks it still says what it said,
+    which is the property anyway — "the write was refused" and "the record is
+    intact" are not the same claim, and only the second one matters.
 
     **A third form of the same trap, found writing harness 42–43:** the shared
     write helpers ask for `id` back, and `member_budgets` is keyed on

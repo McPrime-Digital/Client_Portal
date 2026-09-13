@@ -38,7 +38,7 @@ order:
 | 10 | `S-C-communications.md` | **DRAFT** — sender identity across email/SMS/push |
 | 11 | `S3-core-messaging-approvals-versioning-retention.md` | **DRAFT** — schema for message rooms, approvals, file versioning, retention; ledger emission moves server-side |
 | 12 | `S3-core-A-amendments.md` | **Supersedes named `S3-core` sections** (A-1 … A-6, from the Batch 13 item 0 audit; two prevented data loss) |
-| 13 | `S3-b-calendar-meetings-documents-seats.md` | **DRAFT** — schema for the four shapes `S-F` §9 moved into v1; sequenced after `S3-core`. **Its migration 5 must DROP its `timecode_ms` line** — that column was never created, and Batch 22 settled one anchor model (`anchor_kind` + `anchor_value`) instead |
+| 13 | `S3-b-calendar-meetings-documents-seats.md` | **FIVE OF SIX MIGRATIONS LANDED** — 1 (0056 + 0063), 2 (0065), 3 (0066), 5 (0067), 6 (0068). Migration 4 (`calendar_connections`) is the only one outstanding and is deferred by §7 answer 1, not forgotten: external calendar sync needs a token-storage decision (Vault vs encrypted column) that S3-b itself says must not be improvised. **Its migration 5 correctly did NOT add `timecode_ms`** — verified live absent; Batch 22 settled one anchor model (`anchor_kind` + `anchor_value`) instead. §5.1 records a defect in §1.5 found while building it |
 | 14 | `S3-c-approvals-review-live-artifacts.md` | **DRAFT** — **Supersedes `S3-core` §2 (approvals tables), `S3-core` §9.2, and `S-F` §3.3 where they disagree**; approval is a record not a gate — auto-advance on silence, live minted artifacts, anchored review comments; sequenced after `S3-core` migrations 1–7 |
 | 15 | `S3-d-messaging-rooms-groups-broadcast.md` | **LANDED (Batch 23, migrations 0043–0049)** — **Supersedes `S3-core` §1.2 (the room table) and §9.1** where they disagree. Membership is a ROW (`room_members`); channels, groups, DMs, broadcast; the message RLS runs on membership (`is_room_member` + `room_can_post` + per-seat `history_from`), with ONE recorded deviation: the project-visibility conjunct stays (a live scoped crew member made §5.2's drop an access-widening). Rooms API: `lib/rooms.ts` + `/api/rooms*`; crew Chat hub; portal DMs. Open remainder in HANDOFF §9 |
 
@@ -115,8 +115,8 @@ Note: dynamic-route `params` and `next/headers` `cookies()` are async (Promises)
 There is no unit-test framework configured. There are now TWO test surfaces, and both must
 be run after anything touching policies, auth, capabilities or tenancy:
 
-- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **42 assertions**, numbered
-  1–43 with 21 reserved, every one with a positive control, seeded by
+- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **48 assertions**, numbered
+  1–49 with 21 reserved, every one with a positive control, seeded by
   `npm run seed:harness -- --apply`). Seed, then run ONCE:
   assertion 17 is single-use and reports VACUOUS on a second run without a re-seed.
   **THE TWO TEST SURFACES REFUSE TO RUN CONCURRENTLY** (`scripts/harness-lock.ts`):
@@ -470,8 +470,28 @@ generations. `lib/provenance.ts` is the one write path and
 
 `supabase/migrations/` holds one numbering scheme (`00NN`); the retired `2026*` scheme is fenced in `_archive/`:
 
-- `0000_baseline_schema.sql` … `0064_provenance_c2pa.sql` — the current
+- `0000_baseline_schema.sql` … `0068_contracts.sql` — the current
   source of truth, **all applied** (verified live 2026-09-13).
+  **0065–0068 are `S3-b` migrations 2, 3, 5 and 6** — the calendar, bookings,
+  meetings and the signing record. Migration 4 (`calendar_connections`) is
+  deliberately NOT built: it needs a credential-storage decision the spec itself
+  says to stop and make. Three things in this group are load-bearing and easy to
+  undo by accident:
+  · **`bookings.owner_user_id` is stamped by a TRIGGER, never written by the
+    app.** It exists because S3-b §1.5's exclusion constraint is specified "per
+    owner_user_id" against a table that has no such column (§5.1). Constraining
+    per `booking_type_id` instead would let one person be booked twice at once.
+    The trigger fires on EVERY insert and update — a narrower `update of
+    booking_type_id` form was defeated by probe in one statement.
+  · **`contract_events` is append-only by TRIGGER, not by absent policy.** The
+    service role bypasses RLS, and this table is the certificate of completion.
+    UPDATE and DELETE raise `restrict_violation` for everyone; `occurred_at` is
+    stamped over whatever the caller sends, because a client-supplied timestamp
+    on a legal record is a backdating facility. Proven against a superuser
+    connection.
+  · **`btree_gist` lives in the `extensions` schema**, so 0066 sets
+    `search_path` explicitly; without it the `uuid` gist opclass does not
+    resolve and the error blames the data type.
   **0064 wakes two tables that had been asleep since 0001.** `asset_provenance`
   and `rights` existed with **zero code references anywhere in the repo** and
   zero rows. It aligns them to **C2PA** (the Content Authenticity standard,

@@ -45,6 +45,7 @@ import {
   loadEnv, requireEnv, assertEnvLocalIgnored,
   OM_OWNER_ID, OM_CREW_ID, OM_REVOKED_ID, OM_FINANCE_ID, OM_CONTRACTOR_ID,
   DOC_P1_ID, DOC_P2_ID,
+  CAL_C1_ID, CAL_P2_ID, CONTRACT_C1_ID, CONTRACT_EVENT_ID,
   CM_C1OWN_ID, CM_C1MATE_ID, CM_C2OWN_ID,
 } from './harness-constants'
 
@@ -383,6 +384,39 @@ async function main() {
     { id: DOC_P2_ID, organization_id: HARNESS_ORG_ID, project_id: PROJECT_2_ID,
       kind: 'screenplay', title: 'Harness · sibling-production script' },
   ])
+
+  // S3-b fixtures (0065 calendar, 0068 contracts). Both are client-addressed
+  // objects on a production, which is what makes assertions 46–49 able to fail
+  // in two different directions rather than one.
+  record(`\n-- ═══ calendar + contracts (S3-b) ═══`)
+  await seedRows(admin, 'calendar_entries', [
+    { id: CAL_C1_ID, organization_id: HARNESS_ORG_ID, project_id: PROJECT_1_ID,
+      client_id: COMPANY_1_ID, kind: 'shoot_day', title: 'Harness · client-visible shoot day',
+      starts_at: at(3), ends_at: at(3) },
+    { id: CAL_P2_ID, organization_id: HARNESS_ORG_ID, project_id: PROJECT_2_ID,
+      client_id: null, kind: 'manual', title: 'Harness · sibling-production internal entry',
+      starts_at: at(3), ends_at: at(3) },
+  ])
+  await seedRows(admin, 'contracts', [
+    { id: CONTRACT_C1_ID, organization_id: HARNESS_ORG_ID, project_id: PROJECT_1_ID,
+      client_id: COMPANY_1_ID, title: 'Harness · company 1 agreement', status: 'sent' },
+  ])
+  // contract_events carries NO organization_id — it reaches its tenant through
+  // the contract, which is 0038's idiom for a parentless child. seedRows'
+  // assertHarnessOnly guard (correctly) refuses a row without the column, so
+  // this goes in directly, exactly as approval_stages and approval_decisions do.
+  //
+  // AND IT CANNOT BE UPSERTED: 0068 makes the table append-only with a TRIGGER
+  // that refuses UPDATE for everyone including the service role. An upsert whose
+  // conflict path is an update would abort the seed. Insert, and ignore the
+  // duplicate on a re-seed.
+  {
+    const { error } = await admin.from('contract_events').insert([
+      { id: CONTRACT_EVENT_ID, contract_id: CONTRACT_C1_ID, event: 'created',
+        actor_name: 'Harness' },
+    ])
+    if (error && error.code !== '23505') throw new Error(`contract_events: ${error.message}`)
+  }
 
   // 6 · work rows
   // Rooms are GET-OR-CREATE rather than fixed-id upserts, deliberately: the
