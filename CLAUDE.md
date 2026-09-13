@@ -201,7 +201,9 @@ service-role access is an enumerated allowlist. Today the opposite is true:
     resolves through `CAP_RESOLUTION` to the coarse cap that answers it. Do not add a stored
     cap casually — every one can end up in an `extra_caps` row, and renaming it strips
     granted access.
-  · `lib/capabilities.server.ts` is the ONE resolver (`resolveCaps`, `can`, `capGate`), on
+  · `lib/capabilities.server.ts` is the ONE resolver (`resolveCaps`, `can`, `capGate`,
+    and `resolveCapsForMember` for the one caller that must answer about SOMEBODY
+    ELSE — the R-11 cron, which has no session and passes its own client in), on
     the **USER client** — it reads only the caller's own rows, which the ungated self-read
     policies already permit. Do not give it the service role; the I-8 ratchet will refuse it
     and the refusal is correct.
@@ -410,9 +412,13 @@ into new code.
 
 `supabase/migrations/` holds one numbering scheme (`00NN`); the retired `2026*` scheme is fenced in `_archive/`:
 
-- `0000_baseline_schema.sql` … `0059_scoping_gaps.sql` — the current
-  source of truth, **all applied** (verified live 2026-09-13). **0055–0059 are
-  Batch 26**, completing S-R's four axes: 0055 widens both grant tables' live
+- `0000_baseline_schema.sql` … `0060_child_table_scoping.sql` — the current
+  source of truth, **all applied** (verified live 2026-09-13). **0060** takes the
+  scoping predicate to the three tables that carry no `project_id` of their own —
+  `document_versions`, `document_comments`, `storyboard_shots` — through their
+  PARENT, via `org_document_visible()` / `org_storyboard_visible()`. A child of an
+  UNTAGGED document stays org-visible, exactly as 0059's `project_id is null`
+  branch works one level up. **0055–0059 are Batch 26**, completing S-R's four axes: 0055 widens both grant tables' live
   index to `(member_id, capability, mode)` so a grant and a deny can COEXIST
   (S-R-A A-3 — R-3 was unreachable in the schema written for it); 0056
   `organization_members.seat_class` (`staff`/`contractor` — NOT the specs'

@@ -947,16 +947,20 @@ Batch 25's company-role half. What that means concretely:
   `NO_BASELINE_AS_ORACLE` in `eslint.config.mjs` bans importing a role baseline
   outside three named readers.
 
-**WHAT IS STILL OPEN ON ACCESS AND PERMISSIONS — and this list is exhaustive as
-of 2026-09-13, not a sample.**
+**NOTHING IS OPEN ON ACCESS AND PERMISSIONS.** The list below is exhaustive as of
+2026-09-13 and every entry is either CLOSED by code or DECIDED with its reason.
+Three were closed after the batch (items 1, 3, 4); three are decisions that
+should not be "fixed" and are written so the next reader finds an argument rather
+than a TODO.
 
-1. **The three PARENTLESS tables.** `document_versions`, `document_comments` and
-   `storyboard_shots` have **no `project_id` column**, so 0059's shape cannot
-   apply to them and a migration pretending otherwise would report success and
-   narrow nothing. They need a join through the parent `documents` /
-   `storyboards` row — a different predicate with different performance
-   characteristics. Nothing is exposed while it waits: `documents` holds 1 row
-   and `storyboards` 0. Owner ruling 3; do NOT improvise the join predicate.
+1. **CLOSED (0060).** The three parentless tables — `document_versions`,
+   `document_comments`, `storyboard_shots` — reach their project through their
+   PARENT now, via `org_document_visible()` / `org_storyboard_visible()`, in
+   USING **and** WITH CHECK. A child of an untagged document stays org-visible,
+   the same rule 0059 applies one level up. Applied while all three held zero
+   rows. Proven on a seeded case, because the one live `documents` row is in the
+   production org and a probe against it read zero for every persona — a
+   confident zero that proved nothing.
 2. **`message_rooms` keeps its policy, and this is a DECISION, not a gap.**
    `org_project_visible()` is false by construction for an MD-4 external
    collaborator — roster-less by definition — so adding the predicate to
@@ -978,23 +982,44 @@ of 2026-09-13, not a sample.**
    before and after — three lockout risks checked first and all zero (claim/row
    org mismatch, two active rows in one org, and the orphan list itself), and
    `c1own`/`c1mate` answer exactly their role baselines, unchanged.
-4. **The approval sweep is a legitimate THIRD resolution site.**
-   `app/api/cron/approval-sweep/route.ts` resolves baseline ∪ extras ∪ grants −
-   denials by hand, because it answers about SOMEBODY ELSE with no session.
-   Extracting it needs a service-role path into the capability layer — a decision
-   rather than a cleanup.
-5. **`extra_caps` is NOT yet the projection `S-R` §10 calls it.** Gabby holds
-   four dot-form caps with ZERO grant rows behind them, because those caps
-   predate the grant tables. Nothing breaks — `has_cap()` unions `extra_caps`
-   directly — but the word "projection" is false of the live data, and the
-   eventual drop of `extra_caps` has to reconcile them first.
-6. **Neither grant table is in `supabase_realtime`.** A GRANT is observable via
-   the roster row's `extra_caps` UPDATE; a DENY is not. Adding both tables to the
-   publication is a one-line migration and costs no channel — do it only if the
-   `memberId` problem resolves cleanly (the browser does not know its own
-   `member_id`, and a realtime filter must be a literal). Otherwise
-   navigation-based reshape is ACCEPTED (owner, 2026-09-12) and the listener
-   waits.
+4. **CLOSED.** The sweep's hand-rolled resolution is deleted;
+   `resolveCapsForMember()` in `lib/capabilities.server.ts` is the one
+   implementation for "resolve for somebody else", and it takes an INJECTED
+   client so the service role stays with the cron that legitimately holds it.
+   **The copy had drifted three ways** — no alias normalization, no project-role
+   baselines (that one introduced by Batch 26 item 5 itself), no assignment
+   expiry — and the second would have had the sweep report a stage blocked on a
+   permission change that never happened, which is the wrong record R-11 exists
+   to prevent. `NO_BASELINE_AS_ORACLE`'s exemption list shrank from three files
+   to two.
+5. **DECIDED — the data is right and `S-R` §10's wording is not.** One live row
+   holds `extra_caps` with no grant rows behind it: Gabby, four dot-form caps.
+   §10 calls `extra_caps` "a derived projection of the grant rows", which is
+   false of that row.
+   **The fix is NOT to force the data to match the sentence.** All four of those
+   caps are already inside her `admin` role baseline (verified: nothing is beyond
+   it), so they grant her nothing today — backfilling grant rows would fabricate
+   four ledger entries asserting a deliberate grant that never happened, which is
+   `HANDOFF` §12 lesson 1's shape written into the audit trail. And CLEARING them
+   would be worse: they are precisely what she would RETAIN if her role were ever
+   lowered, so deleting them destroys a real fact about her intended access that
+   nothing else records.
+   So: leave the row, and treat §10's sentence as describing what the grant
+   surface WRITES rather than an invariant over pre-ledger rows. **The one thing
+   this binds:** whenever `extra_caps` is finally dropped, pre-ledger extras must
+   be migrated to grant rows FIRST or their holders silently lose whatever their
+   role no longer carries.
+6. **DECIDED — not doing it, and this is the reason rather than an omission.**
+   Neither grant table is in `supabase_realtime`, so a DENY is not broadcast (a
+   GRANT is, incidentally, via the roster row's `extra_caps` UPDATE). Adding them
+   to the publication is one line — and with no subscriber it buys nothing and
+   costs replication on every grant write.
+   The subscriber is what would need building, and the owner **accepted
+   navigation-based reshape** (2026-09-12): capability resolves from the roster
+   per request (R-2), so every navigation already re-resolves. `S-R` §7's live
+   reshape is a courtesy, and its own text says a seventh channel is a
+   stop-and-report rather than a trade. Build it when there is a reason beyond
+   symmetry; until then this is a decision, not a debt.
 7. **Client-side project roles do not exist and should not**, per `S-R` §14 q4 —
    recorded so the asymmetry reads as a decision.
 
