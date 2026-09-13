@@ -918,6 +918,48 @@ Closed in Batch 8: client onboarding (8.1) · client-side presence and
 notification fan-out (8.2) · the last `clients.user_id` readers (8.3) · SMS
 metering (8.4) · the house-org identity test (8.5) · the column itself (8.6).
 
+#### CLOSED (S-S Phase C) — the review queue bypassed project scoping
+
+`app/studio/client/review/page.tsx` read `tasks` through `supabaseAdmin`.
+Service role bypasses RLS, and RLS is where 0057–0059 put the project scoping —
+so a crew member with `scope_mode='selected'` would have been handed **every**
+production's review queue from this page, while `crew/tasks` (which reads on the
+user client) correctly showed them only their own.
+
+Nothing leaked: both live crew rows are `scope_mode='all'`, so the two paths
+returned the same rows. The gap was ARMED, not firing, and it would have fired
+on the first scoped seat — which is the entire capability Batch 26 was built to
+deliver. It reads on the user client now, and the I-8 allowlist SHRANK by one
+entry rather than growing.
+
+The harness already proves the fixed path: assertion 39 (*a scoped member reads
+zero of a sibling production's tasks*) is exactly this predicate.
+
+#### OPEN — auto-advance can proceed on silence from NOBODY (needs a ruling)
+
+`approval_assignees.client_id` is `on delete cascade`
+(`0038_approvals_schema.sql:199`). Deleting a client company therefore deletes
+the assignee rows that pointed at it. The sweep's `anyAssigneeCanDecide()`
+deliberately returns `any: true` when a stage has zero recipients
+(`app/api/cron/approval-sweep/route.ts:172`), citing `S3-core` §2.4 — "a
+departed member neither blocks nor receives".
+
+That reasoning is right for ONE departed assignee among several. Where it
+empties the stage, the window still lapses, `advanceOnSilence` still writes
+`auto_advanced`, and `ApprovalCertificate` still prints its load-bearing
+sentence — *No response was received by the agreed review date* — about a review
+**nobody was able to receive**. That is the false record the whole of `S3-c`
+exists to prevent, produced by the engine built to prevent it.
+
+It is reachable through a supported operation (deleting a client company), and a
+live harness fixture is already in that state: `Harness · lapsed on silence`,
+status `auto_advanced`, zero assignees.
+
+**Not fixed, deliberately.** Auto-advance semantics belong to `S3-core` §2.4 and
+the decision is the owner's. `S-S` §6.3 lists the three options. What Phase C
+did do is refuse to let it be invisible: `approvalIntel()` grades any such
+record `broken` and says so in plain words on the Review surface.
+
 ### 8.4 Structural (sequenced, not forgotten)
 
 The I-8 **migration** — the ratchet exists (7.9), no file has moved; read-path

@@ -173,7 +173,11 @@ service-role access is an enumerated allowlist. Today the opposite is true:
   `lib/supabase/admin-allowlist.mjs` (PERMANENT + TRANSITIONAL, each entry justified) is
   consumed by `eslint.config.mjs` — a ratchet, so removing an entry is the migration and
   adding one needs a reason. This entry previously said "no allowlist and no lint rule";
-  that was stale.
+  that was stale. **It has now shrunk by deletion twice**: `app/studio/client/review/page.tsx`
+  came off in `S-S` Phase C, because reading `tasks` through the service role there was
+  bypassing the project scoping 0057–0059 had just built (HANDOFF §8.3). That is the shape
+  a removal should take — the entry goes when the surface moves to the user client, not
+  before.
 - **RLS is enabled on every table**, and the policies are real — but for the app's own reads
   they are mostly bypassed. What RLS *is* load-bearing for is **Realtime**: browser
   subscriptions authenticate as the user, so a missing SELECT policy silently kills live
@@ -407,6 +411,41 @@ into new code.
 
 `lib/collab/supabaseYjs.ts` is the Yjs provider over a Supabase broadcast channel
 (`doc:${docId}`); `documents.ydoc` is the durable snapshot.
+
+## Approvals — the record, and the three modules behind it
+
+`S3-c` makes approval a RECORD, not a status: silence auto-advances and is never
+written as approval, late objections are shown rather than hidden, and there is a
+printable certificate. It is the product's strongest differentiator (`S-S` §2.1),
+which means the failure mode that matters is not a crash — it is the record
+quietly asserting something it cannot support.
+
+| Module | Job |
+|---|---|
+| `lib/approvals.ts` | the engine — the ONE write path, plus `readApproval` / `listApprovals` / `listApprovalChains` |
+| `lib/approvalTimeline.ts` | the chain, as ordered entries. **Shared on purpose** |
+| `lib/approvalIntel.ts` | how well the record would hold up if it were disputed today |
+
+Rules that are not style preferences:
+
+- **There is ONE timeline function.** `ApprovalRecord` (the accordion) and
+  `/studio/client/review/[id]` (the addressable record) both render
+  `approvalTimeline()`. Two copies of a dispute document is the one duplication
+  that cannot be allowed to drift.
+- **`listApprovalChains` exists so the Review surface is not an N+1.** A page of
+  chains costs four queries, not four per approval. Use it for any surface that
+  grades more than one approval.
+- **Never add a read-side filter to comments or decisions** (AP-4). Who may
+  COMMENT is controlled; what is RECORDED is not. A filter here is what makes a
+  review look cleaner than it was.
+- **`approvalIntel` grades, it does not decide.** It never writes and never
+  changes auto-advance behaviour. Where it says `broken`, the underlying
+  question belongs to `S3-core` §2.4 — see HANDOFF §8.3's open ruling on
+  lapsing with zero recipients.
+- **The studio sees the grading; the client does not.** Both sides get the
+  record and the certificate. Grading the studio's own evidence is intelligence
+  for the party that has to act on it, not for the party it may one day be used
+  against.
 
 ## Migrations
 

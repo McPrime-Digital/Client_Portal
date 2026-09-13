@@ -294,6 +294,76 @@ user client and the policy is the boundary — harness 42–43.
 rewrite:** whether a cap bounds flow only or the standing charge too. `isFlow()`
 already exists to express either answer, and today the gate counts flow.
 
+### 6.3 What Phase C shipped — and the premise that was wrong
+
+**§2.1 said the record "has no home on any dashboard". That was half wrong**,
+and the audit is what found it. `ApprovalRecord`, `ApprovalCertificate` and
+`ApprovalCard` all existed and rendered. What was actually missing was different:
+
+1. **The chain had no URL.** Opening it was `useState`. It could not be linked
+   from a notification, cited in an email, or handed to a colleague. The only
+   addressable artifact was `/certificate` — the FORMAL export — with nothing
+   between "a row you can expand" and "a document you print".
+2. **The page's headline came from the projection, not the engine.** Three tiles
+   over `tasks.approval_status`, with the record below them.
+3. **A LIVE SCOPING GAP.** `app/studio/client/review/page.tsx` read `tasks`
+   through the service role, which bypasses RLS and therefore bypasses the
+   project scoping 0057–0059 built. Nothing leaked — both live crew are
+   `scope_mode='all'` — but the gap was armed and fires on the first scoped
+   seat, which is the whole thing Batch 26 exists to enable.
+
+Built: `/studio/client/review/[id]` (the record at a URL),
+`lib/approvalTimeline.ts` (the chain, extracted so the accordion and the page
+cannot tell different stories), `lib/approvalIntel.ts`, `listApprovalChains()`
+(a page of chains in four queries, not four per approval), the attention band,
+and the scoping fix — which SHRANK the I-8 allowlist rather than growing it.
+
+#### The advancement: the record is graded before it is needed
+
+Every competitor shows an approval's STATE. None shows **how well your own audit
+trail would hold up if the approval were disputed today**, while there is still
+time to fix it. `approvalIntel()` grades each record `strong` / `thin` /
+`broken` and says why in one sentence.
+
+The grading is not decoration — each grade names a way the certificate's
+load-bearing sentence fails:
+
+| grade | what it means |
+|---|---|
+| **broken** | the record would assert silence it cannot support |
+| **thin** | proceeding is arguable, but the trail is thinner than it should be |
+| **strong** | an agreed date, a named recipient, reminders that landed |
+
+Four cases reach `broken`, and none is hypothetical: a stage nobody can act on
+(R-11's lockout), a stage addressed to **nobody at all**, a lapse with no
+reminder ever delivered, and a lapse where every reminder BOUNCED. A reminder
+that failed to deliver is evidence against the studio, not for it, and it was
+previously legible only as a parenthetical inside one timeline row.
+
+One case is quieter and was found by the probe rather than by design: **an open
+stage with no review date can never lapse**, because `advanceOnSilence` is only
+ever reached through a deadline. It waits forever. An earlier draft graded that
+`strong` — "nothing is waiting on a review window" — while a client sat on it.
+Waiting indefinitely is a failure state that looks like calm.
+
+#### OWED — a ruling on auto-advance with zero recipients
+
+`approval_assignees.client_id` is `on delete cascade` (0038:199), so **deleting a
+client company deletes the assignee rows pointing at it**. The sweep's
+`anyAssigneeCanDecide()` deliberately returns `any: true` for a stage with zero
+recipients (approval-sweep:172), citing `S3-core` §2.4 — "a departed member
+neither blocks nor receives". That reasoning is sound for ONE departed assignee
+among several. Where it empties the stage, the window still lapses and the
+certificate still prints *No response was received by the agreed review date*
+about a review nobody could receive.
+
+A live harness fixture is already in exactly this state: `auto_advanced`, zero
+assignees. Phase C **surfaces it and does not change it** — auto-advance
+semantics are `S3-core` §2.4's to settle, and that is the owner's call, not a
+side effect of building a surface. The options are (a) refuse to lapse a stage
+with no reachable recipient and mark it blocked, (b) lapse it but have the
+certificate state the recipient count, or (c) leave it and rely on the grading.
+
 ### 6.2 Owner answers to §5
 
 1. Unbuilt stays "coming soon" — built surfaces lead, held-but-unbuilt sit behind
@@ -306,5 +376,5 @@ already exists to express either answer, and today the gate counts flow.
 
 ---
 
-*End of S-S. Phases A and B built, plus allowance (§6.1.1). Governs what a surface contains; `S-R` §8
+*End of S-S. Phases A, B and C built, plus allowance (§6.1.1). Governs what a surface contains; `S-R` §8
 governs what it may show to whom.*

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ScanEye, Clock, FileText, ChevronRight } from 'lucide-react'
+import { approvalTimeline, TIMELINE_TONE } from '@/lib/approvalTimeline'
 
 /**
  * The Review & Approval record — Batch 22 item 9 (S3-c §3.2).
@@ -83,74 +84,15 @@ const ts = (s: string) =>
     month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
   })
 
-/** One flattened, ordered timeline: decisions and ledger events interleaved. */
-function timeline(d: Detail) {
-  const out: { at: string; who: string; what: string; detail: string | null; kind: string }[] = []
-  for (const s of d.stages) {
-    for (const dec of s.decisions) {
-      const late = s.status === 'auto_advanced' && s.advanced_at && dec.decided_at > s.advanced_at
-      out.push({
-        at: dec.decided_at,
-        who: dec.actor_name,
-        what: late
-          // Shown, never hidden (S3-c §2.5).
-          ? `${dec.decision.replace('_', ' ')} — recorded AFTER the review window closed`
-          : dec.decision.replace('_', ' '),
-        detail: dec.comment,
-        kind: late ? 'late' : dec.decision,
-      })
-    }
-    if (s.status === 'auto_advanced' && s.advanced_at) {
-      out.push({
-        at: s.advanced_at,
-        who: 'System',
-        what: `No response received on “${s.name}” — work proceeded`,
-        detail: null,
-        kind: 'auto_advanced',
-      })
-    }
-  }
-  for (const e of d.events) {
-    if (e.event_type === 'approval_reminded') {
-      const m = e.meta ?? {}
-      out.push({
-        at: e.created_at,
-        who: 'System',
-        what: e.title,
-        // Channel and recipient, because that is what makes proceeding
-        // without a response defensible (S3-c §2.4).
-        detail: `${String(m.channel ?? 'email')} → ${String(m.recipient ?? 'recipient')}${m.delivered === false ? ' (delivery failed)' : ''}`,
-        kind: 'reminder',
-      })
-    } else if (e.event_type === 'approval_blocked_on_permission') {
-      // R-11, ON THE RECORD. This is the event that stops the certificate
-      // asserting silence that never happened: a stage nobody could act on is
-      // shown as blocked, naming it as an access problem rather than a
-      // non-response. Without it the timeline would simply end, and the reader
-      // would infer the client ignored the request.
-      out.push({
-        at: e.created_at,
-        who: 'System',
-        what: e.title,
-        detail: 'The review window did not lapse — nobody assigned could approve it.',
-        kind: 'blocked_on_permission',
-      })
-    } else if (e.event_type === 'approval_created' || e.event_type === 'approval_withdrawn') {
-      out.push({ at: e.created_at, who: e.actor_name, what: e.title, detail: e.body, kind: e.event_type })
-    }
-  }
-  return out.sort((a, b) => a.at.localeCompare(b.at))
-}
-
-const TONE: Record<string, string> = {
-  approved: 'var(--primary)',
-  rejected: 'var(--destructive)',
-  changes_requested: 'var(--status-amber, var(--destructive))',
-  auto_advanced: 'var(--muted-foreground)',
-  blocked_on_permission: 'var(--destructive)',
-  late: 'var(--destructive)',
-  reminder: 'var(--muted-foreground)',
-}
+/**
+ * The timeline moved to `lib/approvalTimeline.ts` (S-S Phase C) so this
+ * accordion and the addressable record page at
+ * /studio/client/review/[id] render the SAME chain from the same code.
+ * Two copies of a dispute document is the one duplication that cannot be
+ * allowed to drift.
+ */
+const timeline = approvalTimeline
+const TONE = TIMELINE_TONE
 
 export default function ApprovalRecord({ side }: { side: 'studio' | 'portal' }) {
   const base = side === 'studio' ? '/api/studio/approvals' : '/api/portal/approvals'
@@ -177,10 +119,27 @@ export default function ApprovalRecord({ side }: { side: 'studio' | 'portal' }) 
     } catch { /* the list stays; the chain simply does not open */ }
   }, [base, openId])
 
-  // Nothing yet, or nothing ever: render nothing rather than an empty shell.
-  // The legacy task queue below on both pages is still the live surface until
-  // its columns drop, so an empty record must not push it down the page.
-  if (!rows || rows.length === 0) return null
+  // Still loading: nothing, rather than a shell that resolves into a different
+  // shape a moment later.
+  if (!rows) return null
+
+  // EMPTY IS ONBOARDING, NOT ABSENCE (SS-6). This used to return null, which
+  // meant the strongest thing in the product was invisible to every studio that
+  // had not already used it — you cannot discover a differentiator that renders
+  // nothing. It stays ONE LINE, because the legacy task queue below is still
+  // the live surface on both pages until its columns drop, and an empty record
+  // must not push a working queue down the page.
+  if (rows.length === 0) {
+    return (
+      <section className="mb-8 flex items-center gap-2 text-[12px] text-muted-foreground">
+        <ScanEye size={14} className="shrink-0 text-faint" />
+        <span>
+          Every review, decision, reminder and lapse is recorded here — timestamped and
+          attributed — as soon as the first approval is sent.
+        </span>
+      </section>
+    )
+  }
 
   return (
     <section className="mb-8">
@@ -248,16 +207,33 @@ export default function ApprovalRecord({ side }: { side: 'studio' | 'portal' }) 
                     different gates (client capability matrix vs the studio
                     feature gate + crew roster), and a single branching route
                     is how one of those checks eventually goes missing. */}
-                <Link
-                  href={
-                    side === 'studio'
-                      ? `/studio/client/review/${r.id}/certificate`
-                      : `/approvals/${r.id}/certificate`
-                  }
-                  className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-medium text-primary hover:underline"
-                >
-                  Open printable certificate <ChevronRight size={11} />
-                </Link>
+                <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1">
+                  {/* The addressable record — S-S Phase C. Studio-side only,
+                      and that asymmetry is deliberate: the client gets the
+                      RECORD (this chain, and the certificate), the studio gets
+                      the record plus a reading of how well its own evidence
+                      would hold up. Grading the studio's trail is intelligence
+                      for the party that has to act on it, not for the party it
+                      may one day be used against. */}
+                  {side === 'studio' && (
+                    <Link
+                      href={`/studio/client/review/${r.id}`}
+                      className="inline-flex items-center gap-1.5 text-[11px] font-medium text-primary hover:underline"
+                    >
+                      Open full record <ChevronRight size={11} />
+                    </Link>
+                  )}
+                  <Link
+                    href={
+                      side === 'studio'
+                        ? `/studio/client/review/${r.id}/certificate`
+                        : `/approvals/${r.id}/certificate`
+                    }
+                    className="inline-flex items-center gap-1.5 text-[11px] font-medium text-primary hover:underline"
+                  >
+                    Open printable certificate <ChevronRight size={11} />
+                  </Link>
+                </div>
               </div>
             )}
           </div>

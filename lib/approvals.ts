@@ -850,6 +850,80 @@ export async function readApproval(
   }
 }
 
+/**
+ * The same chain as `readApproval`, for a PAGE of approvals — in four queries
+ * rather than four PER approval.
+ *
+ * It exists because the Review surface has to grade every open approval at
+ * once (`S-S` Phase C): "what is waiting on us", and how well each record would
+ * hold up if it were disputed today. Doing that over `readApproval` is an N+1
+ * against a table that has no reason to stay small, and the honest version of
+ * "there are only five rows today" is a query that is still correct at five
+ * hundred.
+ *
+ * Bounded at every step (I-1): the page itself is `listApprovals`' keyset page,
+ * and the ledger read carries an explicit cap rather than an implied one.
+ *
+ * SAME RLS, SAME ANSWERS. Every query runs on the `db` it is handed, so a
+ * caller passing the user client gets exactly the approvals 0038's policies and
+ * 0059's project scoping admit — and a stage whose approval is invisible simply
+ * has no parent to attach to.
+ */
+export async function listApprovalChains(
+  db: SupabaseClient,
+  params: ListApprovalsParams
+): Promise<{ chains: ApprovalDetail[]; nextCursor: string | null; hasMore: boolean }> {
+  const { approvals, nextCursor, hasMore } = await listApprovals(db, params)
+  if (approvals.length === 0) return { chains: [], nextCursor, hasMore }
+
+  const ids = approvals.map((a) => a.id)
+
+  const { data: stageData } = await db
+    .from('approval_stages').select(STAGE_COLUMNS).in('approval_id', ids).order('seq')
+  const stages = (stageData ?? []) as unknown as StageRow[]
+  const stageIds = stages.map((s) => s.id)
+
+  let assignees: AssigneeRow[] = []
+  let decisions: DecisionRow[] = []
+  if (stageIds.length > 0) {
+    const [{ data: aData }, { data: dData }] = await Promise.all([
+      db.from('approval_assignees')
+        .select('id, stage_id, user_id, client_id, role, required').in('stage_id', stageIds),
+      db.from('approval_decisions')
+        .select('id, stage_id, actor_id, actor_name, decision, comment, decided_at')
+        .in('stage_id', stageIds).order('decided_at', { ascending: true }),
+    ])
+    assignees = (aData ?? []) as unknown as AssigneeRow[]
+    decisions = (dData ?? []) as unknown as DecisionRow[]
+  }
+
+  // The reminder ladder for the whole page. Filtering on the JSON path is what
+  // makes one query serve every approval; the cap is stated because a ledger
+  // grows without anybody deciding that it should.
+  const { data: eventData } = await db
+    .from('activity_log')
+    .select('id, event_type, title, body, actor_name, created_at, meta')
+    .in('meta->>approval_id', ids)
+    .order('created_at', { ascending: true })
+    .limit(1000)
+  const events = (eventData ?? []) as unknown as (ApprovalEvent & { meta: Record<string, unknown> | null })[]
+
+  const chains: ApprovalDetail[] = approvals.map((approval) => {
+    const mine = stages.filter((s) => s.approval_id === approval.id)
+    return {
+      approval,
+      events: events.filter((e) => e.meta?.approval_id === approval.id),
+      stages: mine.map((s) => ({
+        ...s,
+        assignees: assignees.filter((a) => a.stage_id === s.id),
+        decisions: decisions.filter((d) => d.stage_id === s.id),
+      })),
+    }
+  })
+
+  return { chains, nextCursor, hasMore }
+}
+
 // ── the legacy task projection (RULE ZERO) ──────────────────────────────────
 //
 // There is no function here, and that is the decision.
