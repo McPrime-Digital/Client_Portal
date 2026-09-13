@@ -112,6 +112,7 @@ export async function POST(req: NextRequest) {
       { model: model.id, user: user.id, tokens_in: tokensIn, tokens_out: tokensOut, measured },
       tokensIn + tokensOut,            // usage_events.units — native measure
       'ai.text.tokens',                // usage_events.kind — S-V §11 taxonomy
+      user.id,                         // usage_events.created_by — WHO spent it
     )
   }
 

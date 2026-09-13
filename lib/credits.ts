@@ -91,10 +91,21 @@ export async function chargeCredits(
    *  them would force 'topup' — which consumes nothing — into the metering
    *  taxonomy. Defaults to `reason` so existing call shapes are unchanged. */
   kind?: string,
+  /** WHO SPENT IT. Added 2026-09-13, and its absence was a real hole: every
+   *  usage row that COSTS MONEY was unattributed while every row that costs
+   *  nothing (seat.invited, storage.bytes) carried an actor — exactly backwards
+   *  for cost governance.
+   *
+   *  The actor was never lost, only misplaced: callers already put it in `ref`
+   *  as a JSONB key, so it survived in a blob that cannot be indexed, grouped or
+   *  joined. `created_by` is the column the schema provides for this, and
+   *  per-member attribution is the first thing any organisation asks of an AI
+   *  spend surface. Migration 0061 backfills the existing rows from `ref`. */
+  actorId?: string,
 ): Promise<number | null> {
   // Journal the raw usage event through THE write path (lib/usage.ts —
   // "never a second"), not a local insert. Control Tower reads usage_events.
-  await recordUsage(orgId, kind ?? reason, units ?? cents, cents, ref)
+  await recordUsage(orgId, kind ?? reason, units ?? cents, cents, ref, actorId)
   const { data, error } = await supabaseAdmin.rpc('charge_credits', {
     p_org: orgId,
     p_cents: cents,
