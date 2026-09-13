@@ -32,6 +32,34 @@
        and glow in the studio/portal chrome derives from this one token. */
     --glow: 262 60% 54%;
 
+    /* ── MOTION TOKENS ──────────────────────────────────────────────────
+       Added 2026-09-13. The shell had NO shared curves: an audit found ten
+       hand-typed cubic-beziers, five of them near-identical overshoots
+       (0.2,1.4,0.4,1 alone appears eight times), plus 202 `transition-all`.
+       Curves and durations belong in tokens — five curves that almost match
+       is a consolidation defect, not a style.
+
+       These are theme-independent, so they sit outside the light/dark blocks.
+       New code uses them; the existing hand-typed sites are a recorded sweep,
+       not silently rewritten underneath working animation.
+
+       WHY THESE CURVES. The built-in CSS easings are too weak to read as
+       deliberate. `ease-in` is never used on UI: it delays the first moment —
+       exactly when the eye is on the element — so a 300ms ease-in dropdown
+       FEELS slower than the same 300ms with ease-out. */
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);      /* entering / exiting */
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);  /* moving on screen */
+    --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);   /* sheets, drawers */
+    /* The overshoot already dominant in this codebase (8 uses), named rather
+       than replaced — a token should ratify the house curve, not import one. */
+    --ease-pop: cubic-bezier(0.2, 1.4, 0.4, 1);
+
+    /* Durations. UI motion stays under 300ms; past that it reads as lag
+       rather than as craft. */
+    --dur-press: 120ms;   /* button :active feedback */
+    --dur-pop: 180ms;     /* tooltips, small popovers, menus */
+    --dur-panel: 240ms;   /* dropdowns, sheets, larger surfaces */
+
     /* Status accents — shared across themes (used as solid text + translucent bg) */
     --status-blue: 205 60% 50%;
     --status-amber: 24 73% 50%;

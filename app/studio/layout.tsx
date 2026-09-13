@@ -4,6 +4,8 @@ import { getCurrentUser } from '@/lib/auth/currentUser'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { orgAccessOf } from '@/lib/team'
 import { capList } from '@/lib/capabilities.server'
+import { paletteItems } from '@/lib/studio/surfaces'
+import CommandPalette from '@/components/studio/CommandPalette'
 import StudioSidebar from '@/components/studio/StudioSidebar'
 import StudioTopbar from '@/components/studio/StudioTopbar'
 import SessionDock from '@/components/studio/SessionDock'
@@ -56,7 +58,7 @@ export default async function StudioLayout({ children }: { children: React.React
   // `capList` joins the batch rather than being awaited in the JSX: this layout
   // runs on every studio request and the comment above is about round trips, so
   // adding a serial one to draw the rail would undo part of what 12.1 fixed.
-  const [brand, { data: crewRow }, orgAccess, caps] = await Promise.all([
+  const [brand, { data: crewRow }, orgAccess, caps, palette] = await Promise.all([
     tenantBrand(userOrgId(user)),
     // A paused crew member sees a hold screen — nothing else in the studio.
     supabaseAdmin
@@ -66,6 +68,9 @@ export default async function StudioLayout({ children }: { children: React.React
       .maybeSingle(),
     orgAccessOf(user),
     capList(user),
+    // ⌘K's contents, resolved server-side: the palette can only ever offer what
+    // this person holds, so it inherits S-2 instead of filtering in the browser.
+    paletteItems(user),
   ])
   const orgName = brand.name
   if (crewRow && crewRow.status === 'paused') {
@@ -107,6 +112,7 @@ export default async function StudioLayout({ children }: { children: React.React
     <div className="app-canvas flex h-screen gap-2 overflow-hidden p-2 sm:gap-3 sm:p-3">
       {/* admin presence heartbeat — without it clients get false "away" alerts.
           orgId scopes the presence room to this tenant (C-3). */}
+      <CommandPalette items={palette} />
       <PresencePulse role="admin" userId={user.id} clientId={null} orgId={userOrgId(user)} />
       {/* editor font library (Script Design font picker) */}
       <link rel="preconnect" href="https://fonts.googleapis.com" />

@@ -37,32 +37,58 @@ export default async function FeaturePage({
 
   const Icon = feature.icon
 
+  /**
+   * THE UNBUILT SURFACE — rewritten 2026-09-13 (S-S SS-2).
+   *
+   * It used to say: "This is where X will live. Scheduled for Phase N of the
+   * Genreline build." Two problems, and the second is the serious one.
+   *
+   * It PUBLISHED THE ROADMAP. "Phase 3 of the Genreline build" is internal
+   * sequencing, rendered inside a studio that clients' work passes through and
+   * that the product is sold to other studios. A person who reaches this has
+   * learned what is not finished and roughly when — which is a commercial
+   * disclosure sitting behind nothing but a URL.
+   *
+   * And it said nothing USEFUL. "Coming soon" answers a question nobody asked;
+   * the question is "what do I do now". Where a working surface covers the need
+   * today, this says so and links it.
+   */
+  const MEANWHILE: Record<string, { text: string; href: string; label: string }> = {
+    'crew/calendar': { text: 'Deadlines and kickoffs live on each production for now.', href: '/studio/client/projects', label: 'Productions' },
+    'crew/meetings': { text: 'Use your own call link and keep the record in the room.', href: '/studio/crew/chat', label: 'Crew chat' },
+    'client/documents': { text: 'Documents are written and reviewed in Script Design.', href: '/studio/suite/script', label: 'Script Design' },
+    'client/brand-kit': { text: 'Logo and business identity live in settings.', href: '/studio/crew/settings', label: 'Settings' },
+    'client/guest-links': { text: 'Share a production with a client from its review page.', href: '/studio/client/review', label: 'Review' },
+    'suite/library': { text: 'Every file is in the vault, grouped by company.', href: '/studio/client/files', label: 'Files' },
+  }
+  const meanwhile = MEANWHILE[`${space.id}/${feature.slug}`]
+
   return (
-    <div className="mx-auto max-w-2xl">
+    <div className="mx-auto max-w-md pt-[8vh]">
       <Link
         href={`/studio/${space.id}`}
-        className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        className="mb-8 inline-flex items-center gap-1.5 text-[13px] text-faint outline-none transition-colors duration-[--dur-pop] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <ArrowLeft size={15} />
+        <ArrowLeft size={14} />
         {space.label}
       </Link>
 
-      <div className="rounded-2xl border border-border bg-card p-10 text-center">
-        <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-secondary text-primary">
-          <Icon size={30} />
-        </div>
-        <h1 className="mt-5 flex items-center justify-center gap-2 font-display text-xl font-semibold text-foreground">
-          {feature.label}
-          {feature.badge && <span className="text-[10px] font-bold text-primary">★ {feature.badge}</span>}
-        </h1>
-        <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
-          This is where <b className="text-foreground">{feature.label}</b> will live. Scheduled for{' '}
-          <b className="text-foreground">Phase {feature.phase}</b> of the Genreline build.
-        </p>
-        <span className="mt-5 inline-block rounded-full bg-secondary px-3 py-1 text-[11px] font-semibold text-muted-foreground">
-          Phase {feature.phase} · coming soon
-        </span>
-      </div>
+      <Icon size={22} className="text-faint" strokeWidth={1.5} />
+      <h1 className="mt-4 font-display text-[22px] font-semibold tracking-[-0.01em] text-foreground">
+        {feature.label}
+      </h1>
+      <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
+        Not built yet.{meanwhile ? ` ${meanwhile.text}` : ''}
+      </p>
+
+      {meanwhile && (
+        <Link
+          href={meanwhile.href}
+          className="squircle-sm mt-5 inline-flex items-center border border-border bg-card px-3 py-1.5 text-[13px] text-foreground outline-none transition-[border-color,transform] duration-[--dur-pop] ease-[--ease-out] hover:border-[hsl(var(--glow)/0.45)] focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.99]"
+        >
+          {meanwhile.label}
+        </Link>
+      )}
     </div>
   )
 }
