@@ -47,7 +47,8 @@ import {
   DOC_P1_ID, DOC_P2_ID,
   CAL_C1_ID, CAL_P2_ID, CONTRACT_C1_ID, CONTRACT_EVENT_ID, CONTRACT_SIGNER_ID, SIGNING_LINK_ID,
   MEETING_CLIENT_ID, MEETING_INTERNAL_ID, MEETING_ROOM_ID, JOB_ID,
-  FILE_P1_ID, FILE_P2_ID, SHARE_LINK_P1_ID, SHARE_LINK_P2_ID, SHARE_VIEW_P1_ID,
+  FILE_P1_ID, FILE_P2_ID, FILE_P3_ID, SHARE_LINK_P1_ID, SHARE_LINK_P2_ID, SHARE_VIEW_P1_ID,
+  RIGHTS_P1_ID, RIGHTS_P3_ID, PROV_FILE_P1_ID, PROV_DOC_P1_ID,
   CM_C1OWN_ID, CM_C1MATE_ID, CM_C2OWN_ID,
 } from './harness-constants'
 
@@ -769,6 +770,36 @@ async function main() {
     if (vErr) throw new Error(`share_link_views: ${vErr.message}`)
     console.log(`  \u2713 ${'share_links'.padEnd(28)} 2 links (P1 + P2), 1 view`)
   }
+
+  // ── rights + provenance (0064 / 0079 / 0088) ─────────────────────────────
+  record(`\n-- ═══ rights + asset_provenance (0088) ═══`)
+  await seedRows(admin, 'rights', [
+    { id: RIGHTS_P1_ID, organization_id: HARNESS_ORG_ID, file_id: FILE_P1_ID,
+      license: 'appearance', commercial_ok: true, talent_consent: true,
+      data_mining: 'notAllowed', ai_inference: 'notAllowed',
+      ai_generative_training: 'notAllowed', notes: 'ZZ-HARNESS' },
+    // COMPANY_2's asset. Company 1 must read ZERO of this.
+    { id: RIGHTS_P3_ID, organization_id: HARNESS_ORG_ID, file_id: FILE_P3_ID,
+      license: 'ai_likeness', commercial_ok: true, talent_consent: true,
+      data_mining: 'allowed', ai_inference: 'allowed',
+      ai_generative_training: 'allowed', notes: 'ZZ-HARNESS other company' },
+  ])
+  await seedRows(admin, 'asset_provenance', [
+    { id: PROV_FILE_P1_ID, organization_id: HARNESS_ORG_ID, file_id: FILE_P1_ID,
+      action: 'c2pa.created',
+      // THE FULL IPTC URL, not the bare term. 0064's CHECK requires it, and the
+      // first version of this fixture used the short name and was refused —
+      // the constraint doing exactly its job, which is why the vocabulary is
+      // `IPTC_SOURCE` in lib/provenance.ts and never a literal at a call site.
+      digital_source_type: 'http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia',
+      model: 'zz-harness-model' },
+    // On a DOCUMENT — the studio's script. Invisible to every client, because
+    // which lines a model drafted is not the client's business (0088).
+    { id: PROV_DOC_P1_ID, organization_id: HARNESS_ORG_ID, document_id: DOC_P1_ID,
+      action: 'c2pa.placed',
+      digital_source_type: 'http://cv.iptc.org/newscodes/digitalsourcetype/compositeWithTrainedAlgorithmicMedia',
+      model: 'zz-harness-model', chars: 120 },
+  ])
 
   record(`\n-- ═══ activity_log ═══`)
   await seedRows(admin, 'activity_log', projects.flatMap((p, i) => [

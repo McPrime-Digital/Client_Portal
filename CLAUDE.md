@@ -120,8 +120,8 @@ Note: dynamic-route `params` and `next/headers` `cookies()` are async (Promises)
 There is no unit-test framework configured. There are now TWO test surfaces, and both must
 be run after anything touching policies, auth, capabilities or tenancy:
 
-- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **60 assertions**, numbered
-  1–60 with none reserved (slot 21 was held for the retention purge and 0071 filled
+- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **61 assertions**, numbered
+  1–61 with none reserved (slot 21 was held for the retention purge and 0071 filled
   it), every one with a positive control, seeded by
   `npm run seed:harness -- --apply`). Seed, then run ONCE:
   assertion 17 is single-use and reports VACUOUS on a second run without a re-seed.
@@ -538,6 +538,63 @@ It does NOT claim colour-managed delivery. A grading review needs 10-bit
 transport and a calibrated display, and no managed encoder hands you that over
 HTTP; `ColourCheck` still warns where the display falls short.
 
+## Clearance — what an asset is allowed to be used for
+
+`rights` (0064 + 0079) and `asset_provenance` (0064) get their reader in 0088.
+`lib/rights.ts` is the one assessment (`assess` is pure, `clearanceFor` batches),
+`components/shared/ClearancePanel.tsx` the one rendering, mounted on the studio
+review record AND inside the portal's `ApprovalRecord` — two renderings of a
+clearance is two things that can disagree, and the day they disagree somebody
+publishes on the wrong one.
+
+**Why it moved from "later" to now.** 0079 makes a completed release WRITE the
+rights row it proves, and a live grep found **zero readers of `rights` anywhere
+in the repo** — a writer accumulating rows nobody could see. Meanwhile the
+obligation stopped being hypothetical:
+
+- **New York, in force 9 June 2026** — conspicuous disclosure required when an
+  advertisement features an AI-generated synthetic performer, binding any ad
+  reaching New York consumers wherever the advertiser sits. $1,000 first
+  violation, $5,000 after.
+- **EU AI Act, in force 2 August 2026** — AI-generated images must be
+  machine-readable and labelled when published.
+- **NO FAKES Act** — federal digital-replica right, advanced unanimously out of
+  the Senate Judiciary Committee, June 2026.
+
+So the studio held exactly the evidence those require and could not read it, and
+the **client — who runs the advertisement and takes the penalty** — was told
+nothing. 0088 opens both tables to the client THROUGH the file (0038's idiom),
+so they inherit `files_client_read` and cannot drift from it.
+
+Rules that are not style preferences:
+
+- **NO ROW IS `unknown`, NEVER `cleared`.** Three states, and the third is the
+  point: a confident green tick on an asset nobody examined is worse than no
+  panel, because somebody publishes on it. `unknown` is styled as a warning, not
+  as a neutral absence. Same discipline as `watchEvidence`.
+- **A cleared asset containing AI generation is still cleared AND still carries
+  a publication obligation.** Two facts; the sentence carries both rather than
+  collapsing them into a colour.
+- **Only `appearance` and `ai_likeness` may assert a likeness** — 0079's rule,
+  read back exactly as it was written. A location agreement carries no person.
+- **The AI-training permission is stated even at its default.** `notAllowed` is
+  the default, and a silent default is how somebody ends up training on a face
+  that never agreed to it.
+- **DOCUMENT provenance stays crew-only.** Which lines of a script a model
+  drafted is not the client's business; the disclosure that concerns them is
+  about the ASSET they will publish. The policy names `file_id is not null`
+  rather than trusting a join to happen to exclude it (assertion 61).
+- **Read-only for the client.** A rights row is a consequence of a signature; a
+  beneficiary who could assert their own clearance would make it a claim again.
+- **The C2PA SDKs are still NOT installed, and the reason is restated rather
+  than inherited.** `contentauth/c2pa-rs` (Apache-2.0 / MIT dual) and the `c2pa`
+  npm package (MIT, MIT deps) are clean; `contentauth/c2pa-node` is **ARCHIVED**
+  and must not be adopted. They read and write manifests EMBEDDED IN BINARY
+  ASSETS and nothing here embeds one yet. CLAUDE.md's original reason — "there
+  is no binary asset to sign" — stopped being true, so: the embed needs
+  `c2patool` as a queue worker (0083/0084 now make that possible), and a reader
+  installed before a writer is a dependency with nothing to read.
+
 ## The client's calendar — dates that say what happens if you do nothing
 
 `/dashboard/calendar` ("What's coming"), `lib/portalCalendar.ts` for the
@@ -937,7 +994,7 @@ generations. `lib/provenance.ts` is the one write path and
 
 `supabase/migrations/` holds one numbering scheme (`00NN`); the retired `2026*` scheme is fenced in `_archive/`:
 
-- `0000_baseline_schema.sql` … `0087_share_link_scope.sql` — the current
+- `0000_baseline_schema.sql` … `0088_rights_disclosure_read.sql` — the current
   source of truth, **all applied** (verified live 2026-09-14).
   **0085–0087 are the screening room** — a cut shown to somebody with no
   account, and a record of what they actually watched. See the section below.

@@ -8,6 +8,8 @@ import { capGate } from '@/lib/capabilities.server'
 import { readApproval } from '@/lib/approvals'
 import { approvalIntel, DEFENSIBILITY_LABEL, type Defensibility, type IntelView } from '@/lib/approvalIntel'
 import { listViewsForSubject } from '@/lib/shareLinks'
+import { clearanceFor } from '@/lib/rights'
+import ClearancePanel from '@/components/shared/ClearancePanel'
 import { approvalTimeline, TIMELINE_TONE } from '@/lib/approvalTimeline'
 import { listAnnotations } from '@/lib/annotations'
 import { getSignedDownloadUrl } from '@/lib/r2'
@@ -150,6 +152,13 @@ export default async function ApprovalRecordPage(
     }))
   }
 
+  // CLEARANCE, BEFORE DELIVERY. 0079 makes a completed release write the rights
+  // row; until 0088 nothing read it back, so a studio held the evidence it needs
+  // for the New York and EU disclosure rules and could not see it.
+  const clearance = subjectFileId
+    ? (await clearanceFor(supabase, [subjectFileId])).get(subjectFileId) ?? null
+    : null
+
   const intel = approvalIntel({ ...detail, views })
   const entries = approvalTimeline(detail)
   const Shield = SHIELD[intel.defensibility]
@@ -282,6 +291,15 @@ export default async function ApprovalRecordPage(
           ))}
         </ol>
       </section>
+
+      {/* CLEARANCE SITS ABOVE THE NOTES, and above the decision. What the asset
+          is allowed to be used for is a precondition of delivering it, not a
+          footnote after the argument about the cut. */}
+      {clearance && (
+        <section className="mt-8">
+          <ClearancePanel clearance={clearance} audience="studio" />
+        </section>
+      )}
 
       {subjectFileId && (
         <section className="mt-8">

@@ -108,6 +108,7 @@ import {
   CAL_C1_ID, CAL_P2_ID, CONTRACT_C1_ID, CONTRACT_EVENT_ID,
   MEETING_CLIENT_ID, MEETING_INTERNAL_ID, MEETING_ROOM_ID, JOB_ID,
   FILE_P2_ID, SHARE_LINK_P1_ID, SHARE_LINK_P2_ID, SHARE_VIEW_P1_ID,
+  FILE_P1_ID, RIGHTS_P1_ID, RIGHTS_P3_ID, PROV_DOC_P1_ID,
 } from './harness-constants'
 
 // ── result model ────────────────────────────────────────────────────────────
@@ -1443,6 +1444,65 @@ async function main() {
       // Left as `{}` either way: the harness tenant must not end a run wearing
       // a colour a later assertion did not put there.
       await owner.from('organizations').update({ branding: {} }).eq('id', HARNESS_ORG_ID)
+    }
+
+    // ── 61 · 0088 — the disclosure reaches the client, and stops there ──────
+    //
+    // 0079 makes a signed release WRITE the rights row it proves, and until
+    // 0088 NOTHING read it back — the studio held the evidence the New York
+    // (9 June 2026) and EU AI Act (2 August 2026) disclosure rules require and
+    // could not see it, while the client who runs the advertisement and takes
+    // the penalty was told nothing at all.
+    //
+    // Opening a table to clients is exactly where a scope mistake is expensive,
+    // so this asserts three boundaries at once: the right company, the right
+    // SUBJECT (asset yes, script no), and read-only.
+    {
+      const leaks: string[] = []
+
+      // Another company's asset. The rights row exists and must be invisible.
+      const other = await countRows(c1own, 'rights', [{ op: 'eq', col: 'id', val: RIGHTS_P3_ID }])
+      if (other > 0) leaks.push("a client read the rights on another company's asset")
+
+      // DOCUMENT provenance is the studio's script. A client reads none of it,
+      // whichever production it belongs to.
+      const script = await countRows(c1own, 'asset_provenance',
+        [{ op: 'eq', col: 'id', val: PROV_DOC_P1_ID }])
+      if (script > 0) leaks.push('a client read the AI provenance of a script')
+
+      // READ ONLY. A rights row is a consequence of a signature (0079); a
+      // beneficiary who could assert their own clearance would make it a claim
+      // again, which is the whole thing the trigger exists to prevent.
+      const asserted = await c1own.from('rights')
+        .update({ talent_consent: true, ai_generative_training: 'allowed' })
+        .eq('id', RIGHTS_P1_ID).select('id')
+      if ((asserted.data ?? []).length > 0) leaks.push('a client granted themselves rights')
+
+      const forged = await c1own.from('rights').insert({
+        organization_id: HARNESS_ORG_ID, file_id: FILE_P1_ID, license: 'appearance',
+        commercial_ok: true, talent_consent: true,
+      }).select('id')
+      if ((forged.data ?? []).length > 0) {
+        leaks.push('a client wrote a rights row')
+        await owner.from('rights').delete().eq('id', (forged.data ?? [])[0].id)
+      }
+
+      // CONTROL: their OWN company's asset, which they must read — otherwise
+      // this asserts that the disclosure is broken rather than that it is
+      // scoped, and the whole feature would be invisible while passing.
+      const theirs = await countRows(c1own, 'rights', [{ op: 'eq', col: 'id', val: RIGHTS_P1_ID }])
+      judge(61, "a client reads the rights on their own company's asset and nothing else, and cannot write one (control: their own asset)",
+        leaks, theirs)
+
+      // And the one that proves the FILE side of the provenance split is live
+      // rather than merely not-crashing: the same client reads the ASSET's
+      // disclosure. Folded into 61's control would have hidden a zero here.
+      const assetProv = await countRows(c1own, 'asset_provenance',
+        [{ op: 'eq', col: 'file_id', val: FILE_P1_ID }])
+      if (assetProv === 0) {
+        record(61, "a client reads the rights on their own company's asset and nothing else, and cannot write one (control: their own asset)",
+          'FAIL', 'the client could not read the AI disclosure on their own asset — the feature is scoped to nothing')
+      }
     }
 
     // ── 56 · 0082 — the collaborator's SEAT is the invite ──────────────────

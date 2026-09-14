@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ScanEye, Clock, FileText, ChevronRight } from 'lucide-react'
 import { approvalTimeline, TIMELINE_TONE } from '@/lib/approvalTimeline'
+import type { Clearance } from '@/lib/rights'
+import ClearancePanel from '@/components/shared/ClearancePanel'
 
 /**
  * The Review & Approval record — Batch 22 item 9 (S3-c §3.2).
@@ -66,6 +68,10 @@ type Detail = {
   }
   stages: Stage[]
   events: Event[]
+  /** Rights and AI disclosure on the asset, where the subject is a file and
+   *  anything is recorded. Null is "not applicable here", never "cleared" —
+   *  `lib/rights.ts` is the only thing allowed to answer that question. */
+  clearance?: Clearance | null
 }
 
 type Row = { id: string; title: string; status: Detail['approval']['status']; created_at: string }
@@ -175,6 +181,16 @@ export default function ApprovalRecord({ side }: { side: 'studio' | 'portal' }) 
 
             {openId === r.id && detail && (
               <div className="border-t border-border bg-background/40 px-4 py-3">
+                {/* WHAT YOU ARE BEING ASKED TO APPROVE, AND WHAT IT IS CLEARED
+                    FOR — above the chain, because it is a precondition of the
+                    decision rather than a note about it. The same component the
+                    studio's record renders: two renderings of a clearance is
+                    two things that can disagree. */}
+                {detail.clearance && (
+                  <div className="mb-3">
+                    <ClearancePanel clearance={detail.clearance} audience="client" />
+                  </div>
+                )}
                 <ol className="space-y-2.5">
                   {timeline(detail).map((e, i) => (
                     <li key={i} className="flex gap-2.5 text-xs">

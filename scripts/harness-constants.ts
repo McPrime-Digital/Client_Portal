@@ -255,10 +255,23 @@ export const JOB_ID = '0f0f0f0f-0016-4000-8000-000000000001'
 // PROJECT_2 (which they may not see).
 export const FILE_P1_ID = '0f0f0f0f-0007-4000-8000-000000000001'
 export const FILE_P2_ID = '0f0f0f0f-0007-4000-8000-000000001001'
+/** COMPANY_2's file, on PROJECT_3 — the other side of assertion 61's boundary.
+ *  A rights row is about an asset, so the only way to prove the client policy
+ *  is scoped is to put one on a DIFFERENT company's asset and fail to read it. */
+export const FILE_P3_ID = '0f0f0f0f-0007-4000-8000-000000002001'
 export const SHARE_LINK_P1_ID = '0f0f0f0f-0017-4000-8000-000000000001'
 export const SHARE_LINK_P2_ID = '0f0f0f0f-0017-4000-8000-000000000002'
 /** A view on the project-1 link, so assertion 58's control is a real read. */
 export const SHARE_VIEW_P1_ID = '0f0f0f0f-0018-4000-8000-000000000001'
+
+// ── rights + provenance (0064 / 0079 / 0088), assertion 61 ─────────────────
+// Two rights rows on assets of DIFFERENT companies, and one provenance row on a
+// DOCUMENT — the last of those is the negative: a client reads the AI disclosure
+// on an ASSET they are being asked to approve, and never on the studio's script.
+export const RIGHTS_P1_ID = '0f0f0f0f-0019-4000-8000-000000000001' // COMPANY_1's asset
+export const RIGHTS_P3_ID = '0f0f0f0f-0019-4000-8000-000000000002' // COMPANY_2's asset
+export const PROV_FILE_P1_ID = '0f0f0f0f-001a-4000-8000-000000000001'
+export const PROV_DOC_P1_ID  = '0f0f0f0f-001a-4000-8000-000000000002'
 
 export const APPROVAL_CLIENT_ID = '0f0f0f0f-000a-4000-8000-000000000001'
 export const APPROVAL_CLIENT_STAGE_ID = '0f0f0f0f-000b-4000-8000-000000000001'

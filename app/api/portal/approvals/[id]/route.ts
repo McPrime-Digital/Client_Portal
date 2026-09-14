@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { portalAccess } from '@/lib/team'
 import { canApproval } from '@/lib/capabilities.server'
 import { readApproval } from '@/lib/approvals'
+import { clearanceFor } from '@/lib/rights'
 import { captureError } from '@/lib/errors'
 
 /**
@@ -34,7 +35,20 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     const detail = await readApproval(supabase, id)
     // One 404 for absent, another tenant's, internal, and out-of-scope.
     if (!detail) return NextResponse.json({ error: 'Not found.' }, { status: 404 })
-    return NextResponse.json(detail)
+
+    // RIGHTS AND DISCLOSURE, FOR THE PARTY THE LAW ACTS ON. The client runs the
+    // advertisement and takes the New York / EU AI Act penalty, so what an asset
+    // is cleared for belongs beside the thing they are being asked to approve —
+    // not in an email. Read on the USER client: 0088's policies reach both
+    // tables THROUGH the file, so a client who cannot see the asset gets
+    // nothing and no predicate had to be restated.
+    const fileId =
+      detail.approval.subject_kind === 'file_version' ? detail.approval.subject_id : null
+    const clearance = fileId
+      ? (await clearanceFor(supabase, [fileId])).get(fileId) ?? null
+      : null
+
+    return NextResponse.json({ ...detail, clearance })
   } catch (e) {
     captureError(e, { where: 'portal/approvals/[id] GET', id })
     return NextResponse.json({ error: 'Could not load the approval.' }, { status: 500 })
