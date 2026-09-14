@@ -269,12 +269,54 @@ export async function listViewsForSubject(
   return (data ?? []) as unknown as ViewRow[]
 }
 
-/** How much of it they saw, as a share. Null when the asset's duration is not
- *  known yet — an honest gap rather than a percentage of nothing. */
-export function watchedShare(v: ViewRow): number | null {
-  if (!v.duration_ms || v.duration_ms <= 0) return null
-  return Math.min(1, v.furthest_ms / v.duration_ms)
+/**
+ * The same thing for MANY subjects, in two queries.
+ *
+ * The Review list grades a page of approvals at once, and its grade must agree
+ * with the record page's — `approvalIntel` downgrades on a token viewing, so a
+ * list that skipped the viewing read would show `strong` next to a record that
+ * says `thin`. Two surfaces disagreeing about one number is the exact drift
+ * `approvalTimeline` exists to prevent, one module over.
+ */
+export async function listViewsForSubjects(
+  db: SupabaseClient, subjectKind: ShareSubjectKind, subjectIds: string[]
+): Promise<Map<string, ViewRow[]>> {
+  const out = new Map<string, ViewRow[]>()
+  const ids = [...new Set(subjectIds)].slice(0, 200)
+  if (ids.length === 0) return out
+
+  const { data: links } = await db
+    .from('share_links').select('id, subject_id')
+    .eq('subject_kind', subjectKind).in('subject_id', ids).limit(500)
+  const linkRows = (links ?? []) as unknown as { id: string; subject_id: string }[]
+  if (linkRows.length === 0) return out
+
+  const subjectOf = new Map(linkRows.map((l) => [l.id, l.subject_id]))
+  const { data, error } = await db
+    .from('share_link_views')
+    .select('id, link_id, viewer_email, viewer_name, ip_address, started_at, last_seen_at, seconds_watched, furthest_ms, duration_ms')
+    .in('link_id', [...subjectOf.keys()])
+    .order('started_at', { ascending: false })
+    .limit(1000)
+  if (error) throw new Error(`listViewsForSubjects: ${error.message}`)
+
+  for (const raw of (data ?? []) as unknown[]) {
+    const v = raw as ViewRow & { link_id: string }
+    const subject = subjectOf.get(v.link_id)
+    if (!subject) continue
+    const list = out.get(subject) ?? []
+    list.push(v)
+    out.set(subject, list)
+  }
+  return out
 }
+
+/* `watchedShare` WAS HERE and is deleted. It computed one view's share and
+   nothing ever called it: `watchEvidence` in lib/approvalIntel.ts takes the
+   high-water mark ACROSS viewings, which is the only version that answers the
+   question — a glance followed by a full watch is a full watch, and a per-row
+   share cannot say so. Left in place it would have been a second, subtly wrong
+   way to ask the same thing, which is how two surfaces start disagreeing. */
 
 /** Every live link this tenant has minted, newest first. RLS is the tenant
  *  boundary — `db` is the user client, so a scoped crew member sees what their

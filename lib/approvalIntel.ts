@@ -97,10 +97,28 @@ export type IntelApproval = {
   created_at: string
 }
 
+/** One recorded viewing of the thing being approved, flattened to the three
+ *  numbers that matter. `durationMs` null means the asset's length was never
+ *  learned — an honest gap, and the reason `share` can be null. */
+export type IntelView = {
+  at: string
+  who: string | null
+  furthestMs: number
+  durationMs: number | null
+}
+
 export type IntelInput = {
   approval: IntelApproval
   stages: IntelStage[]
   events?: IntelEvent[] | null
+  /**
+   * Recorded viewings of the subject through a screening link (0085).
+   *
+   * OPTIONAL AND UNDEFINED IS NOT EMPTY. `undefined` means "this caller did not
+   * ask"; `[]` means "asked, and nothing was recorded". They must not grade the
+   * same, which is why the type is not `IntelView[]`.
+   */
+  views?: IntelView[] | null
 }
 
 export type ApprovalIntel = {
@@ -121,6 +139,81 @@ export type ApprovalIntel = {
   defensibility: Defensibility
   /** One plain sentence. Written for the owner, not for a developer. */
   because: string
+  /** What the approver actually saw, where anything was recorded. Null when
+   *  nothing was — see `watchEvidence` on why that is not a finding. */
+  viewing: WatchEvidence | null
+}
+
+/**
+ * WHAT THE APPROVER ACTUALLY SAW.
+ *
+ * DocuSign's certificate of completion records that a document was VIEWED, when,
+ * and from which IP — and nothing about how much of it was consumed, because a
+ * page of text has no duration. Frame.io, Dropbox Replay and MediaSilo record
+ * view analytics and never attach them to a decision. **Nobody joins the two**,
+ * and in a production the join is the interesting part: somebody who opened a cut
+ * for four seconds and approved it is not the same record as somebody who
+ * watched ninety-two percent and approved it.
+ *
+ * ── ABSENCE OF EVIDENCE IS NOT EVIDENCE OF ABSENCE, AND THIS IS THE RULE ──
+ *
+ * The portal has its own player and it records nothing. So a client who watched
+ * the whole cut inside the portal and then approved it leaves NO viewing rows,
+ * and a grader that read that as "approved without watching" would be
+ * confidently defaming the careful client while saying nothing about the
+ * careless one.
+ *
+ * Therefore: this only ever speaks from POSITIVE evidence. No views → no
+ * finding, and `defensibility` is untouched. A recorded token look → said
+ * plainly, and `strong` drops to `thin` because that specific record genuinely
+ * is thinner. It never reaches `broken`: `broken` is about a certificate
+ * asserting silence it cannot support, which is a different claim entirely.
+ */
+export type WatchEvidence = {
+  /** The furthest point reached across every recorded viewing, as a share of
+   *  the asset. Null when no viewing knew the asset's length. */
+  share: number | null
+  views: number
+  lastAt: string
+  /** True only where a share IS known and it is token. */
+  token: boolean
+  sentence: string
+}
+
+const TOKEN_SHARE = 0.1
+
+export function watchEvidence(views: IntelView[] | null | undefined): WatchEvidence | null {
+  if (!views || views.length === 0) return null
+
+  let furthest = 0
+  let share: number | null = null
+  let lastAt = views[0].at
+  for (const v of views) {
+    if (v.furthestMs > furthest) furthest = v.furthestMs
+    if (v.durationMs && v.durationMs > 0) {
+      const s = Math.min(1, v.furthestMs / v.durationMs)
+      if (share === null || s > share) share = s
+    }
+    if (Date.parse(v.at) > Date.parse(lastAt)) lastAt = v.at
+  }
+
+  const n = views.length
+  const plural = n === 1 ? 'viewing' : 'viewings'
+  const token = share !== null && share < TOKEN_SHARE
+
+  const sentence =
+    share === null
+      // No duration was ever reported — the player never learned it, or the
+      // asset is not timed. Say what IS known rather than compute a share of
+      // nothing.
+      ? `${n} recorded ${plural} through a screening link. How much was watched is not known.`
+      : token
+        ? `The furthest anybody reached was ${Math.round(share * 100)}% of it, across ${n} ${plural}.`
+        : share >= 0.95
+          ? `Watched through, across ${n} ${plural}.`
+          : `The furthest anybody reached was ${Math.round(share * 100)}%, across ${n} ${plural}.`
+
+  return { share, views: n, lastAt, token, sentence }
 }
 
 const HOUR = 3_600_000
@@ -260,8 +353,22 @@ export function approvalIntel(input: IntelInput, opts?: { now?: Date }): Approva
     because = `${delivered} reminders delivered to ${reached || 1} recipient${(reached || 1) === 1 ? '' : 's'} against an agreed date. Proceeding on silence is well supported.`
   }
 
+  // ── WATCH EVIDENCE, APPLIED LAST AND ONLY DOWNWARD ─────────────────────
+  //
+  // A record that is otherwise well evidenced, about a cut whose only recorded
+  // viewing reached three percent, is thinner than the reminder count alone
+  // suggests. It never lifts a grade and never reaches `broken`: absent
+  // evidence says nothing (the portal's own player records none), and `broken`
+  // is a claim about a certificate asserting silence it cannot support.
+  const viewing = watchEvidence(input.views)
+  if (viewing?.token && defensibility === 'strong') {
+    defensibility = 'thin'
+    because = `${because} But ${viewing.sentence.charAt(0).toLowerCase()}${viewing.sentence.slice(1)}`
+  }
+
   return {
     waitingOn,
+    viewing,
     activeStage: active ? { id: active.id, name: active.name, seq: active.seq } : null,
     deadlineAt,
     hoursLeft,

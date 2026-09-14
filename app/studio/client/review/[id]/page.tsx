@@ -1,12 +1,13 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { ArrowLeft, Clock, FileText, ShieldCheck, ShieldAlert, ShieldX, UserRound, Building2, Users } from 'lucide-react'
+import { ArrowLeft, Clock, FileText, ShieldCheck, ShieldAlert, ShieldX, UserRound, Building2, Users, Eye } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { isAdmin } from '@/lib/auth/role'
 import { requireOrgFeature } from '@/lib/studio/guard'
 import { capGate } from '@/lib/capabilities.server'
 import { readApproval } from '@/lib/approvals'
-import { approvalIntel, DEFENSIBILITY_LABEL, type Defensibility } from '@/lib/approvalIntel'
+import { approvalIntel, DEFENSIBILITY_LABEL, type Defensibility, type IntelView } from '@/lib/approvalIntel'
+import { listViewsForSubject } from '@/lib/shareLinks'
 import { approvalTimeline, TIMELINE_TONE } from '@/lib/approvalTimeline'
 import { listAnnotations } from '@/lib/annotations'
 import { getSignedDownloadUrl } from '@/lib/r2'
@@ -127,7 +128,29 @@ export default async function ApprovalRecordPage(
     }
   }
 
-  const intel = approvalIntel(detail)
+  // ── WHAT THE APPROVER ACTUALLY SAW ─────────────────────────────────────
+  //
+  // 0085's screening links record how far a guest got. This is the join that
+  // made them worth building: DocuSign's certificate says a document was viewed
+  // and never how much; Frame.io records viewing and never attaches it to a
+  // decision. Read on the USER client, so a scoped member sees only the links
+  // 0087 admits them to.
+  //
+  // `undefined` where there is no file subject, and that is NOT `[]`: one means
+  // nobody asked, the other means nothing was recorded, and they must not grade
+  // the same.
+  let views: IntelView[] | undefined
+  if (subjectFileId) {
+    const rows = await listViewsForSubject(supabase, 'file', subjectFileId)
+    views = rows.map((v) => ({
+      at: v.started_at,
+      who: v.viewer_name || v.viewer_email,
+      furthestMs: v.furthest_ms,
+      durationMs: v.duration_ms,
+    }))
+  }
+
+  const intel = approvalIntel({ ...detail, views })
   const entries = approvalTimeline(detail)
   const Shield = SHIELD[intel.defensibility]
 
@@ -170,6 +193,15 @@ export default async function ApprovalRecordPage(
               </span>
             </div>
             <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground">{intel.because}</p>
+            {/* Positive evidence only. Nothing renders where nothing was
+                recorded — the portal's own player tracks none, so silence here
+                says nothing about the approver and must not look like it does. */}
+            {intel.viewing && (
+              <p className="mt-1.5 flex items-start gap-1.5 text-[12px] leading-relaxed text-muted-foreground">
+                <Eye size={12} className={`mt-1 shrink-0 ${intel.viewing.token ? SHIELD_TONE.thin : 'text-faint'}`} />
+                {intel.viewing.sentence}
+              </p>
+            )}
 
             <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-[12px] text-muted-foreground">
               {intel.deadlineAt && intel.hoursLeft != null && (

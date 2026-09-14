@@ -7,6 +7,7 @@ import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { can } from '@/lib/capabilities.server'
 import { listApprovalChains } from '@/lib/approvals'
 import { approvalIntel } from '@/lib/approvalIntel'
+import { listViewsForSubjects, type ViewRow } from '@/lib/shareLinks'
 import RealtimeRefresh from '@/components/shared/RealtimeRefresh'
 import { requireOrgFeature } from '@/lib/studio/guard'
 
@@ -159,8 +160,33 @@ export default async function ReviewApprovalsPage() {
     ? (await listApprovalChains(supabase, { orgId: userOrgId(user), limit: 50 })).chains
     : []
 
+  // The viewing evidence for the whole page in two queries, not two per chain —
+  // `listApprovalChains` exists for exactly this reason and the same argument
+  // applies one table over. The list's grade MUST agree with the record page's,
+  // and `approvalIntel` downgrades on a token viewing.
+  const subjectIds = chains
+    .filter((c) => c.approval.subject_kind === 'file_version')
+    .map((c) => c.approval.subject_id)
+  const viewsBySubject = subjectIds.length
+    ? await listViewsForSubjects(supabase, 'file', subjectIds)
+    : new Map<string, ViewRow[]>()
+
   const graded = chains
-    .map((c) => ({ c, intel: approvalIntel(c) }))
+    .map((c) => ({
+      c,
+      intel: approvalIntel({
+        ...c,
+        // undefined, not [], where the subject is not a file — nobody asked.
+        views: c.approval.subject_kind === 'file_version'
+          ? (viewsBySubject.get(c.approval.subject_id) ?? []).map((v) => ({
+              at: v.started_at,
+              who: v.viewer_name || v.viewer_email,
+              furthestMs: v.furthest_ms,
+              durationMs: v.duration_ms,
+            }))
+          : undefined,
+      }),
+    }))
     .filter(({ c }) => c.approval.status === 'open' || c.approval.status === 'changes_requested')
 
   const onUs = graded.filter(({ intel }) => intel.waitingOn === 'studio')

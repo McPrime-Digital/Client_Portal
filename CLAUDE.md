@@ -454,6 +454,24 @@ Rules that are not style preferences:
   record and the certificate. Grading the studio's own evidence is intelligence
   for the party that has to act on it, not for the party it may one day be used
   against.
+- **WHAT THE APPROVER ACTUALLY SAW is part of the grade** (`watchEvidence`).
+  0085's screening links record how far a guest got; DocuSign's certificate says
+  a document was viewed and never how much, and Frame.io records viewing and
+  never attaches it to a decision. **Nobody joins the two.** An approval whose
+  only recorded viewing reached 3% of a twelve-minute cut is genuinely thinner
+  than the reminder count alone suggests, and it says so.
+- **Positive evidence only, and only downward.** The portal's own player records
+  nothing, so a client who watched the whole cut in the portal leaves NO rows.
+  A grader that read absence as "approved without watching" would confidently
+  defame the careful client while saying nothing about the careless one.
+  `undefined` (nobody asked) and `[]` (asked, nothing recorded) are therefore
+  different types of answer, and neither produces a finding. It never lifts a
+  grade and never reaches `broken` — `broken` is a claim about a certificate
+  asserting silence it cannot support, which viewing has nothing to say about.
+- **The list and the record must not disagree.** Since the grade moves on
+  viewing, `review/page.tsx` batches the views for the whole page
+  (`listViewsForSubjects`, two queries) rather than skipping them — the same
+  argument `approvalTimeline` makes about there being one chain function.
 
 ## The job queue — Postgres is the queue
 
