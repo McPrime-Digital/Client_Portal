@@ -115,8 +115,8 @@ Note: dynamic-route `params` and `next/headers` `cookies()` are async (Promises)
 There is no unit-test framework configured. There are now TWO test surfaces, and both must
 be run after anything touching policies, auth, capabilities or tenancy:
 
-- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **57 assertions**, numbered
-  1–57 with none reserved (slot 21 was held for the retention purge and 0071 filled
+- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **59 assertions**, numbered
+  1–59 with none reserved (slot 21 was held for the retention purge and 0071 filled
   it), every one with a positive control, seeded by
   `npm run seed:harness -- --apply`). Seed, then run ONCE:
   assertion 17 is single-use and reports VACUOUS on a second run without a re-seed.
@@ -323,9 +323,10 @@ Walk each of these paths mentally before saving an edit to `proxy.ts`.
 - `app/api/` — route handlers for files, portal, admin, studio, rooms, cron,
   presence, push, and the Stripe webhook. This entry was off by one twice when
   it carried a number — count it (`find app/api -name route.ts | wc -l`),
-  don't quote it (**65** today). `studio/scheduling` was added and then REMOVED
-  with the bookings feature (0076); `sign` is the only route in the application
-  with no session at all. `app/api/rooms*` (Batch 23) is the
+  don't quote it (**69** today). `studio/scheduling` was added and then REMOVED
+  with the bookings feature (0076); `sign` and `share` are the only two routes
+  in the application with no session at all, and both carry the I-8
+  justification written at the top of their module. `app/api/rooms*` (Batch 23) is the
   S3-d surface: room list/create (channels, groups, broadcast, DMs), seating,
   and room-addressed messages — zod-validated, and the WRITES run on the user
   client so the 0046 policies are the authorization (AD-001 as written; the
@@ -513,6 +514,56 @@ same argument `S3-core` §3.2 makes about a version being a file.
 It does NOT claim colour-managed delivery. A grading review needs 10-bit
 transport and a calibrated display, and no managed encoder hands you that over
 HTTP; `ColourCheck` still warns where the display falls short.
+
+## The screening room — a guest link that is also evidence
+
+`share_links` + `share_link_views` (0085, scoped by 0087). `/s/<token>` is the
+public page, `lib/shareLinks.ts` the one resolver, `/api/share` the only
+endpoint a guest touches, and `/studio/client/guest-links` the studio surface.
+
+**Audited before building** (ideas taken, no code): `cloakshare` (MIT — the
+sanity check on the feature set), `papermark` (**AGPL-3.0, studied and
+deliberately not used**), `facebookresearch/videoseal` (MIT, and the right tool
+for invisible forensic marking — but Python and GPU-bound, so it belongs in the
+job queue as a worker, not here). Commercial bar: Dropbox Replay ships dynamic
+watermarking on every paid plan, **Frame.io gates it behind Enterprise**,
+MediaSilo goes furthest with session-based watermarked streams plus audit logs.
+
+**THE THING THAT BEATS THE MARKET: none of them connects the view to the
+DECISION.** Every one records views for an engagement chart. In a production the
+interesting fact is different — somebody who opened a cut for four seconds and
+then approved it is not the same record as somebody who watched ninety-two
+percent and then approved it. `share_link_views.furthest_ms` and
+`seconds_watched` sit against the same asset an approval is about, which is why
+`approvalIntel` can one day say "approved without watching" and why the studio
+surface leads with a watched bar rather than a view count.
+
+Rules that are not style preferences:
+
+- **The token is never stored, only its SHA-256** (0078's rule). So the mint
+  response is the ONLY time the working URL exists, and the surface says so
+  rather than letting somebody discover it by closing a dialog.
+- **ONE ANSWER FOR EVERY FAILURE.** Unknown token, expired, revoked, limit
+  reached, wrong passcode — the same 404 sentence. A distinct "wrong passcode"
+  confirms the token is real, which is half the work of guessing one.
+- **The playback URL is minted AFTER the gate, never rendered into the page.**
+  Otherwise the gate is a curtain and the asset is one inspection away.
+- **`furthest_ms` is a HIGH-WATER MARK.** Scrubbing back must not erase having
+  reached the end.
+- **The watermark is not removable by a preference.** Under
+  `prefers-reduced-motion` the drift stops and the mark STAYS — it is not
+  decoration.
+- **`share_link_views` has a crew READ policy and no write policy at all**
+  (assertion 58). A studio that can edit "watched 4 seconds" into "watched it
+  through" holds evidence worth nothing; same reasoning as `contract_events`.
+- **What it is NOT**: invisible forensic watermarking. The mark is rendered in
+  the player, bearing the viewer's own identity, and it moves — aimed at the
+  actual leak vector, which is a screen recorder. Claiming forensic protection
+  we do not have would be worse than claiming none.
+- **`work.file.share` is its own question** even though it resolves to the same
+  coarse cap as the rest of `work.file.*` today. "May see the cut" and "may send
+  the cut outside the building" are not the same decision, and separating them
+  later is then one line in `CAP_RESOLUTION`.
 
 ## Soft delete — and the obligation it puts on crew queries
 
@@ -730,8 +781,15 @@ generations. `lib/provenance.ts` is the one write path and
 
 `supabase/migrations/` holds one numbering scheme (`00NN`); the retired `2026*` scheme is fenced in `_archive/`:
 
-- `0000_baseline_schema.sql` … `0084_fair_share_queue.sql` — the current
-  source of truth, **all applied** (verified live 2026-09-13).
+- `0000_baseline_schema.sql` … `0087_share_link_scope.sql` — the current
+  source of truth, **all applied** (verified live 2026-09-14).
+  **0085–0087 are the screening room** — a cut shown to somebody with no
+  account, and a record of what they actually watched. See the section below.
+  **0087 corrects 0085 before it had a second row**: 0085's crew policy was
+  the Class B shape MINUS its project conjunct, so a contractor scoped to one
+  production could list every link the studio had ever minted. Fixed in USING
+  **and** WITH CHECK together (0059's rule), and the views are reached THROUGH
+  the link (0038's idiom) so they cannot drift apart.
   **0083–0084 are the job queue and the media pipeline** —
   `reference_infra-gaps-jobqueue-transcode` recorded both as missing since the
   first architecture audit, and three loops were open because of it: a recording

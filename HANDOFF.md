@@ -317,6 +317,7 @@ The audited era, each batch with what it *found*:
 | 24 (owner-directed, 2026-09-03) | **The spaces separate, and files stop being one-way.** SPACE SCOPING: the crew hub filtered `kind !== 'client'`, so a DM or channel with a client company's person landed on the studio's INTERNAL floor — the COMPANY COLUMN is the boundary now, everywhere. Crew · Chat = rooms with no company (directory: crew + seated collaborators). Client · Messages = rooms WITH a company, as chips beside the project chips, with a `+` scoped to that company. Portal = DMs and groups only, owner-initiated (tightened from owner-or-approver; RLS still admits an approver, so the route is the narrower gate and says so). A DM is stamped with the counterparty's company at creation, so routing is a column lookup. UPLOADS: real multipart above 8 MB (`/api/files/multipart` + four `lib/r2` helpers) — pause, resume, cancel, with the server aborting so abandoned parts are not billed. DELETION: `lib/fileDelete` — detach, row, then blob; `/api/files/[id]` widened from admin-only to "any admin of the file's own org, or its uploader"; a deleted chat message destroys its attachment NOW. Plus: the hover action bar stops eating neighbouring clicks, delete-during-upload cancels, pending captions are editable, Audio joins the attach menu, Save to device, attachments work in the new room kinds (`resolveUploadScope` grows a ROOM scope gated on membership), thread/search/pins pre-sign like the main list, and projects mint their chat on creation | **Four bugs whose cause was not where the symptom was.** (1) "Files cannot be deleted permanently" was true because the route was `isAdmin`-only — and while fixing it, that same route turned out to have NO TENANT PREDICATE, so an admin of studio B could delete studio A's file by id. (2) "The actions hide behind rather than in front" was `opacity-0`, which hides an element and keeps it CLICKABLE — the invisible bar at `-top-4` was swallowing the neighbouring message's clicks. (3) "I deleted a file that was still loading and it didn't work" — the delete route was being called with a `temp-` id, which 404s. (4) The obvious multipart design would have read ETags off each PUT response, which a cross-origin XHR cannot do unless the bucket's CORS names `ExposeHeaders` — a fourth silent CORS dependency of exactly the Batch 17 kind; completion asks R2 what it stored instead. Also found: `create-project` never stamped `organization_id`, so a second studio's project (and now its chat room) would have been minted in tenant zero |
 | 25 (the "Batch 24" brief, renumbered — the repo already had a 24; the COMMITS and code comments say 24, so a grep for either finds it) | **The capability layer: money and people.** 0050 (role vocabulary + `blocked_on_permission`), 0051 (grant tables + `has_cap()` + the 1→1 dot rename), 0052 (legacy aliases in SQL), 0053 (capability predicates on the nine S-R §9 tables), 0054 (G-1…G-4 as triggers) — **all applied and verified live as personas**. `lib/capabilities.ts` is the one vocabulary, generating `role_baseline()`/`valid_*_cap()` with `npm run check:caps` failing on drift in THREE phases; `lib/capabilities.server.ts` is the one resolver, on the USER client; `lib/grants.ts` the one grant write path; `components/shared/CapabilityGrants.tsx` the one surface, on all three team panels. Route gates on money and people, the claim-shaped grep across all 56 handlers (1 → 0), R-11 in the sweep, harness **28 → 35**. Two live holes closed first (item 1a) and the `org_role` claim deleted (item 1b) | **The brief over-warned once and under-warned four times.** Item 1 was called "the most dangerous item in this batch" and changed NO production row: the role column was already honest, because it HAS A WRITER. What it missed: (1) the seeder would have silently reverted 0050 on every re-seed, and the harness documents a re-seed between runs, so "silently" meant "always"; (2) making `coordinator`/`crew` invitable before `lib/permissions.ts` knew them would have sent an invited coordinator to an EMPTY STUDIO — `ORG_CAPS[r]?.includes()` returns false for an unknown role, with no error; (3) 0051's rename left `has_cap()` blind to the legacy aliases the TS resolver honoured, so the route said yes and the policy said no — a silent empty set, found by probe and fixed in 0052, and the parity check had gone GREEN through it because every harness persona has empty `extra_caps`; (4) the roster routes still gated on `canManageOrg` (role ∈ owner/admin) after 0053 widened the ROW to `has_cap('people.manage')`, so a *granted* people.manage was admitted by the database and refused by the route. Also: R-11's first implementation called `clientCanApproval()`, which ORs the role baseline, so a DENIED assignee still read as able to decide and the stage lapsed — the exact wrong record R-11 exists to prevent, produced by the code meant to prevent it. Ruling 1 itself was wrong and was superseded mid-batch: snake_case→dot is a GRANULARITY change, not a spelling one |
 
+| 27 (the client-space push, owner-directed 2026-09-14) | **The screening room.** 0085 `share_links` + `share_link_views`; 0086 the atomic view counter; **0087 the scope correction**. `lib/shareLinks.ts` (the one resolver — token never stored, only its SHA-256, and ONE null for every failure), `/api/share` (the second and last route in the app with no session), `/s/<token>` wearing the STUDIO's brand, `components/portal/ScreeningRoom.tsx` (moving watermark + a heartbeat that also fires on `pagehide`), `/studio/client/guest-links` with the watched bar as the loudest thing on the page. `work.file.share` joins `CAP_RESOLUTION` as its own question. Harness **57 → 59**, 0 vacuous. Audited before building: cloakshare (MIT), papermark (**AGPL-3.0 — studied, not used**), videoseal (MIT, but GPU/Python → a queue worker) | **0085 shipped a leak and 0087 is the correction, found by asking the question the batch had just spent a week on.** The crew policy was the Class B shape MINUS its project conjunct, so a contractor scoped to one production could list every screening link the studio had ever minted — R-6's leak with the production's schedule attached — AND mint one against a production they could not read, because INSERT is what USING cannot reach (0059's exact lesson, one table later). Also: **`'/s'` in `proxy.ts`'s public-route list is a `startsWith` match, so it would have made `/studio`, `/settings`, `/set-password` and `/sign` all public** — the entire studio shell skipping this file's auth gates and its client→/dashboard redirect. Written `'/s/'`. Both were caught before commit; neither would have failed loudly |
 | 26 (S-R's last three axes + S-R-A A-3) | **Seat class, project roles, and the scoping default — the decision that was missing rather than the mechanism.** 0055 (A-3's index widening), 0056 (`seat_class`), 0057 (`project_role` + `expires_at`, and `org_project_visible` learns expiry), 0058 (`project_role_baseline()` + `has_cap()` unions it), 0059 (the scoping gaps close in BOTH clauses across eleven policies) — **all applied and verified live as personas**. Item 8 came FIRST by owner ruling and deleted the four deny-blind oracles; `lib/assignments.ts` is the one staffing write path; harness **36 → 40** with a mutual-exclusion lock; invites now STATE seat class and the scope it implies | **THE ORACLES ERRED IN BOTH DIRECTIONS, and "deny-blindness" names only half of it.** `orgCan`/`clientCan`/`orgCanApproval`/`clientCanApproval` each answered `baseline(role) OR extra_caps`, and extra_caps carries GRANTS only — so a DENIAL was invisible at 28 call sites (every studio page guard, both rails, seven portal page guards, fourteen routes), while `organization/logo` passed NO extras at all and therefore REFUSED a granted `org.settings`. Proven both ways as personas: with money.invoices denied, the old answer said ALLOWED in all three states while the policy said 2 rows → 0 → 2. **Item 0's own audit was wrong about item 6**, and probing before writing the migration is what found it: both UPDATE paths it reported are already refused — a targeted UPDATE must FIND its row and the SELECT policy gates that, and a `FOR ALL` policy's USING applies to the NEW row (proven by control: moving to `project_id = NULL` succeeds). What is genuinely open is **INSERT**, and only INSERT, where USING cannot reach — a scoped member inserted a task onto a sibling production with no error and the row landed. **The probe advice itself has a trap:** §12 lesson 6 says ask for rows back, but `.select()` adds RETURNING, RETURNING needs SELECT, and where SELECT is narrower than the write a SUCCESSFUL write reads as a refusal. Also: `TeamManager` defaulted invites to the deprecated `member` and the route's `crew` default never fired because the form always sends a value — the select showed "Admin" while the state said `member`; and the two test surfaces MUTATE THE SAME ROW, which cost one false failure blamed on a migration |
 
 ## 7. Current state
@@ -324,7 +325,26 @@ The audited era, each batch with what it *found*:
 - **Branch:** `throughline` (main ⊆ throughline, fast-forward). Not renamed —
   S0-B §6 excludes the branch, and renaming it is a remote/CI change, not a
   code one.
-- **Migrations applied: 0000–0084, every one of them.** Verified live
+- **Migrations applied: 0000–0087, every one of them.** Verified live
+  2026-09-14. **0085–0087 are the screening room** — the first surface of the
+  client-space push, and the first thing this product has that connects a VIEW
+  to a DECISION. A no-signup review link is table stakes (Frame.io, Dropbox
+  Replay, Filestage, MediaSilo all have one); watermarking is not (**Frame.io
+  gates it behind Enterprise**; it is ON by default here); and *none* of them
+  records what the approver actually saw, which is the fact a production needs
+  when a sign-off is disputed. `share_link_views.furthest_ms` is a high-water
+  mark against the same asset an approval is about.
+  **0087 corrects 0085 before it had a second row.** 0085 shipped the Class B
+  policy MINUS its project conjunct, so a contractor scoped to one production
+  could list every screening link the studio had ever minted — R-6's leak
+  wearing a UI convention, with the production's schedule attached. Closed in
+  USING **and** WITH CHECK together (0059's rule: INSERT is the one command
+  USING cannot reach, and a scoped member could otherwise mint a screener
+  against a production they may not read and then watch it through the guest
+  page). The views are reached THROUGH the link (0038's idiom), so the two
+  cannot drift. Harness **57 → 59**, 0 vacuous.
+  The pre-0085 line, kept because it is what this file claimed:
+  **Migrations applied: 0000–0084, every one of them.** Verified live
   2026-09-13. **0083–0084 close the oldest recorded gap in the architecture**
   (`reference_infra-gaps-jobqueue-transcode`): a job queue in Postgres and a
   media pipeline. Three loops this repository had left open are now closed — a
@@ -1187,6 +1207,30 @@ Re-run the grep, do not quote this list: the script is
 
 ## 9. What to do next
 
+### 9.0 The client-space push (current, owner-directed 2026-09-14)
+
+**"Hold on the Suite for now. The focus is on the client portal, client space
+and crew space."** The Suite's nine AI features are ON HOLD at the owner's
+instruction and need S5 anyway; do not pick them up.
+
+The audit found FOUR surfaces in those three spaces that are declared in
+`lib/studio/spaces.ts`, gated in `ORG_FEATURE_CAP`, and have no route:
+
+| Surface | State | Note |
+|---|---|---|
+| `client/guest-links` | **BUILT** (0085–0087) | the screening room — see §7 |
+| `client/brand-kit` | open | S0-B §2 is half-honoured: `tenantBrand()` resolves name, logo and the attribution flag, and nothing lets a studio SET the rest (colour, accent, the portal's own face). Highest remaining value in this group |
+| portal calendar | open | `calendar_entries` + 0074's projections exist and RLS admits a client member; there is no client-facing surface, so a deadline the studio can see is invisible to the company it binds |
+| `crew/crm`, `crew/leads` | open, DEPRIORITISED | house-only (`internal.pipeline`). Lowest value of the four and flagged as such |
+
+One more that is not a surface but is owed, and is cheap now that the evidence
+exists: **wire watch-evidence into the approval record.** `listViewsForSubject`
+in `lib/shareLinks.ts` already returns every view of a file across every link;
+`approvalIntel` grades how well a record would hold up and has never been able
+to see whether the approver watched the thing. "Approved after four seconds" is
+exactly the signal it exists to surface.
+
+
 **`S-R` IS BUILT. All four axes exist, are enforced at the row, and are
 asserted.** Batch 26 landed seat class, project roles, individual grants-and-
 denials (the index that makes them coexist), and the scoping default — on top of
@@ -1770,3 +1814,40 @@ one is recognised rather than rediscovered.
     generalises past RLS: **when a probe's verdict comes from the shape of what
     it asked for, the ask is part of the assertion** — so the column you read
     back has to be one the table actually has.
+
+12. **A prefix match is not a route, and `startsWith` will happily eat your
+    whole shell.** (Batch 27.)
+
+    `proxy.ts` decides what is public with
+    `publicRoutes.some((r) => pathname.startsWith(r))`. The screening page lives
+    at `/s/<token>`, and adding the obvious `'/s'` to that list makes `/studio`,
+    `/settings`, `/set-password` and `/sign` **all public** — the entire studio
+    shell skipping this file's auth check and its client→`/dashboard` redirect,
+    with no error anywhere. `app/studio/layout.tsx` would still have refused a
+    non-crew session, so the symptom would have been a client landing on a
+    studio URL and being bounced by a different file, months later, with nobody
+    able to say why.
+
+    Written `'/s/'` it matches the screening pages and nothing else.
+
+    **The general rule:** every entry in that list is a prefix, so the shorter
+    it is the more it claims. Before adding one, spell out what else in the app
+    begins with those characters — and prefer the trailing slash, which costs
+    nothing and makes the claim exact.
+
+13. **A new table inherits the tenant predicate and forgets the scope one.**
+    (Batch 27, migration 0087.)
+
+    0085's crew policy was `organization_id = current_org() and is_org_member()`
+    — the Class B shape, correct as far as it goes, and MISSING the project
+    conjunct that Batch 26 spent five migrations putting on fourteen policies.
+    So a contractor scoped to one production could list every screening link the
+    studio had minted, titles and view counts included, and could MINT one
+    against a production RLS hides from them — INSERT being the one command
+    USING cannot reach, which is 0059's lesson arriving one table late.
+
+    The tenant half is the half you remember, because it is the half that has
+    been true since 0021. **Scope is now the second half of Class B and belongs
+    in the same breath**, in USING and WITH CHECK together — and where the new
+    table's subject is polymorphic, in a function, so the branch is written once
+    and cannot fail open on a value added later.

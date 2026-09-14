@@ -243,6 +243,23 @@ export const MEETING_ROOM_ID = '0f0f0f0f-0013-4000-8000-000000000003'
 // A queued job, so assertion 57's CONTROL is a real read rather than a constant.
 export const JOB_ID = '0f0f0f0f-0016-4000-8000-000000000001'
 
+// ── screening links (0085 / 0087), assertions 58–59 ────────────────────────
+//
+// TWO LINKS ON SIBLING PRODUCTIONS, which is the only shape that can prove
+// 0087. One link would show that a crew member reads links — the easy half —
+// and say nothing about whether they read links to productions RLS hides from
+// them, which is the leak the migration exists to close.
+//
+// The subjects are the files the seed already writes (prefix 0007): index 0 is
+// on PROJECT_1 (the `crew` persona's one assignment) and index 1 is on
+// PROJECT_2 (which they may not see).
+export const FILE_P1_ID = '0f0f0f0f-0007-4000-8000-000000000001'
+export const FILE_P2_ID = '0f0f0f0f-0007-4000-8000-000000001001'
+export const SHARE_LINK_P1_ID = '0f0f0f0f-0017-4000-8000-000000000001'
+export const SHARE_LINK_P2_ID = '0f0f0f0f-0017-4000-8000-000000000002'
+/** A view on the project-1 link, so assertion 58's control is a real read. */
+export const SHARE_VIEW_P1_ID = '0f0f0f0f-0018-4000-8000-000000000001'
+
 export const APPROVAL_CLIENT_ID = '0f0f0f0f-000a-4000-8000-000000000001'
 export const APPROVAL_CLIENT_STAGE_ID = '0f0f0f0f-000b-4000-8000-000000000001'
 /** INTERNAL — client_id null. Must be invisible to every client member. */

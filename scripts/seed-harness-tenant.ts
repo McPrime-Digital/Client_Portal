@@ -47,6 +47,7 @@ import {
   DOC_P1_ID, DOC_P2_ID,
   CAL_C1_ID, CAL_P2_ID, CONTRACT_C1_ID, CONTRACT_EVENT_ID, CONTRACT_SIGNER_ID, SIGNING_LINK_ID,
   MEETING_CLIENT_ID, MEETING_INTERNAL_ID, MEETING_ROOM_ID, JOB_ID,
+  FILE_P1_ID, FILE_P2_ID, SHARE_LINK_P1_ID, SHARE_LINK_P2_ID, SHARE_VIEW_P1_ID,
   CM_C1OWN_ID, CM_C1MATE_ID, CM_C2OWN_ID,
 } from './harness-constants'
 
@@ -737,6 +738,37 @@ async function main() {
     file_size: 12, file_type: 'text/plain', mime_type: 'text/plain',
     bucket: 'r2', direction: 'delivery', uploaded_by_role: 'admin', uploaded_by_name: 'Harness Owner',
   })))
+
+  // ── screening links (0085 / 0087) ────────────────────────────────────────
+  //
+  // Inserted directly rather than through seedRows: `share_link_views` has a
+  // crew READ policy and NO write policy at all, which is the property
+  // assertion 58 is about, so the helper's post-write verification would be
+  // asserting the opposite of what this table is for.
+  record(`\n-- ═══ share_links (0085 / 0087) ═══`)
+  {
+    const { error } = await admin.from('share_links').upsert([
+      // On PROJECT_1 — the `crew` persona's one assignment. Assertion 59's control.
+      { id: SHARE_LINK_P1_ID, organization_id: HARNESS_ORG_ID,
+        subject_kind: 'file', subject_id: FILE_P1_ID, title: 'ZZ-HARNESS screener P1',
+        // A hash of nothing anybody holds: the harness never resolves a token,
+        // and a real one written here would be a working screener in a file.
+        token_hash: 'harness-p1-not-a-real-token-hash' },
+      // On PROJECT_2 — which the `crew` persona may NOT see. The subject.
+      { id: SHARE_LINK_P2_ID, organization_id: HARNESS_ORG_ID,
+        subject_kind: 'file', subject_id: FILE_P2_ID, title: 'ZZ-HARNESS screener P2',
+        token_hash: 'harness-p2-not-a-real-token-hash' },
+    ], { onConflict: 'id' })
+    if (error) throw new Error(`share_links: ${error.message}`)
+
+    const { error: vErr } = await admin.from('share_link_views').upsert([
+      { id: SHARE_VIEW_P1_ID, link_id: SHARE_LINK_P1_ID, organization_id: HARNESS_ORG_ID,
+        viewer_email: 'someone@rls-harness.example.com',
+        seconds_watched: 12, furthest_ms: 12_000, duration_ms: 600_000 },
+    ], { onConflict: 'id' })
+    if (vErr) throw new Error(`share_link_views: ${vErr.message}`)
+    console.log(`  \u2713 ${'share_links'.padEnd(28)} 2 links (P1 + P2), 1 view`)
+  }
 
   record(`\n-- ═══ activity_log ═══`)
   await seedRows(admin, 'activity_log', projects.flatMap((p, i) => [

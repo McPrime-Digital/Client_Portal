@@ -107,6 +107,7 @@ import {
   DOC_P1_ID, DOC_P2_ID,
   CAL_C1_ID, CAL_P2_ID, CONTRACT_C1_ID, CONTRACT_EVENT_ID,
   MEETING_CLIENT_ID, MEETING_INTERNAL_ID, MEETING_ROOM_ID, JOB_ID,
+  FILE_P2_ID, SHARE_LINK_P1_ID, SHARE_LINK_P2_ID, SHARE_VIEW_P1_ID,
 } from './harness-constants'
 
 // ── result model ────────────────────────────────────────────────────────────
@@ -1330,6 +1331,87 @@ async function main() {
       const readable = await countRows(owner, 'jobs', [{ op: 'eq', col: 'id', val: JOB_ID }])
       judge(57, 'no session enqueues or rewrites a job, and the tenant still reads its own queue (control: the seeded job)',
         leaks, readable)
+    }
+
+    // ── 58 · 0085 — a viewing record is EVIDENCE, so no session may touch it ─
+    //
+    // `share_link_views` records what a guest actually watched before they
+    // approved a cut, which is the thing this product has that Frame.io,
+    // Dropbox Replay and MediaSilo do not: they record views for a chart, and a
+    // chart nobody relies on does not have to be tamper-proof.
+    //
+    // Once a studio can edit it, "watched 4 seconds" becomes "watched it
+    // through" on the day it matters, and the record is worth exactly nothing.
+    // Same reasoning that made `contract_events` append-only. The viewer's own
+    // heartbeat writes these rows, server-side, through a resolved token.
+    {
+      const leaks: string[] = []
+      const forged = await owner.from('share_link_views').insert({
+        link_id: SHARE_LINK_P1_ID, organization_id: HARNESS_ORG_ID,
+        viewer_email: 'forged@rls-harness.example.com',
+        seconds_watched: 600, furthest_ms: 600_000, duration_ms: 600_000,
+      }).select('id')
+      if ((forged.data ?? []).length > 0) leaks.push('a session wrote a viewing record')
+
+      // The one that actually matters: rewriting how much somebody saw.
+      const rewritten = await owner.from('share_link_views')
+        .update({ furthest_ms: 600_000, seconds_watched: 600 })
+        .eq('id', SHARE_VIEW_P1_ID).select('id')
+      if ((rewritten.data ?? []).length > 0) leaks.push('a session rewrote how much a guest watched')
+
+      const erased = await owner.from('share_link_views')
+        .delete().eq('id', SHARE_VIEW_P1_ID).select('id')
+      if ((erased.data ?? []).length > 0) leaks.push('a session deleted a viewing record')
+
+      // CONTROL: a real read of the seeded view — the studio must still SEE the
+      // evidence it cannot edit, or the surface has nothing to show.
+      const readable = await countRows(owner, 'share_link_views',
+        [{ op: 'eq', col: 'id', val: SHARE_VIEW_P1_ID }])
+      judge(58, 'no session writes, rewrites or deletes a guest viewing record, and the studio still reads it (control: the seeded view)',
+        leaks, readable)
+    }
+
+    // ── 59 · 0087 — a screening link is as visible as what it points at ─────
+    //
+    // 0085 shipped with `organization_id = current_org() and is_org_member()`
+    // and nothing else, so a contractor scoped to one production could list
+    // every link the studio had minted. **That is R-6's leak wearing a UI
+    // convention** — a row reading "Netflix Pilot · reel 3 · 4 views" discloses
+    // the production AND its schedule to somebody RLS hides it from.
+    //
+    // The `crew` persona is scoped to PROJECT_1 only, so the two seeded links
+    // on sibling productions are exactly the pair that can tell the two halves
+    // apart. A single link would prove only that crew read links.
+    {
+      const leaks: string[] = []
+      const other = await countRows(crew, 'share_links',
+        [{ op: 'eq', col: 'id', val: SHARE_LINK_P2_ID }])
+      if (other > 0) leaks.push('a scoped member read a link to a production they cannot see')
+
+      // 0059's half, and the reason WITH CHECK is written separately: INSERT is
+      // the one command USING cannot reach, so without it a scoped member could
+      // MINT a screener against a production they may not read and then watch
+      // it through the guest page — access laundering, one table over.
+      const minted = await crew.from('share_links').insert({
+        organization_id: HARNESS_ORG_ID, subject_kind: 'file', subject_id: FILE_P2_ID,
+        token_hash: `harness-probe-${randomUUID()}`,
+      }).select('id')
+      if ((minted.data ?? []).length > 0) {
+        leaks.push('a scoped member minted a link against a production they cannot see')
+        await owner.from('share_links').delete().eq('id', (minted.data ?? [])[0].id)
+      }
+
+      // And the views follow the link, through it (0038's idiom), so a link
+      // they cannot read carries evidence they cannot read either.
+      const otherViews = await countRows(crew, 'share_link_views',
+        [{ op: 'eq', col: 'link_id', val: SHARE_LINK_P2_ID }])
+      if (otherViews > 0) leaks.push('a scoped member read views of a link they cannot see')
+
+      // CONTROL: the link on the production they ARE assigned to.
+      const theirs = await countRows(crew, 'share_links',
+        [{ op: 'eq', col: 'id', val: SHARE_LINK_P1_ID }])
+      judge(59, 'a scoped member reads no screening link outside their assignments and cannot mint one (control: the link on their own production)',
+        leaks, theirs)
     }
 
     // ── 56 · 0082 — the collaborator's SEAT is the invite ──────────────────

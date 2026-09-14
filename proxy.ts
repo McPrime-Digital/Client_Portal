@@ -44,6 +44,17 @@ export async function proxy(request: NextRequest) {
     // authority, and it is checked in the route; redirecting them to /login
     // would make the whole path impossible.
     '/sign',
+    // A screening link (0085). The viewer is an outside party with no account —
+    // a colourist, a financier, a festival programmer — and the TOKEN is the
+    // authority, checked in the route. Redirecting them to /login would make
+    // the whole feature impossible.
+    //
+    // **THE TRAILING SLASH IS LOAD-BEARING.** The match below is
+    // `startsWith`, so a bare '/s' would make '/studio', '/settings',
+    // '/set-password' and '/sign' all public — the entire studio shell would
+    // skip this file's auth gates and its client→/dashboard redirect. Written
+    // as '/s/' it matches the screening pages and nothing else.
+    '/s/',
   ]
 
   const isPublicRoute = publicRoutes.some((route) =>

@@ -376,6 +376,7 @@ export type Capability =
   | 'work.project.read' | 'work.project.create' | 'work.project.update'
   | 'work.project.archive'
   | 'work.file.read' | 'work.file.upload' | 'work.file.version' | 'work.file.delete'
+  | 'work.file.share'
   | 'work.task.read' | 'work.task.write'
   | 'work.suite.script' | 'work.suite.storyboard'
   // record.*
@@ -475,6 +476,13 @@ export const CAP_RESOLUTION: Readonly<
   'work.file.upload': 'work.projects',
   'work.file.version': 'work.projects',
   'work.file.delete': 'work.projects',
+  // Handing an asset to somebody with NO ACCOUNT (0085's screening links).
+  // It resolves to the same coarse cap as the rest of work.file.* today and so
+  // grants nothing new — the reason it exists as its own question is that
+  // "may see the cut" and "may send the cut outside the building" are not the
+  // same decision, and the day a studio wants to separate them it is one line
+  // here rather than an audit of every call site. S-R-A A-4's whole argument.
+  'work.file.share': 'work.projects',
   'work.task.read': 'work.projects',
   'work.task.write': 'work.projects',
   'work.suite.script': 'work.suite',
