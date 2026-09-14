@@ -10,6 +10,7 @@ import { recordUsage } from '@/lib/usage'
 import { userOrgId } from '@/lib/auth/role'
 import { resolveFolder } from '@/lib/fileCategories'
 import { NextRequest, NextResponse } from 'next/server'
+import { enqueue } from '@/lib/jobs'
 import { captureError } from '@/lib/errors'
 
 // Step 2 of the direct-to-R2 upload: the browser has PUT the file to R2
@@ -100,6 +101,28 @@ export async function POST(req: NextRequest) {
 
     if (insertError) {
       throw new Error(insertError.message)
+    }
+
+    // A CUT NOBODY CAN SCRUB IS AN ARCHIVE, NOT A REVIEW ASSET. Video gets an
+    // adaptive rendition queued at the commit boundary — the same place storage
+    // is metered — so the transcode is a consequence of the upload rather than
+    // something somebody has to remember to ask for.
+    //
+    // Enqueue is best-effort and deliberately NOT awaited into the failure path:
+    // the file is committed and the upload succeeded. A queue hiccup must not
+    // turn a successful upload into an error the person has to redo.
+    if (mime.startsWith('video/') && scope.orgId) {
+      try {
+        await enqueue({
+          organizationId: scope.orgId,
+          kind: 'media.transcode',
+          payload: { file_id: fileRecord.id as string },
+          dedupeKey: `transcode:${fileRecord.id as string}`,
+          createdBy: user.id,
+        })
+      } catch (e) {
+        captureError(e, { route: 'files/commit', op: 'enqueue-transcode' })
+      }
     }
 
     // Meter storage at the commit boundary. AWAITED, not void: on Vercel a

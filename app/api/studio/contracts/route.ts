@@ -10,6 +10,7 @@ import {
 import { replaceFields, type FieldKind } from '@/lib/contracts'
 import { mintSigningLink, revokeSigningLinks } from '@/lib/signingLinks'
 import { appUrl } from '@/lib/appOrigin'
+import { enqueue } from '@/lib/jobs'
 import { captureError } from '@/lib/errors'
 
 /**
@@ -264,6 +265,21 @@ export async function POST(req: NextRequest) {
 
     if (b.action === 'send') {
       const out = await sendContract(supabase, b.contractId, actor)
+      if (out.ok) {
+        // THE LOOP THAT WAS OPEN: sending a contract used to mean the studio
+        // copied a link by hand and hoped. Queued rather than sent inline
+        // because a slow mail provider must not make "Send" appear to fail on a
+        // document that HAS been sent — the status and the hash are already
+        // committed at this point.
+        await enqueue({
+          organizationId: userOrgId(user),
+          kind: 'contract.notify',
+          payload: { contract_id: b.contractId },
+          dedupeKey: `contract-sent:${b.contractId}`,
+          priority: 20,
+          createdBy: user.id,
+        }, supabase)
+      }
       if (!out.ok) {
         const message =
           out.reason === 'NO_SIGNERS'

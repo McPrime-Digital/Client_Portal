@@ -1,7 +1,7 @@
 /**
  * scripts/test-rls.ts — S2 §6, Part B. The RLS test harness.
  *
- * FIFTY-SIX assertions, numbered 1–56, none reserved. Slot 21 was held open for
+ * FIFTY-SEVEN assertions, numbered 1–57, none reserved. Slot 21 was held open for
  * the retention-purge assertion — "cannot be written against a function that
  * does not exist" — and 0071 built the function, so it is filled.
  * This count was "Twenty-nine" until Batch 26 item 1 and had been
@@ -37,6 +37,8 @@
  *          and a room a client may walk into; the media token follows the row
  *   56     0082 — MD-4's roster-less collaborator reaches a meeting through the
  *          SEAT they already hold, and reaches no other
+ *   57     0083 — the job queue is READ-ONLY to every session: a tenant can see
+ *          its own work and forge none into it
  *   50–51  0070/0073, 0072 — a soft-deleted row disappears for the CLIENT
  *          (crew keep it by design, so restore stays possible), and calendar
  *          credentials are invisible to everyone but the person they belong to,
@@ -69,7 +71,7 @@
  * rows that persona SHOULD see. Control zero → the assertion is reported
  * VACUOUS, not PASS, and the run does not exit clean.
  *
- * WHAT TO EXPECT NOW: all 56 green on a freshly seeded tenant. This paragraph
+ * WHAT TO EXPECT NOW: all 57 green on a freshly seeded tenant. This paragraph
  * used to read "expect most of this to be RED today" — true when S2 §6 asked for
  * a failing baseline, and false since the policy classes landed. Left as written
  * it tells the next reader that red output is normal, which is the one thing a
@@ -104,7 +106,7 @@ import {
   OM_OWNER_ID, OM_CREW_ID, OM_FINANCE_ID,
   DOC_P1_ID, DOC_P2_ID,
   CAL_C1_ID, CAL_P2_ID, CONTRACT_C1_ID, CONTRACT_EVENT_ID,
-  MEETING_CLIENT_ID, MEETING_INTERNAL_ID, MEETING_ROOM_ID,
+  MEETING_CLIENT_ID, MEETING_INTERNAL_ID, MEETING_ROOM_ID, JOB_ID,
 } from './harness-constants'
 
 // ── result model ────────────────────────────────────────────────────────────
@@ -1301,6 +1303,33 @@ async function main() {
         judge(53, 'a client member cannot mark a colleague as having signed (control: they can READ the same row)',
           leaks, readable)
       }
+    }
+
+    // ── 57 · 0083 — a tenant sees its own queue and can forge nothing into it ─
+    //
+    // `jobs` carries a crew READ policy and NO write policy, deliberately: a
+    // queue nobody can see is a queue nobody can debug, and a queue anybody can
+    // write to is a way to make the worker act for you. The worker holds the
+    // service role; everybody else reads.
+    {
+      const leaks: string[] = []
+      const forged = await owner.from('jobs').insert({
+        organization_id: HARNESS_ORG_ID, kind: 'media.transcode', payload: {},
+      }).select('id')
+      if ((forged.data ?? []).length > 0) leaks.push('a session enqueued a job')
+
+      // And a job cannot be steered once queued — an UPDATE would let somebody
+      // repoint a transcode at a file they do not own.
+      const steered = await owner.from('jobs')
+        .update({ payload: { file_id: 'forged' } }).eq('id', JOB_ID).select('id')
+      if ((steered.data ?? []).length > 0) leaks.push('a session rewrote a queued job')
+
+      // CONTROL: a REAL read of the seeded row. The first version of this
+      // assertion had a control expression that evaluated to 1 unconditionally,
+      // which proved nothing — the whole point of a control is that it can fail.
+      const readable = await countRows(owner, 'jobs', [{ op: 'eq', col: 'id', val: JOB_ID }])
+      judge(57, 'no session enqueues or rewrites a job, and the tenant still reads its own queue (control: the seeded job)',
+        leaks, readable)
     }
 
     // ── 56 · 0082 — the collaborator's SEAT is the invite ──────────────────

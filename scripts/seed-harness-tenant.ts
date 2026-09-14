@@ -46,7 +46,7 @@ import {
   OM_OWNER_ID, OM_CREW_ID, OM_REVOKED_ID, OM_FINANCE_ID, OM_CONTRACTOR_ID,
   DOC_P1_ID, DOC_P2_ID,
   CAL_C1_ID, CAL_P2_ID, CONTRACT_C1_ID, CONTRACT_EVENT_ID, CONTRACT_SIGNER_ID, SIGNING_LINK_ID,
-  MEETING_CLIENT_ID, MEETING_INTERNAL_ID, MEETING_ROOM_ID,
+  MEETING_CLIENT_ID, MEETING_INTERNAL_ID, MEETING_ROOM_ID, JOB_ID,
   CM_C1OWN_ID, CM_C1MATE_ID, CM_C2OWN_ID,
 } from './harness-constants'
 
@@ -411,6 +411,18 @@ async function main() {
         name: 'Harness C1 Owner', email: PERSONAS.c1own.email, seq: 0, status: 'sent' },
     ], { onConflict: 'id' })
     if (error) throw new Error(`contract_signers: ${error.message}`)
+  }
+
+  // A job the tenant can READ and must not be able to write — assertion 57.
+  // Inserted directly: `jobs` has a crew read policy and NO write policy, which
+  // is the property under test, so seedRows' guard would have nothing to add.
+  record(`\n-- ═══ jobs (0083) ═══`)
+  {
+    const { error } = await admin.from('jobs').upsert([
+      { id: JOB_ID, organization_id: HARNESS_ORG_ID, kind: 'media.probe',
+        payload: { harness: true }, status: 'queued' },
+    ], { onConflict: 'id' })
+    if (error) throw new Error(`jobs: ${error.message}`)
   }
 
   record(`\n-- ═══ meetings (0067) ═══`)

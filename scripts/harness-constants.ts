@@ -240,6 +240,9 @@ export const MEETING_INTERNAL_ID = '0f0f0f0f-0013-4000-8000-000000000002'
 // makes a meeting on this room readable by that seat. Assertion 56's subject.
 export const MEETING_ROOM_ID = '0f0f0f0f-0013-4000-8000-000000000003'
 
+// A queued job, so assertion 57's CONTROL is a real read rather than a constant.
+export const JOB_ID = '0f0f0f0f-0016-4000-8000-000000000001'
+
 export const APPROVAL_CLIENT_ID = '0f0f0f0f-000a-4000-8000-000000000001'
 export const APPROVAL_CLIENT_STAGE_ID = '0f0f0f0f-000b-4000-8000-000000000001'
 /** INTERNAL — client_id null. Must be invisible to every client member. */

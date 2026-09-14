@@ -324,7 +324,17 @@ The audited era, each batch with what it *found*:
 - **Branch:** `throughline` (main ⊆ throughline, fast-forward). Not renamed —
   S0-B §6 excludes the branch, and renaming it is a remote/CI change, not a
   code one.
-- **Migrations applied: 0000–0082, every one of them.** Verified live
+- **Migrations applied: 0000–0084, every one of them.** Verified live
+  2026-09-13. **0083–0084 close the oldest recorded gap in the architecture**
+  (`reference_infra-gaps-jobqueue-transcode`): a job queue in Postgres and a
+  media pipeline. Three loops this repository had left open are now closed — a
+  recording that was started, stopped, written to R2 and never became a file; a
+  contract whose "Send" meant the studio copied a link by hand; and video with
+  no rendition anybody could scrub. 0084 revises 0083 against an audit of five
+  queue projects and adds the thing none of them has: **round-robin fairness
+  across TENANTS**. Harness **56 → 57**.
+  The pre-0083 line, kept because it is what this file claimed:
+  **Migrations applied: 0000–0082, every one of them.** Verified live
   2026-09-13. **0082** admits `S3-d` MD-4's roster-less collaborator to the
   meeting on their own room — they had a seat in the conversation about a shot
   and no way into the review session about it — and adds nullable colour
@@ -1122,6 +1132,29 @@ pipeline that does not exist: 10-bit HEVC/AV1, calibrated transforms, and the jo
 queue `reference_infra-gaps-jobqueue-transcode` already records as missing. It is
 NOT claimed anywhere in the UI, because a viewer told "this is colour accurate"
 when it is not is worse off than one told nothing.
+
+#### CLOSED (0083–0084) — three loops this repo had left open
+
+1. **A recording never became a file.** Egress was started and stopped and
+   `recording_file_id` was never set, `recording_status` never left
+   `processing`. It finishes minutes later, in a webhook — which needs a queue.
+   `/api/webhooks/livekit` verifies the signature and enqueues; the worker
+   creates the `files` row and queues a transcode.
+2. **Sending a contract emailed nobody.** The studio copied the link by hand.
+   `contract.notify` now queues on send — queued rather than sent inline, so a
+   slow mail provider cannot make "Send" appear to fail on a document that HAS
+   been sent.
+3. **Video had no rendition.** `files/commit` queues a transcode for any
+   `video/*` upload, at the same boundary storage is metered.
+
+#### NEW ENV — the encoder
+
+`CLOUDFLARE_STREAM_TOKEN` (and `CLOUDFLARE_ACCOUNT_ID` if it differs from
+`R2_ACCOUNT_ID`). Without it a transcode job is `blocked` with a stated reason
+rather than retried five times and buried as `dead`.
+
+`CRON_SECRET` becomes load-bearing for a second route: `/api/cron/jobs` runs
+every five minutes (`vercel.json`) and REFUSES to run when it is unset.
 
 ### 8.4 Structural (sequenced, not forgotten)
 

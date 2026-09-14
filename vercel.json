@@ -1,6 +1,16 @@
 {
   "crons": [
-    { "path": "/api/cron/message-nudge", "schedule": "0 9 * * *" },
-    { "path": "/api/cron/approval-sweep", "schedule": "0 8 * * *" }
+    {
+      "path": "/api/cron/message-nudge",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/approval-sweep",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/jobs",
+      "schedule": "*/5 * * * *"
+    }
   ]
 }

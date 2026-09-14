@@ -115,8 +115,8 @@ Note: dynamic-route `params` and `next/headers` `cookies()` are async (Promises)
 There is no unit-test framework configured. There are now TWO test surfaces, and both must
 be run after anything touching policies, auth, capabilities or tenancy:
 
-- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **56 assertions**, numbered
-  1–56 with none reserved (slot 21 was held for the retention purge and 0071 filled
+- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **57 assertions**, numbered
+  1–57 with none reserved (slot 21 was held for the retention purge and 0071 filled
   it), every one with a positive control, seeded by
   `npm run seed:harness -- --apply`). Seed, then run ONCE:
   assertion 17 is single-use and reports VACUOUS on a second run without a re-seed.
@@ -449,6 +449,71 @@ Rules that are not style preferences:
   for the party that has to act on it, not for the party it may one day be used
   against.
 
+## The job queue — Postgres is the queue
+
+`jobs` + `claim_jobs()` + `enqueue_job()` (0083, revised by 0084). Anything that
+cannot finish inside one request goes here: transcodes, encoder polling,
+recording ingest, contract notifications.
+
+**Audited before building** (ideas taken, no code): graphile/worker (MIT),
+pg-boss (MIT), riverqueue/river (MPL-2.0, Go), pgmq (PostgreSQL licence),
+livepeer/lpms (MIT).
+
+| Property | Where it came from |
+|---|---|
+| `FOR UPDATE SKIP LOCKED` claim | the mechanism all of them are built on |
+| visibility timeout, not a held lock | pgmq / SQS semantics |
+| job keys that **REPLACE** the pending payload | graphile/worker |
+| per-tenant concurrency ceiling | pg-boss's flow control, keyed on the tenant |
+| **round-robin fairness across ORGANIZATIONS** | **none of them — see below** |
+| `blocked` ≠ `dead` | **none of them** |
+
+**THE THING THAT BEATS THE MARKET.** All five make the QUEUE the unit of
+fairness — per-queue concurrency, multiple queues, a pool per worker. In a
+multi-tenant OS that is the wrong axis: one studio uploading two hundred clips
+starves every other tenant's contract notifications, and the documented
+workaround in each is a queue per customer, which turns provisioning into queue
+administration. `claim_jobs` ranks each organization's backlog and interleaves —
+every tenant's first job before any tenant's second — so starvation is
+impossible rather than unlikely. Proven: org A with 10 queued, org B with 1
+queued last, a 2-slot claim returns one of each.
+
+**`blocked` is not `dead`.** "Nobody configured the encoder" and "we tried five
+times and it broke" need different responses from a person — a settings page
+versus a bug report. Every library above collapses both into failure.
+
+Rules that are not style preferences:
+
+- **Enqueue takes the CALLER's client** wherever one exists, so the job rides the
+  same transaction and RLS as whatever caused it. A job to transcode a file
+  cannot exist if the file insert rolled back — the bug a separate Redis queue
+  invites and hides until the worker runs.
+- **`jobs` has a crew READ policy and NO write policy.** A queue nobody can see
+  cannot be debugged; a queue anybody can write to is a way to make the worker
+  act for you (assertion 57).
+- **The worker refuses to run without `CRON_SECRET`**, deliberately unlike
+  `message-nudge`, whose unset-variable path leaves it unauthenticated.
+- **Short batches per tick, never drain-until-empty.** A serverless function has
+  a wall clock, and the last job in a drain loop is the one that gets killed
+  half-finished.
+
+## Media — transcode and renditions
+
+`media.transcode` hands Cloudflare Stream a presigned R2 URL and Stream PULLS —
+the bytes never pass through this application, the same shape Egress uses to
+write recordings back. `media.probe` then polls until ready, because a webhook
+needs a publicly reachable URL per environment and a preview deploy has a
+different hostname.
+
+**A RENDITION NEVER REPLACES THE MASTER.** `media_renditions` is a separate row
+pointing at the same file: the thing an editor approves and the thing a browser
+can play are not the same object, and conflating them loses the original — the
+same argument `S3-core` §3.2 makes about a version being a file.
+
+It does NOT claim colour-managed delivery. A grading review needs 10-bit
+transport and a calibrated display, and no managed encoder hands you that over
+HTTP; `ColourCheck` still warns where the display falls short.
+
 ## Soft delete — and the obligation it puts on crew queries
 
 `deleted_at` is on nine tables (`S3-core` §4.1). **RLS hides soft-deleted rows
@@ -665,8 +730,13 @@ generations. `lib/provenance.ts` is the one write path and
 
 `supabase/migrations/` holds one numbering scheme (`00NN`); the retired `2026*` scheme is fenced in `_archive/`:
 
-- `0000_baseline_schema.sql` … `0082_collaborators_and_colour.sql` — the
-  current source of truth, **all applied** (verified live 2026-09-13).
+- `0000_baseline_schema.sql` … `0084_fair_share_queue.sql` — the current
+  source of truth, **all applied** (verified live 2026-09-13).
+  **0083–0084 are the job queue and the media pipeline** —
+  `reference_infra-gaps-jobqueue-transcode` recorded both as missing since the
+  first architecture audit, and three loops were open because of it: a recording
+  that never became a file, colour metadata nothing could probe, and no
+  transcode at all. See the queue section below.
   **0082 closes a real gap and adds the honest half of a hard one.**
   `S3-d` MD-4's external collaborator is a ROSTER-LESS seat — a `room_members`
   row and nothing else — so every meeting policy missed them: the VFX artist in

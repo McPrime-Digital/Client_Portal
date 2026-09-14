@@ -815,6 +815,79 @@ somebody will follow.
 an effect, so dragging the window from a laptop panel to a reference monitor
 updates the warning instead of leaving it describing the laptop.
 
+### 6.11 Phase K — the job queue and the media pipeline
+
+#### The process, and where it slipped
+
+The owner's standing instruction: **plan, research the market and its limits,
+audit ~5 leading repositories for licence and safety, revise the plan, THEN
+build.** This phase began with one search and a build — the instruction was
+restated mid-flight, and the work below was revised against a proper audit
+rather than rubber-stamped. Recorded because the slip is the useful part: the
+audit changed the design, which is precisely the argument for doing it first.
+
+#### The audit
+
+| Repo | Licence | Verdict |
+|---|---|---|
+| graphile/worker | MIT | safe · **job keys that REPLACE** — taken |
+| timgit/pg-boss | MIT | safe · **rate limiting + concurrency** — taken |
+| riverqueue/river | MPL-2.0 | Go, file-level copyleft — wrong language, not used |
+| pgmq/pgmq | PostgreSQL | safe · SQS visibility-timeout semantics — taken as a shape |
+| livepeer/lpms | MIT | safe · open transcoding, needs Go nodes — a real alternative to Stream later |
+
+#### What the audit changed
+
+0083 shipped with SKIP LOCKED, visibility timeouts, bounded retries with
+backoff, dedupe keys, priority and deferral. Two things it lacked came straight
+from the audit and landed in 0084:
+
+- **A job key should REPLACE, not refuse.** 0083 dropped a second enqueue on the
+  floor. Right for "transcode this file", wrong for anything whose payload
+  moves: a contract re-sent after adding a signer must notify the signer who was
+  added. `enqueue_job` updates the pending payload atomically.
+- **Flow control.** Nothing capped concurrent work, so one tenant could hold
+  every running slot.
+
+#### Where it surpasses all five
+
+**Every one of them makes the QUEUE the unit of fairness** — per-queue
+concurrency, multiple queues, a pool per worker. In a multi-tenant OS that is
+the wrong axis. One studio uploading two hundred clips starves every other
+tenant's contract notifications, and the documented workaround in each project
+is a queue per customer, which does not scale and turns provisioning into queue
+administration.
+
+`claim_jobs` ranks each organization's backlog and interleaves: **every tenant's
+first job before any tenant's second.** Proven with a control — org A with ten
+queued, org B with one queued last, a two-slot claim returns one of each.
+
+And `blocked` is a state none of them has. "Nobody configured the encoder" and
+"we tried five times and it broke" need different responses from a person, so
+they are not the same status.
+
+#### The media pipeline
+
+Cloudflare Stream, because there is nowhere to run ffmpeg: Vercel functions are
+short-lived and CPU-capped, and `ffmpeg.wasm` is slower than the upload it
+follows. Stream ingests FROM A URL, so it pulls a presigned R2 link directly —
+the bytes never pass through this application in either direction, exactly as
+Egress writes recordings back. Polling rather than a callback, because a webhook
+needs a publicly reachable URL per environment and a preview deploy has a
+different hostname.
+
+**A rendition never replaces the master.** `media_renditions` is a separate row:
+the thing an editor approves and the thing a browser can play are not the same
+object, and conflating them loses the original.
+
+It does not claim colour-managed delivery, and §6.10's warning still stands.
+
+#### Three loops closed that this repository had opened itself
+
+1. A recording was started, stopped, written to R2 — and never became a file.
+2. Sending a contract emailed nobody; the studio copied the link by hand.
+3. Video had no rendition, so review outside a fast connection was guesswork.
+
 ### 6.2 Owner answers to §5
 
 1. Unbuilt stays "coming soon" — built surfaces lead, held-but-unbuilt sit behind
@@ -827,5 +900,5 @@ updates the warning instead of leaving it describing the laptop.
 
 ---
 
-*End of S-S. Phases A–J built, plus allowance (§6.1.1). Governs what a surface contains; `S-R` §8
+*End of S-S. Phases A–K built, plus allowance (§6.1.1). Governs what a surface contains; `S-R` §8
 governs what it may show to whom.*
