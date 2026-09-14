@@ -324,7 +324,13 @@ The audited era, each batch with what it *found*:
 - **Branch:** `throughline` (main ⊆ throughline, fast-forward). Not renamed —
   S0-B §6 excludes the branch, and renaming it is a remote/CI change, not a
   code one.
-- **Migrations applied: 0000–0081, every one of them.** Verified live
+- **Migrations applied: 0000–0082, every one of them.** Verified live
+  2026-09-13. **0082** admits `S3-d` MD-4's roster-less collaborator to the
+  meeting on their own room — they had a seat in the conversation about a shot
+  and no way into the review session about it — and adds nullable colour
+  metadata to `files`. Harness **55 → 56**.
+  The pre-0082 line, kept because it is what this file claimed:
+  **Migrations applied: 0000–0081, every one of them.** Verified live
   2026-09-13. **0081** lets a client draw on their own company's material —
   0080 gave them SELECT only, which makes a review session half a feature.
   Meetings now exist in three places (crew floor, Client space, client portal)
@@ -1094,6 +1100,28 @@ Both optional; both degrade with a stated reason rather than silently.
   certificate page; it is simply not cryptographically sealed, and the result
   says so. **A silent downgrade from sealed to unsealed on a legal document
   would be the worst failure available**, so it is reported.
+
+#### FIXED — two harness ids meant two things
+
+`DOC_P1_ID` was byte-identical to `ROOM_GROUP_A_ID`, and `CAL_C1_ID` to
+`GA_MSG_OLD_ID`: prefixes `000d` and `000e` were already in use when the document
+and calendar fixtures were added. Different tables, so nothing broke — but an
+assertion failure naming an id that means two things is an hour lost, and a join
+written across them later would have been silently wrong. Moved to `0014`/`0015`,
+with the seeder deleting the old rows so the harness tenant does not carry two
+generations of the same fixture.
+
+#### OPEN — colour-accurate streaming is half built, on purpose
+
+0082 lets an asset DECLARE its colour space, transfer and bit depth, and
+`ColourCheck` warns a reviewer whose display cannot represent it. That is the
+half that is real today.
+
+The other half — actually delivering a colour-managed stream — needs a transcode
+pipeline that does not exist: 10-bit HEVC/AV1, calibrated transforms, and the job
+queue `reference_infra-gaps-jobqueue-transcode` already records as missing. It is
+NOT claimed anywhere in the UI, because a viewer told "this is colour accurate"
+when it is not is worse off than one told nothing.
 
 ### 8.4 Structural (sequenced, not forgotten)
 

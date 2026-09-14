@@ -87,7 +87,7 @@ export default async function PortalMeetingPage(
             mode={meeting.mode}
             fileUrl={fileUrl}
             fileId={sync?.file_id ?? null}
-            endpoint="/api/portal/meetings"
+            endpoint="/api/meet"
           />
         )}
       </div>

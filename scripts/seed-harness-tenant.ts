@@ -46,7 +46,7 @@ import {
   OM_OWNER_ID, OM_CREW_ID, OM_REVOKED_ID, OM_FINANCE_ID, OM_CONTRACTOR_ID,
   DOC_P1_ID, DOC_P2_ID,
   CAL_C1_ID, CAL_P2_ID, CONTRACT_C1_ID, CONTRACT_EVENT_ID, CONTRACT_SIGNER_ID, SIGNING_LINK_ID,
-  MEETING_CLIENT_ID, MEETING_INTERNAL_ID,
+  MEETING_CLIENT_ID, MEETING_INTERNAL_ID, MEETING_ROOM_ID,
   CM_C1OWN_ID, CM_C1MATE_ID, CM_C2OWN_ID,
 } from './harness-constants'
 
@@ -422,7 +422,21 @@ async function main() {
     { id: MEETING_INTERNAL_ID, organization_id: HARNESS_ORG_ID, project_id: PROJECT_1_ID,
       client_id: null, mode: 'call', provider: 'livekit',
       provider_room_name: 'gl-harness-internal', status: 'scheduled', scheduled_for: at(2) },
+    // Internal AND attached to the room the collaborator is seated in. This is
+    // the one 0082 exists for: no client_id, no roster row on the far side, and
+    // the SEAT is what admits them.
+    { id: MEETING_ROOM_ID, organization_id: HARNESS_ORG_ID, project_id: PROJECT_1_ID,
+      client_id: null, room_id: ROOM_GROUP_A_ID, mode: 'review_session', provider: 'livekit',
+      provider_room_name: 'gl-harness-room', status: 'scheduled', scheduled_for: at(2) },
   ])
+
+  // The ids for documents and calendar entries moved off prefixes 000d/000e,
+  // which collided with the room and message fixtures. Clear the old rows so the
+  // harness tenant does not keep two generations of the same fixture.
+  await admin.from('documents').delete()
+    .in('id', ['0f0f0f0f-000d-4000-8000-000000000001', '0f0f0f0f-000d-4000-8000-000000000002'])
+  await admin.from('calendar_entries').delete()
+    .in('id', ['0f0f0f0f-000e-4000-8000-000000000001', '0f0f0f0f-000e-4000-8000-000000000002'])
 
   // A signing link, so assertion 54 has something to fail to read. Inserted
   // directly: contract_signing_links has RLS enabled and NO policy at all, so

@@ -1,7 +1,7 @@
 /**
  * scripts/test-rls.ts — S2 §6, Part B. The RLS test harness.
  *
- * FIFTY-FIVE assertions, numbered 1–55, none reserved. Slot 21 was held open for
+ * FIFTY-SIX assertions, numbered 1–56, none reserved. Slot 21 was held open for
  * the retention-purge assertion — "cannot be written against a function that
  * does not exist" — and 0071 built the function, so it is filled.
  * This count was "Twenty-nine" until Batch 26 item 1 and had been
@@ -35,6 +35,8 @@
  *          included, can read one
  *   55     0067 — client_id is the boundary between the studio's internal floor
  *          and a room a client may walk into; the media token follows the row
+ *   56     0082 — MD-4's roster-less collaborator reaches a meeting through the
+ *          SEAT they already hold, and reaches no other
  *   50–51  0070/0073, 0072 — a soft-deleted row disappears for the CLIENT
  *          (crew keep it by design, so restore stays possible), and calendar
  *          credentials are invisible to everyone but the person they belong to,
@@ -67,7 +69,7 @@
  * rows that persona SHOULD see. Control zero → the assertion is reported
  * VACUOUS, not PASS, and the run does not exit clean.
  *
- * WHAT TO EXPECT NOW: all 55 green on a freshly seeded tenant. This paragraph
+ * WHAT TO EXPECT NOW: all 56 green on a freshly seeded tenant. This paragraph
  * used to read "expect most of this to be RED today" — true when S2 §6 asked for
  * a failing baseline, and false since the policy classes landed. Left as written
  * it tells the next reader that red output is normal, which is the one thing a
@@ -102,7 +104,7 @@ import {
   OM_OWNER_ID, OM_CREW_ID, OM_FINANCE_ID,
   DOC_P1_ID, DOC_P2_ID,
   CAL_C1_ID, CAL_P2_ID, CONTRACT_C1_ID, CONTRACT_EVENT_ID,
-  MEETING_CLIENT_ID, MEETING_INTERNAL_ID,
+  MEETING_CLIENT_ID, MEETING_INTERNAL_ID, MEETING_ROOM_ID,
 } from './harness-constants'
 
 // ── result model ────────────────────────────────────────────────────────────
@@ -1299,6 +1301,26 @@ async function main() {
         judge(53, 'a client member cannot mark a colleague as having signed (control: they can READ the same row)',
           leaks, readable)
       }
+    }
+
+    // ── 56 · 0082 — the collaborator's SEAT is the invite ──────────────────
+    //
+    // S3-d MD-4's external collaborator has NO roster row anywhere: not crew,
+    // not client, just a room_members seat. Every meeting policy before 0082
+    // missed them — `meetings_crew_all` wants is_org_member(),
+    // `meetings_client_read` wants is_client_member() — so the VFX artist in the
+    // project room could read the conversation about a shot and could not join
+    // the review session about it.
+    //
+    // AND BECAUSE THE MEDIA TOKEN FOLLOWS THE ROW (S3-b §2.3 — no read, no
+    // token, no way in), this assertion is also the access control on the video.
+    {
+      // The meeting on THEIR room: admitted by the seat.
+      const theirs = await countRows(collab, 'meetings', [{ op: 'eq', col: 'id', val: MEETING_ROOM_ID }])
+      // An internal meeting on NO room: a seat somewhere else admits nothing.
+      const other = await countRows(collab, 'meetings', [{ op: 'eq', col: 'id', val: MEETING_INTERNAL_ID }])
+      judge(56, 'a roster-less collaborator reads the meeting on their own room and no other (control: the one on their room)',
+        other > 0 ? ['a collaborator read a meeting outside their room'] : [], theirs)
     }
 
     // ── 55 · 0067 — the company column is the boundary for MEETINGS ────────

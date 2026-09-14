@@ -211,16 +211,20 @@ export const WORK_TABLES = [
 // Two, on SIBLING productions, because the assertion that matters is not "can a
 // member write provenance" but "can they write it against a script they cannot
 // see". One document would prove only the easy half.
-export const DOC_P1_ID = '0f0f0f0f-000d-4000-8000-000000000001' // on PROJECT_1
-export const DOC_P2_ID = '0f0f0f0f-000d-4000-8000-000000000002' // on PROJECT_2
+// PREFIX 0014, not 000d: 000d was already ROOM_GROUP_A/B/DM below, and two
+// constants with byte-identical values in different tables is an hour lost the
+// first time somebody reads a failure and cannot tell which one it names.
+export const DOC_P1_ID = '0f0f0f0f-0014-4000-8000-000000000001' // on PROJECT_1
+export const DOC_P2_ID = '0f0f0f0f-0014-4000-8000-000000000002' // on PROJECT_2
 
 // ── S3-b fixtures (0065, 0068) ─────────────────────────────────────────────
 // A calendar entry and a contract are both CLIENT-ADDRESSED objects on a
 // PROJECT, which is the combination that makes the scoping assertions mean
 // something: one wrong conjunct and either the wrong company or the wrong
 // production reads a row.
-export const CAL_C1_ID   = '0f0f0f0f-000e-4000-8000-000000000001' // PROJECT_1 + COMPANY_1
-export const CAL_P2_ID   = '0f0f0f0f-000e-4000-8000-000000000002' // PROJECT_2, internal
+// PREFIX 0015, not 000e — same collision, same reason (000e is GA_MSG_OLD_ID).
+export const CAL_C1_ID   = '0f0f0f0f-0015-4000-8000-000000000001' // PROJECT_1 + COMPANY_1
+export const CAL_P2_ID   = '0f0f0f0f-0015-4000-8000-000000000002' // PROJECT_2, internal
 export const CONTRACT_C1_ID    = '0f0f0f0f-000f-4000-8000-000000000001'
 export const CONTRACT_EVENT_ID  = '0f0f0f0f-0010-4000-8000-000000000001'
 export const CONTRACT_SIGNER_ID = '0f0f0f0f-0011-4000-8000-000000000001'
@@ -231,6 +235,10 @@ export const SIGNING_LINK_ID    = '0f0f0f0f-0012-4000-8000-000000000001'
 // internal floor and a room a client can walk into.
 export const MEETING_CLIENT_ID   = '0f0f0f0f-0013-4000-8000-000000000001'
 export const MEETING_INTERNAL_ID = '0f0f0f0f-0013-4000-8000-000000000002'
+
+// The collaborator's room — S3-d MD-4's roster-less seat lives here, and 0082
+// makes a meeting on this room readable by that seat. Assertion 56's subject.
+export const MEETING_ROOM_ID = '0f0f0f0f-0013-4000-8000-000000000003'
 
 export const APPROVAL_CLIENT_ID = '0f0f0f0f-000a-4000-8000-000000000001'
 export const APPROVAL_CLIENT_STAGE_ID = '0f0f0f0f-000b-4000-8000-000000000001'

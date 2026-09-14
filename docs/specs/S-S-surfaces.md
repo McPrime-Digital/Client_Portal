@@ -756,6 +756,65 @@ its production. LiveKit bills every participant-minute regardless of which side
 of the relationship the person is on, so recording them anywhere else would
 understate the cost of exactly the sessions that cost most.
 
+### 6.10 Phase J — the collaborator gets in, and the named items land
+
+#### The gap that was real: MD-4 could not join anything
+
+`S3-d`'s external collaborator is a ROSTER-LESS seat — a `room_members` row and
+nothing else, and there is one live today. Every meeting policy asked "which
+roster are you on", and they are on none. So the VFX artist you added to a
+project room could read the conversation about a shot and **could not join the
+review session about it**.
+
+`S3-b` §2.1 had carried the answer since it was written, in a column nobody had
+used: `meetings.room_id`, "a meeting started from a chat room". 0082 makes a
+meeting on a room readable by that room's SEATS — the same membership model
+0046 flipped the message policies onto. No new concept, no invite list, no fourth
+kind of person.
+
+**THE SEAT IS THE INVITE.** Remove somebody from the room and they lose the
+meeting in the same instant they lose the conversation: one revocation, not two.
+And because the media token follows the row (§2.3), assertion 56 is also the
+access control on the video.
+
+`/meet/[id]` exists outside both shells because a collaborator belongs to
+neither — the studio shell rejects them on `isAdmin`, the portal resolves no
+membership. `/api/meet` is now the ONE participant endpoint, with no capability
+gate above it, because three kinds of person are admitted by three different
+policies and a gate enumerating them would go stale on the fourth. That is not a
+relaxation: the row IS the permission, which is what §2.3 said all along.
+
+#### The reviewer's timeline (named in §6.8, now built)
+
+`AnnotationTimeline` lists every mark on an asset in timecode order and renders
+in two places: the meeting page, and **beside the approval record**. Clicking a
+note seeks the player AND repaints the strokes — a list of timecoded sentences
+would be a comment thread, and the reason to draw at all is that "the rig is
+showing on the left" is ambiguous while a circle is not.
+
+Putting it next to the approval record is the point: the argument and the
+decision in one place, rather than a decision whose reasons live in a call
+nobody recorded.
+
+#### Colour: the half that is real, and the half that is not
+
+Evercast sells on colour-accurate streaming. Closing it properly needs a
+transcode pipeline this repo does not have — 10-bit HEVC/AV1, calibrated
+transforms, and the job queue `reference_infra-gaps-jobqueue-transcode` records
+as missing. **That half is outstanding and is not claimed anywhere in the UI.**
+
+What is built: the asset declares its colour space, transfer and bit depth
+(0082, all nullable — unknown is honest), the browser reports `color-gamut` and
+`dynamic-range`, and where they disagree the reviewer is warned BEFORE giving a
+note. **A note given on a wrongly-displayed image is worse than no note**: it is
+confidently wrong and travels downstream as if it were right. "Warmer in the
+midtones", from an SDR laptop, about a Rec.2020 PQ master, is an instruction
+somebody will follow.
+
+`ColourCheck` subscribes via `useSyncExternalStore` rather than reading once in
+an effect, so dragging the window from a laptop panel to a reference monitor
+updates the warning instead of leaving it describing the laptop.
+
 ### 6.2 Owner answers to §5
 
 1. Unbuilt stays "coming soon" — built surfaces lead, held-but-unbuilt sit behind
@@ -768,5 +827,5 @@ understate the cost of exactly the sessions that cost most.
 
 ---
 
-*End of S-S. Phases A–I built, plus allowance (§6.1.1). Governs what a surface contains; `S-R` §8
+*End of S-S. Phases A–J built, plus allowance (§6.1.1). Governs what a surface contains; `S-R` §8
 governs what it may show to whom.*

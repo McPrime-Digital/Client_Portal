@@ -8,6 +8,10 @@ import { capGate } from '@/lib/capabilities.server'
 import { readApproval } from '@/lib/approvals'
 import { approvalIntel, DEFENSIBILITY_LABEL, type Defensibility } from '@/lib/approvalIntel'
 import { approvalTimeline, TIMELINE_TONE } from '@/lib/approvalTimeline'
+import { listAnnotations } from '@/lib/annotations'
+import { getSignedDownloadUrl } from '@/lib/r2'
+import AnnotationTimeline from '@/components/studio/AnnotationTimeline'
+import ColourCheck from '@/components/studio/ColourCheck'
 
 /**
  * THE RECORD, AT A URL — `S-S` Phase C.
@@ -91,6 +95,37 @@ export default async function ApprovalRecordPage(
 
   const detail = await readApproval(supabase, id)
   if (!detail) redirect('/studio/client/review')
+
+  // THE NOTES NEXT TO THE RECORD. An approval whose subject is a cut should show
+  // what people actually drew on it — the argument and the decision in one place,
+  // rather than a decision whose reasons live in a call nobody recorded.
+  const subjectFileId =
+    detail.approval.subject_kind === 'file_version' ? detail.approval.subject_id : null
+  const annotations = subjectFileId ? await listAnnotations(supabase, subjectFileId) : []
+  let subjectUrl: string | null = null
+  let subjectColour:
+    { colour_space: string | null; transfer: string | null; bit_depth: number | null } | null = null
+  if (subjectFileId) {
+    const { data: f } = await supabase
+      .from('files')
+      .select('file_path, bucket, file_name, mime_type, colour_space, transfer, bit_depth')
+      .eq('id', subjectFileId).maybeSingle()
+    const row = f as {
+      file_path: string; bucket: string; file_name: string; mime_type: string | null
+      colour_space: string | null; transfer: string | null; bit_depth: number | null
+    } | null
+    if (row) {
+      subjectColour = {
+        colour_space: row.colour_space, transfer: row.transfer, bit_depth: row.bit_depth,
+      }
+      if (row.bucket === 'r2' && (row.mime_type ?? '').startsWith('video/')) {
+        subjectUrl = await getSignedDownloadUrl(row.file_path, 3600, {
+          disposition: 'inline', fileName: row.file_name,
+          contentType: row.mime_type ?? undefined,
+        })
+      }
+    }
+  }
 
   const intel = approvalIntel(detail)
   const entries = approvalTimeline(detail)
@@ -215,6 +250,34 @@ export default async function ApprovalRecordPage(
           ))}
         </ol>
       </section>
+
+      {subjectFileId && (
+        <section className="mt-8">
+          <h2 className="mb-1 font-display text-sm font-semibold text-foreground">
+            What was marked on it
+          </h2>
+          <p className="mb-2 text-[12px] text-muted-foreground">
+            Notes drawn on the picture during review, at the frame they were made.
+          </p>
+          {subjectColour && (
+            <div className="mb-3">
+              <ColourCheck
+                colourSpace={subjectColour.colour_space}
+                transfer={subjectColour.transfer}
+                bitDepth={subjectColour.bit_depth}
+              />
+            </div>
+          )}
+          <AnnotationTimeline
+            fileUrl={subjectUrl}
+            annotations={annotations.map((a) => ({
+              id: a.id, anchor_ms: a.anchor_ms,
+              strokes: a.strokes as { x: number; y: number }[][],
+              note: a.note, colour: a.colour, created_at: a.created_at,
+            }))}
+          />
+        </section>
+      )}
 
       {/* THE TIMELINE — the same entries the accordion renders, from the same
           function, so the two can never tell different stories. */}

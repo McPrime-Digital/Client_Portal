@@ -115,8 +115,8 @@ Note: dynamic-route `params` and `next/headers` `cookies()` are async (Promises)
 There is no unit-test framework configured. There are now TWO test surfaces, and both must
 be run after anything touching policies, auth, capabilities or tenancy:
 
-- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **55 assertions**, numbered
-  1–55 with none reserved (slot 21 was held for the retention purge and 0071 filled
+- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **56 assertions**, numbered
+  1–56 with none reserved (slot 21 was held for the retention purge and 0071 filled
   it), every one with a positive control, seeded by
   `npm run seed:harness -- --apply`). Seed, then run ONCE:
   assertion 17 is single-use and reports VACUOUS on a second run without a re-seed.
@@ -470,15 +470,27 @@ CASCADE. That guard closed a live defect — `activity_log.project_id` and
 `.client_id` were `ON DELETE CASCADE`, so deleting a client company destroyed
 its ledger silently. Both are `SET NULL` now.
 
-## Meetings — three doors, one room
-
-The room exists in three places and they are NOT three implementations:
+## Meetings — four doors, one room
 
 | Surface | Who | What is absent |
 |---|---|---|
 | `crew/meetings` | studio, internal floor | — |
 | `client/meetings` | studio, addressed to a company | — |
 | `dashboard/meetings` | the client's own portal | create, end, cancel, record, file picker |
+| `/meet/[id]` | ANYONE who can read the row — including a roster-less collaborator | same as the portal |
+
+**`/api/meet` is the one participant endpoint and it has NO capability gate.**
+That is deliberate: three different kinds of person join legitimately (client
+member, external collaborator, crew-as-participant) and they are admitted by
+three different POLICIES. A capability check above that would have to enumerate
+all three and would go stale on the fourth — which is exactly what happened
+before 0082. The only question that generalises is `S3-b` §2.3's: **can you read
+this meeting row?** No read, no token, no way in.
+
+`/meet/[id]` exists outside both shells because a collaborator belongs to
+neither: the studio shell rejects them on `isAdmin`, the portal shell resolves no
+membership. It is NOT a public link — a session is still required and the URL
+carries no authority.
 
 **`client_id` IS THE BOUNDARY.** Null means the studio's internal floor; set
 means a client company is party to it. Batch 24 settled this for rooms after the
@@ -522,6 +534,23 @@ Three things sit on top of LiveKit's prebuilt `VideoConference`:
 `MediaEnhancements` adds background blur and Krisp noise suppression as LOCAL
 track processors — the raw camera frame never leaves the machine, and both are
 dynamically imported because they ship megabytes of WASM.
+
+**Colour: what is built and what is NOT.** Evercast sells on colour-accurate
+streaming and closing that properly needs a transcode pipeline this repo does not
+have (10-bit HEVC/AV1, calibrated transforms, a job queue). That half is
+**outstanding, not faked**. What 0082 + `ColourCheck` do is the half that is real:
+the asset DECLARES its colour space, the browser reports what the display can do
+(`color-gamut`, `dynamic-range`), and where they disagree the reviewer is warned
+BEFORE giving a note. **A note given on a wrongly-displayed image is worse than
+no note** — "warmer in the midtones", from an SDR laptop, about a Rec.2020 PQ
+master, is an instruction somebody will follow. `ColourCheck` uses
+`useSyncExternalStore` rather than an effect, so the warning follows the window
+onto a second monitor.
+
+**`AnnotationTimeline` is the notes after the room empties** — every mark on an
+asset in timecode order, and clicking one seeks the player AND repaints the
+strokes. It renders on the meeting page and beside the approval record, which is
+the point: the argument and the decision in one place.
 
 ## The release → rights chain (0079) — the hybrid-film join
 
@@ -636,8 +665,18 @@ generations. `lib/provenance.ts` is the one write path and
 
 `supabase/migrations/` holds one numbering scheme (`00NN`); the retired `2026*` scheme is fenced in `_archive/`:
 
-- `0000_baseline_schema.sql` … `0081_client_annotations.sql` — the
+- `0000_baseline_schema.sql` … `0082_collaborators_and_colour.sql` — the
   current source of truth, **all applied** (verified live 2026-09-13).
+  **0082 closes a real gap and adds the honest half of a hard one.**
+  `S3-d` MD-4's external collaborator is a ROSTER-LESS seat — a `room_members`
+  row and nothing else — so every meeting policy missed them: the VFX artist in
+  a project room could read the conversation about a shot and NOT join the
+  review session about it. `meetings_room_member_read` admits them through
+  `meetings.room_id`, the column `S3-b` §2.1 had always specified and nobody had
+  used. **The seat is the invite**: remove them from the room and they lose the
+  meeting in the same instant, one revocation rather than two.
+  It also adds `files.colour_space | transfer | bit_depth`, all NULLABLE — see
+  the colour note below.
   **0081** lets a client DRAW on their own company's material. 0080 gave them
   SELECT only, which makes a review session half a feature: the client watches
   the studio draw and then describes what they mean in words. INSERT plus a

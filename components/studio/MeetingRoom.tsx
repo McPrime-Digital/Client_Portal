@@ -252,9 +252,10 @@ export default function MeetingRoom({
   mode: 'call' | 'review_session'
   fileUrl: string | null
   fileId: string | null
-  /** '/api/portal/meetings' on the client side. The two routes take the same
-   *  actions and differ in what they REFUSE — a client has no create, end or
-   *  record — so the room does not need to know which side it is on. */
+  /** '/api/meet' for a PARTICIPANT of any kind — client member, external
+   *  collaborator, or crew joining as one. The two routes differ only in what
+   *  they REFUSE: create, end, cancel and record exist on the studio route
+   *  alone, so the room does not need to know which side it is on. */
   endpoint?: string
 }) {
   const router = useRouter()

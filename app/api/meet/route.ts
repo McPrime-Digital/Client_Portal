@@ -1,7 +1,6 @@
 import { z } from 'zod'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { can } from '@/lib/capabilities.server'
 import { readMeeting, joinMeeting, leaveMeeting, setSyncState } from '@/lib/meetings'
 import { createAnnotation, normaliseStrokes } from '@/lib/annotations'
 import { mintJoinToken, livekitConfigured, livekitUrl } from '@/lib/livekit'
@@ -9,16 +8,32 @@ import { recordUsage } from '@/lib/usage'
 import { captureError } from '@/lib/errors'
 
 /**
- * Meetings, client side — join, drive the playhead, annotate, leave.
+ * THE PARTICIPANT ENDPOINT — join, drive the playhead, annotate, leave.
  *
- * ── THE SAME RULE AS THE STUDIO SIDE, AND THE SAME ONE SENTENCE ──────────
+ * ── ONE ROUTE FOR EVERY KIND OF PARTICIPANT, AND THE ROW IS THE PERMISSION ─
  *
  * `S3-b` §2.3: no token is ever issued to a browser that has not passed the
- * RLS-backed check that would let it read the meeting row. `readMeeting()` runs
- * on the USER client here exactly as it does in the studio route, and
- * `meetings_client_read` is what admits a client — `client_id is not null`,
- * their company, their project scope. There is no second permission model for
- * media and no separate invite list to keep in step.
+ * RLS-backed check that would let it read the meeting row. That sentence is the
+ * ENTIRE authorization here — there is no capability gate above it, and that is
+ * deliberate rather than an omission.
+ *
+ * Three different kinds of person legitimately join a meeting, and they are
+ * admitted by three different policies:
+ *
+ *   · a client member        → `meetings_client_read` (their company, their scope)
+ *   · an external collaborator → `meetings_room_member_read` (0082 — their SEAT
+ *                                in the room the meeting was started from)
+ *   · a crew member joining as a participant → `meetings_crew_all`
+ *
+ * A capability check above that would have to enumerate all three and would go
+ * stale the first time a fourth appears — which is exactly what happened before
+ * 0082: the collaborator could read the conversation about a shot and not join
+ * the review session about it, because every gate asked "which roster are you
+ * on" and they are on none.
+ *
+ * So the question this route asks is the only one that generalises: **can you
+ * read this meeting?** If RLS says no, `readMeeting` returns null, and there is
+ * no token. A meeting somebody cannot see does not exist to them.
  *
  * ── WHAT A CLIENT CANNOT DO, AND WHY IT IS ABSENT RATHER THAN DISABLED ───
  *
@@ -43,10 +58,24 @@ import { captureError } from '@/lib/errors'
 async function displayNameFor(
   db: Awaited<ReturnType<typeof createClient>>, userId: string, fallback: string
 ): Promise<string> {
-  const { data } = await db
+  // A collaborator has NO roster row anywhere, so their name lives on their room
+  // seat (0049's display_name). Three lookups in falling order of specificity,
+  // ending at the address — "Guest" beside a face in a review session helps
+  // nobody, and a collaborator is usually the person who made the shot.
+  const { data: crew } = await db
+    .from('organization_members').select('name').eq('user_id', userId)
+    .eq('status', 'active').limit(1).maybeSingle()
+  if ((crew as { name: string } | null)?.name) return (crew as { name: string }).name
+
+  const { data: client } = await db
     .from('client_members').select('name').eq('user_id', userId)
     .eq('status', 'active').limit(1).maybeSingle()
-  return ((data as { name: string } | null)?.name) || fallback
+  if ((client as { name: string } | null)?.name) return (client as { name: string }).name
+
+  const { data: seat } = await db
+    .from('room_members').select('display_name').eq('user_id', userId)
+    .not('display_name', 'is', null).limit(1).maybeSingle()
+  return ((seat as { display_name: string } | null)?.display_name) || fallback
 }
 
 const Body = z.discriminatedUnion('action', [
@@ -74,9 +103,6 @@ export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (!(await can(user, 'portal.view'))) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
-  }
 
   const parsed = Body.safeParse(await req.json().catch(() => null))
   if (!parsed.success) {
@@ -165,7 +191,7 @@ export async function POST(req: NextRequest) {
     })
     return NextResponse.json({ ok: true })
   } catch (e) {
-    captureError(e, { route: 'portal/meetings', action: b.action })
+    captureError(e, { route: 'meet', action: b.action })
     return NextResponse.json({ error: 'Could not complete that.' }, { status: 500 })
   }
 }

@@ -6,9 +6,12 @@ import { isAdmin } from '@/lib/auth/role'
 import { readMeeting, MODE_LABEL, STATUS_LABEL, participantMinutes } from '@/lib/meetings'
 import { livekitConfigured, recordingConfigured } from '@/lib/livekit'
 import { getSignedDownloadUrl } from '@/lib/r2'
+import { listAnnotations } from '@/lib/annotations'
 import MeetingRoom from '@/components/studio/MeetingRoom'
 import PickReviewFile from '@/components/studio/PickReviewFile'
 import ActionButton from '@/components/studio/ActionButton'
+import ColourCheck from '@/components/studio/ColourCheck'
+import AnnotationTimeline from '@/components/studio/AnnotationTimeline'
 
 /**
  * ONE MEETING — the room, and what it costs.
@@ -48,11 +51,21 @@ export default async function MeetingScreen(
 
   // What the room is watching, if anything.
   let fileUrl: string | null = null
+  let colour: { colour_space: string | null; transfer: string | null; bit_depth: number | null } | null = null
   if (isReview && sync?.file_id) {
     const { data: f } = await supabase
-      .from('files').select('file_path, bucket, file_name, mime_type')
+      .from('files')
+      .select('file_path, bucket, file_name, mime_type, colour_space, transfer, bit_depth')
       .eq('id', sync.file_id).maybeSingle()
-    const row = f as { file_path: string; bucket: string; file_name: string; mime_type: string | null } | null
+    const row = f as {
+      file_path: string; bucket: string; file_name: string; mime_type: string | null
+      colour_space: string | null; transfer: string | null; bit_depth: number | null
+    } | null
+    if (row) {
+      colour = {
+        colour_space: row.colour_space, transfer: row.transfer, bit_depth: row.bit_depth,
+      }
+    }
     if (row?.bucket === 'r2') {
       // Inline, and long enough to outlast a review — a two-minute URL that
       // expires mid-session is a broken player nobody can explain.
@@ -76,6 +89,12 @@ export default async function MeetingScreen(
 
   const minutes = participantMinutes(participants)
 
+  // What has been marked on this asset — including in earlier sessions, which is
+  // the point of persisting them at all.
+  const annotations = isReview && sync?.file_id
+    ? await listAnnotations(supabase, sync.file_id)
+    : []
+
   return (
     <div className="mx-auto max-w-5xl">
       <Link
@@ -92,7 +111,25 @@ export default async function MeetingScreen(
           </h1>
           <p className="mt-1 flex flex-wrap items-center gap-x-3 text-[13px] text-muted-foreground">
             <span>{STATUS_LABEL[meeting.status]}</span>
-            {participants.length > 0 && (
+            {isReview && sync?.file_id && (
+        <section className="mt-8">
+          <h2 className="mb-1 font-display text-sm font-semibold text-foreground">Marks on this asset</h2>
+          <p className="mb-3 text-[12px] text-muted-foreground">
+            Everything drawn on a frame, at the timecode it was drawn — including
+            from earlier sessions. Click one to go back to that frame.
+          </p>
+          <AnnotationTimeline
+            fileUrl={fileUrl}
+            annotations={annotations.map((a) => ({
+              id: a.id, anchor_ms: a.anchor_ms,
+              strokes: a.strokes as { x: number; y: number }[][],
+              note: a.note, colour: a.colour, created_at: a.created_at,
+            }))}
+          />
+        </section>
+      )}
+
+      {participants.length > 0 && (
               <span>{participants.length} {participants.length === 1 ? 'person' : 'people'}</span>
             )}
             {meeting.recording_status && (
@@ -138,6 +175,17 @@ export default async function MeetingScreen(
           )}
         </div>
       </div>
+
+      {isReview && colour && (
+        <div className="mb-3">
+          {/* Said BEFORE a note is given, not after. */}
+          <ColourCheck
+            colourSpace={colour.colour_space}
+            transfer={colour.transfer}
+            bitDepth={colour.bit_depth}
+          />
+        </div>
+      )}
 
       {isReview && !over && (
         <div className="squircle mb-4 border border-border bg-card px-4 py-3">
