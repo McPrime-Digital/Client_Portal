@@ -53,10 +53,13 @@ export default async function FeaturePage({
    * the question is "what do I do now". Where a working surface covers the need
    * today, this says so and links it.
    */
-  const MEANWHILE: Record<string, { text: string; href: string; label: string }> = {
-    'client/brand-kit': { text: 'Logo and business identity live in settings.', href: '/studio/crew/settings', label: 'Settings' },
-    'client/guest-links': { text: 'Share a production with a client from its review page.', href: '/studio/client/review', label: 'Review' },
-  }
+  /* STALE ENTRIES REMOVED 2026-09-14. This map named `client/brand-kit` and
+     `client/guest-links` as unbuilt, pointing elsewhere "meanwhile". Both
+     shipped, so both routes now exist and this page never renders for them —
+     dead config that tells the next reader something false about the product.
+     A pointer to a workaround outlives the gap it worked around unless it is
+     deleted with the fix. */
+  const MEANWHILE: Record<string, { text: string; href: string; label: string }> = {}
   const meanwhile = MEANWHILE[`${space.id}/${feature.slug}`]
 
   return (

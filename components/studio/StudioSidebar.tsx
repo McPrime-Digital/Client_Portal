@@ -27,12 +27,21 @@ const FEATURE_COUNT: Record<string, keyof BadgeCounts> = {
 // space deck (CREW / CLIENT / SUITE) and the feature card, which runs
 // to the bottom. On phones it becomes a slide-over drawer (same store the
 // portal sidebar uses; the two shells never mount together).
+/**
+ * WHICH SURFACES ARE LIVE — client-safe copy.
+ *
+ * `lib/studio/surfaces.ts` owns this set and is `server-only` (it resolves
+ * capabilities), so the rail cannot import it. The list is passed in from the
+ * layout instead of duplicated here, for the reason CLAUDE.md gives about
+ * capability lists: a second copy is the one that goes stale.
+ */
 export default function StudioSidebar({
   userName,
   orgName,
   caps = [],
   roleLabel = 'Owner',
   planFeatures = [],
+  builtSlugs = [],
   orgId = null,
 }: {
   userName: string
@@ -61,6 +70,10 @@ export default function StudioSidebar({
    *  A LIST, not a boolean: the boolean was named after one feature and stopped
    *  meaning anything when that feature was removed. */
   planFeatures?: readonly string[]
+  /** `${space}/${slug}` keys that have a real surface, from `isBuilt()` in
+   *  lib/studio/surfaces.ts. Passed down rather than duplicated: that module is
+   *  server-only, and a second hand-maintained list is the one that drifts. */
+  builtSlugs?: readonly string[]
 }) {
   const pathname = usePathname()
   const parts = pathname.split('/').filter(Boolean) // ['studio', space?, feature?]
@@ -188,6 +201,18 @@ export default function StudioSidebar({
               .map((f) => {
               const Icon = f.icon
               const active = f.slug === activeFeature
+              // BUILT vs NOT, marked rather than hidden.
+              //
+              // Hiding an unbuilt surface would tell somebody they lack a
+              // capability they in fact hold — S-R S-3 inverted, and the same
+              // argument the studio HOME already settled by holding unbuilt
+              // surfaces back behind one line instead of dropping them.
+              //
+              // But rendering them IDENTICALLY to working ones is worse than
+              // either: in the Suite that is eight of twelve rail items landing
+              // on "Not built yet" with no warning, which reads as a broken
+              // product rather than an unfinished section of one.
+              const ready = builtSlugs.includes(`${space.id}/${f.slug}`)
               // Only a live attention count earns a badge — no static ★ markers.
               const countKey = FEATURE_COUNT[`${space.id}/${f.slug}`]
               const count = countKey ? counts[countKey] : 0
@@ -198,13 +223,20 @@ export default function StudioSidebar({
                   className={`group flex items-center gap-3 squircle-sm px-3 py-2 text-[13px] transition-colors ${
                     active
                       ? 'bg-primary/10 font-medium text-primary'
-                      : 'text-muted-foreground hover:bg-glow/[0.06] hover:text-foreground'
+                      : ready
+                        ? 'text-muted-foreground hover:bg-glow/[0.06] hover:text-foreground'
+                        : 'text-faint hover:bg-glow/[0.04] hover:text-muted-foreground'
                   }`}
                 >
                   {f.slug === 'ai-chat'
                     ? <PrimeOSMark size={17} className="icon-live flex-shrink-0" />
                     : <Icon size={16} className="icon-live flex-shrink-0" />}
                   <span className="flex-1 truncate">{f.label}</span>
+                  {!ready && !active && (
+                    <span className="shrink-0 rounded-full border border-border px-1.5 py-px text-[9px] font-medium uppercase tracking-wide text-faint">
+                      soon
+                    </span>
+                  )}
                   {count > 0 && (
                     <span className="min-w-[18px] rounded-full bg-destructive px-1.5 py-0.5 text-center text-[10px] font-bold text-destructive-foreground">
                       {count > 9 ? '9+' : count}

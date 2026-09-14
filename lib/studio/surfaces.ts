@@ -71,6 +71,12 @@ const BUILT: ReadonlySet<string> = new Set([
   'suite/script', 'suite/storyboard', 'suite/ai-chat', 'suite/library',
 ])
 
+/** The BUILT set as a plain array, for the RAIL — which is a client component
+ *  and cannot import this module (it is `server-only`). Exported rather than
+ *  re-typed there, because a second hand-maintained list of what is finished is
+ *  exactly the copy that goes stale the day a surface ships. */
+export const BUILT_SLUGS: readonly string[] = [...BUILT]
+
 export function isBuilt(spaceId: string, slug: string): boolean {
   return BUILT.has(`${spaceId}/${slug}`)
 }

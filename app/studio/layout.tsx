@@ -4,7 +4,7 @@ import { getCurrentUser } from '@/lib/auth/currentUser'
 import { isAdmin, userOrgId } from '@/lib/auth/role'
 import { orgAccessOf } from '@/lib/team'
 import { capList } from '@/lib/capabilities.server'
-import { paletteItems } from '@/lib/studio/surfaces'
+import { paletteItems, BUILT_SLUGS } from '@/lib/studio/surfaces'
 import CommandPalette from '@/components/studio/CommandPalette'
 import StudioSidebar from '@/components/studio/StudioSidebar'
 import StudioTopbar from '@/components/studio/StudioTopbar'
@@ -138,6 +138,9 @@ export default async function StudioLayout({ children }: { children: React.React
         // gated. Nothing carries a `planFeature` today, so this is empty — and
         // it is the mechanism that stays correct the day something does.
         planFeatures={planFeatures(brand.plan)}
+        // What is actually finished, so the rail can mark the rest rather than
+        // sending somebody to a dead end that looks identical to a live one.
+        builtSlugs={BUILT_SLUGS}
       />
       <div className="flex min-w-0 flex-1 flex-col gap-2 overflow-hidden sm:gap-3">
         <StudioTopbar />
