@@ -1231,7 +1231,46 @@ The audit found FOUR surfaces in those three spaces that are declared in
 | `client/guest-links` | **BUILT** (0085–0087) | the screening room — see §7 |
 | `client/brand-kit` | **BUILT** (no migration) | one colour in, an accessible ramp out — see §7 and CLAUDE.md |
 | portal calendar | **BUILT** (no migration) | `/dashboard/calendar` — dates that say what happens if you do nothing; see CLAUDE.md |
-| `crew/crm`, `crew/leads` | open, DEPRIORITISED | house-only (`internal.pipeline`). Lowest value of the four and flagged as such |
+| `crew/crm`, `crew/leads` | **REMOVED** (owner, 2026-09-14) | see below |
+
+**CRM · Pipeline and Lead-Gen Pipelines are deleted**, along with the
+`internal.pipeline` plan feature that existed only to gate them. The owner's
+words: *"the crew side crm and lead is only for mcprime company… we needed this
+in-house since we didnt want to use external crm and lead generation and even
+auto email and auto lead qualification. its not supposed to be for the whole
+platform. i am thinking of removing it."*
+
+The audit had reached the same place independently, on four grounds:
+
+1. **Nothing existed.** No `leads`, `deals`, `contacts`, `pipeline` or
+   `opportunities` table; no route; no row. Both tiles rendered "Phase 5 ·
+   coming soon" to one org.
+2. **The spec stack already said no, twice.** `S-F` §203 — "CRM later."
+   `S-V` §33 — *"The client relationship is production infrastructure, not CRM.
+   Every generic project tool treats this as a comment thread. That is
+   Throughline's structural advantage."* A CRM tab contradicts the positioning
+   on the studio's own screen.
+3. **They were the only SINGLE-TENANT features in a multi-tenant platform.**
+   Every capability audit, surface projection and plan-gate test carried a
+   branch serving exactly one customer.
+4. **What was actually wanted is not CRM.** Auto email and auto lead
+   qualification is marketing automation — a separate product with its own moat,
+   competing for attention with the half that is winning.
+
+**THE NEED IS REAL AND THE SHAPE THAT SERVES IT IS DIFFERENT.** A lead is a
+client company that has not signed yet: `clients.status` (`lead | active |
+past`) on the existing Companies surface, inheriting the tenant-voiced email
+path, tasks, calendar, contracts and the activity ledger this product already
+owns. That version is multi-tenant for free — every studio has prospects — so it
+stops being a house-only bolt-on and becomes a feature with an audience. It is
+recorded here rather than left as a tile promising itself something.
+
+**The plan-gating mechanism survives the removal**, and was improved by it: the
+rail took a `houseTools` boolean named after `internal.pipeline`, which stopped
+meaning anything the moment that feature went. It now takes the plan's feature
+LIST (`planFeatures()` in `lib/billing/plans.ts`, which stays `server-only`), so
+a plan-gated surface is still ABSENT rather than present-and-refused (R-6) the
+day something carries a `planFeature` again.
 
 One more that is not a surface but is owed, and is cheap now that the evidence
 exists: **wire watch-evidence into the approval record.** `listViewsForSubject`

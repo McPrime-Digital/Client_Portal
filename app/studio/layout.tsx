@@ -13,7 +13,7 @@ import PrimeOSDock from '@/components/studio/PrimeOSDock'
 import PresencePulse from '@/components/shared/PresencePulse'
 import { GOOGLE_FONTS_HREF } from '@/lib/studio/fonts'
 import { tenantBrand } from '@/lib/tenantBrand'
-import { planAllows } from '@/lib/billing/plans'
+import { planFeatures } from '@/lib/billing/plans'
 import { PRODUCT_NAME, PRODUCT_TAGLINE } from '@/lib/product'
 import type { Metadata } from 'next'
 
@@ -129,10 +129,15 @@ export default async function StudioLayout({ children }: { children: React.React
         // denial.
         caps={caps}
         roleLabel={roleLabel}
-        // Plan-gated rail entries (CRM · Pipeline, Lead-Gen) — resolved from the
-        // org's plan, never from an org id (lib/billing/plans.ts). The server
-        // gate in lib/studio/guard.ts enforces the same answer for typed URLs.
-        houseTools={planAllows(brand.plan, 'internal.pipeline')}
+        // Plan entitlement for the rail — resolved from the org's PLAN, never
+        // from an org id (lib/billing/plans.ts). The server gate in
+        // lib/studio/guard.ts enforces the same answer for typed URLs.
+        //
+        // A LIST since 2026-09-14: this passed `houseTools`, a boolean named
+        // after `internal.pipeline`, which was removed with the two features it
+        // gated. Nothing carries a `planFeature` today, so this is empty — and
+        // it is the mechanism that stays correct the day something does.
+        planFeatures={planFeatures(brand.plan)}
       />
       <div className="flex min-w-0 flex-1 flex-col gap-2 overflow-hidden sm:gap-3">
         <StudioTopbar />

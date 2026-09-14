@@ -48,18 +48,19 @@ export function planLimits(plan?: string | null): PlanLimits {
 export type PlanFeature =
   /** Remove the "Powered by Genreline" attribution from client-facing surfaces. */
   | 'attribution.hide'
-  /** The platform operator's internal business tools (CRM · Pipeline, Lead-Gen
-   *  Pipelines) — pre-platform features kept for the house org's own selling,
-   *  never advertised or sold to tenants. Not a roadmap item wearing a flag:
-   *  a tenant plan must never carry this. */
-  | 'internal.pipeline'
+  /* 'internal.pipeline' WAS HERE and is removed with the two features it
+     gated (2026-09-14). It existed for CRM · Pipeline and Lead-Gen Pipelines
+     and had no other consumer, so leaving it would be a plan feature that
+     entitles a tenant to nothing — the kind of flag somebody later reads as a
+     roadmap item. The plan-gating MECHANISM is untouched and still carries
+     attribution.hide and platform.erasure. */
   /** Run a person-level data erasure (AD-003 tombstone + auth-account delete).
    *  Erasure pseudonymizes by user id ACROSS tenants, so until S3 ships
    *  per-tenant erasure it is a platform-operator action — house plan only. */
   | 'platform.erasure'
 
 const PLAN_FEATURES: Record<PlanId, readonly PlanFeature[]> = {
-  house: ['attribution.hide', 'internal.pipeline', 'platform.erasure'],
+  house: ['attribution.hide', 'platform.erasure'],
   agency: [],
   studio: ['attribution.hide'],
   enterprise: ['attribution.hide'],
@@ -86,6 +87,24 @@ export function planAllows(
 }
 
 /** True when the org may add one more of `used` against a numeric limit. */
+/**
+ * Every feature this plan carries.
+ *
+ * Exists so a CLIENT component can filter plan-gated surfaces without importing
+ * this module — `plans.ts` is `server-only` (it is the entitlement source and
+ * must not be reasoned about in a browser), so the server resolves the SET and
+ * passes it down. The rail used to take a single `houseTools` boolean named
+ * after one feature, which stopped meaning anything the day that feature was
+ * removed.
+ *
+ * Default-deny survives: an unset or unknown plan resolves to an empty list, so
+ * a plan-gated surface is absent rather than present-and-refused (R-6).
+ */
+export function planFeatures(plan?: string | null): readonly PlanFeature[] {
+  const id = plan as PlanId | undefined
+  return (id && PLAN_FEATURES[id]) ? PLAN_FEATURES[id] : []
+}
+
 export function withinLimit(limit: number | null, used: number): boolean {
   return limit === null || used < limit
 }

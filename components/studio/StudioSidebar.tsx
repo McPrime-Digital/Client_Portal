@@ -32,7 +32,7 @@ export default function StudioSidebar({
   orgName,
   caps = [],
   roleLabel = 'Owner',
-  houseTools = false,
+  planFeatures = [],
   orgId = null,
 }: {
   userName: string
@@ -56,9 +56,11 @@ export default function StudioSidebar({
   roleLabel?: string
   /** scopes the instant badge topic (`badges:org:<id>`) to this tenant */
   orgId?: string | null
-  /** Whether this org's plan carries 'internal.pipeline' (house-only rail
-   *  entries). Resolved server-side in the layout from the org's PLAN. */
-  houseTools?: boolean
+  /** The plan features this org carries, resolved server-side
+   *  (`planFeatures()` in lib/billing/plans.ts, which is `server-only`).
+   *  A LIST, not a boolean: the boolean was named after one feature and stopped
+   *  meaning anything when that feature was removed. */
+  planFeatures?: readonly string[]
 }) {
   const pathname = usePathname()
   const parts = pathname.split('/').filter(Boolean) // ['studio', space?, feature?]
@@ -179,7 +181,9 @@ export default function StudioSidebar({
           {/* Feature card — one box, squircle edges, extended to the bottom. */}
           <nav className="glass-inset squircle mt-3 min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2 scrollbar-thin">
             {space.features
-              .filter((f) => !f.planFeature || houseTools)
+              // S-R §5 step 1 and R-6 together: a surface the PLAN does not
+              // carry is ABSENT from the rail, not present and refused on click.
+              .filter((f) => !f.planFeature || planFeatures.includes(f.planFeature))
               .filter((f) => orgFeatureAllowed(caps, space.id, f.slug))
               .map((f) => {
               const Icon = f.icon

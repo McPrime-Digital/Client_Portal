@@ -42,8 +42,10 @@ export async function requireOrgFeature(spaceId: string, slug: string): Promise<
   if (!orgFeatureAllowed(resolved.caps, spaceId, slug)) redirect('/studio')
 
   // Plan entitlement on top of capability: a feature carrying a `planFeature`
-  // exists only for orgs whose plan grants it (today: the house org's
-  // internal.pipeline tools). The exemption is the plan, never the org id
+  // exists only for orgs whose plan grants it. NOTHING carries one today —
+  // `internal.pipeline` went with CRM · Pipeline and Lead-Gen on 2026-09-14 —
+  // and this stays because it is the gate that must already be correct the day
+  // something does. The exemption is the plan, never the org id
   // (lib/billing/plans.ts) — and tenantBrand() is request-memoized, so this
   // costs nothing when the layout already resolved the brand.
   //

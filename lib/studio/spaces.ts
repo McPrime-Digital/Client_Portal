@@ -6,9 +6,10 @@
 // The OrgCap named 'workspace' in lib/permissions.ts deliberately keeps its
 // old name: it is stored in organization_members.extra_caps rows.
 import type { LucideIcon } from 'lucide-react'
+import type { PlanFeature } from '@/lib/billing/plans'
 import {
   UsersRound, Handshake, Clapperboard,
-  MessageSquare, ListChecks, GitBranchPlus, Radar, Gauge, Video, Contact,
+  MessageSquare, ListChecks, Gauge, Video, Contact,
   LayoutDashboard, FolderOpen, ScanEye, Files, MessageCircle, Receipt, Link2, Building2,
   Film, Workflow, Aperture, MonitorPlay, ImageUpscale, Fingerprint, Scale, Library, ShieldCheck, NotebookPen, SlidersHorizontal,
   CalendarDays, FileSignature, Settings, Palette, FileText, Package,
@@ -24,7 +25,11 @@ export type SpaceId = 'crew' | 'client' | 'suite'
 export type Feature = {
   readonly slug: string; readonly label: string; readonly icon: LucideIcon
   readonly phase: number; readonly badge?: string; readonly legacyHref?: string
-  readonly planFeature?: 'internal.pipeline'
+  /** Plan entitlement, S-R §5 step 1. The MECHANISM stays now that its only
+   *  user is gone: it is the generic "this feature exists for this plan" gate,
+   *  and typing it to the plan union rather than to one literal is what stops
+   *  it naming a retired feature forever. */
+  readonly planFeature?: PlanFeature
 }
 export type Space = {
   readonly id: SpaceId; readonly label: string; readonly icon: LucideIcon
@@ -48,10 +53,21 @@ const SPACES_LITERAL = defineSpaces([
       { slug: 'tasks', label: 'Tasks & Assignments', icon: ListChecks, phase: 4 },
       { slug: 'calendar', label: 'Calendar', icon: CalendarDays, phase: 4 },
       { slug: 'meetings', label: 'Meetings', icon: Video, phase: 5 },
-      // House-only (plan feature 'internal.pipeline'): the platform operator's
-      // own selling tools from the client-portal era. Tenants never see these.
-      { slug: 'crm', label: 'CRM · Pipeline', icon: GitBranchPlus, phase: 5, planFeature: 'internal.pipeline' },
-      { slug: 'leads', label: 'Lead-Gen Pipelines', icon: Radar, phase: 5, planFeature: 'internal.pipeline' },
+      /* CRM · PIPELINE and LEAD-GEN PIPELINES WERE HERE, and are removed on the
+         owner's decision (2026-09-14). They were the only single-tenant
+         features in a multi-tenant platform — advertised to the house org
+         alone, unbuilt in every sense (no table, no route, no row), and
+         contradicted by this project's own positioning: `S-V` §33, "the client
+         relationship is production infrastructure, NOT CRM", and `S-F` §203,
+         "CRM later".
+
+         The need behind them was real — in-house selling instead of paying for
+         an external CRM — and the shape that would serve it is NOT this. A lead
+         is a client company that has not signed yet: `clients.status`
+         (lead | active | past) beside the email path, tasks, calendar and the
+         activity ledger this product already owns. That version is
+         multi-tenant for free, because every studio has prospects. Recorded in
+         HANDOFF §9 rather than left as a tile promising itself something. */
       { slug: 'control-tower', label: 'Control Tower', icon: Gauge, phase: 3, badge: 'COST' },
       { slug: 'directory', label: 'Team', icon: Contact, phase: 1, badge: 'LIVE' },
       { slug: 'settings', label: 'Settings', icon: Settings, phase: 1, badge: 'LIVE' },

@@ -321,10 +321,24 @@ Walk each of these paths mentally before saving an edit to `proxy.ts`.
   The Suite was "Workspace" until Batch 12.2; `proxy.ts` redirects old `/studio/workspace/*`
   URLs, and the OrgCap named `'workspace'` in `lib/permissions.ts` deliberately keeps its
   name (it is stored in `organization_members.extra_caps` rows — renaming the string strips
-  granted access). CRM · Pipeline and Lead-Gen in Crew are gated to plan feature
-  `internal.pipeline` (house org only) via the sidebar filter and `requireOrgFeature`.
+  granted access).
   Features without an implementation render a "Phase N · coming soon" card
   (`app/studio/[space]/[feature]/page.tsx:40-66`). Whether stubs stay advertised is owned by S4.
+  **CRM · Pipeline and Lead-Gen Pipelines are REMOVED** (owner's decision,
+  2026-09-14), and with them the `internal.pipeline` plan feature — its only
+  consumer. They were the sole single-tenant features in a multi-tenant
+  platform: no table, no route, no row, advertised to the house org alone, and
+  contradicted by this project's own positioning (`S-V` §33, "the client
+  relationship is production infrastructure, **not CRM**"; `S-F` §203, "CRM
+  later"). The need behind them was real and the shape that serves it is
+  different — a lead is a client company that has not signed yet, so
+  `clients.status` (lead | active | past) beside the email path, tasks, calendar
+  and the activity ledger, which is multi-tenant for free. Recorded in
+  HANDOFF §9. **The plan-gating MECHANISM is untouched** and nothing carries a
+  `planFeature` today; the rail now takes the plan's feature LIST
+  (`planFeatures()`) rather than a `houseTools` boolean named after one feature,
+  because a boolean named after a feature stops meaning anything when that
+  feature goes.
 - `app/api/` — route handlers for files, portal, admin, studio, rooms, cron,
   presence, push, and the Stripe webhook. This entry was off by one twice when
   it carried a number — count it (`find app/api -name route.ts | wc -l`),

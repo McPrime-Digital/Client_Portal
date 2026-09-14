@@ -309,8 +309,6 @@ const ORG_FEATURE_CAP: Record<FeatureKey, OrgCap | null> = {
   'crew/tasks': 'work.projects',
   'crew/calendar': null,
   'crew/meetings': null,
-  'crew/crm': 'client.manage',
-  'crew/leads': 'client.manage',
   'crew/control-tower': 'money.costs',
   'crew/directory': 'people.manage',
   'crew/settings': 'org.settings',
