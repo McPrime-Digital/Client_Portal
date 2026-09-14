@@ -1414,6 +1414,37 @@ async function main() {
         leaks, theirs)
     }
 
+    // ── 60 · the brand kit — a studio's FACE is not editable by everyone ────
+    //
+    // `organizations.branding` is what every client of this studio sees: their
+    // portal, the review pages sent to them, the guest screening links, the
+    // signing pages, and the colour on a sealed contract PDF. A crew member who
+    // could rewrite it could deface the studio in front of its own clients,
+    // and the studio would find out from a client.
+    //
+    // `organizations_admin_write` (0021) is `id = current_org() and
+    // is_org_admin()`, so role — not mere membership — is the control. The route
+    // asks `org.settings.write` on top; this asserts the ROW underneath it,
+    // because a route being careful is not a control (Batch 22).
+    {
+      const leaks: string[] = []
+      const defaced = await crew.from('organizations')
+        .update({ branding: { input: { colour: '#ff0000' }, tokens: { light: {}, dark: {} } } })
+        .eq('id', HARNESS_ORG_ID).select('id')
+      if ((defaced.data ?? []).length > 0) leaks.push('a crew member rewrote the studio brand')
+
+      // CONTROL: the owner CAN — otherwise this asserts that branding is broken
+      // rather than that it is governed.
+      const byOwner = await owner.from('organizations')
+        .update({ branding: {} }).eq('id', HARNESS_ORG_ID).select('id')
+      judge(60, 'a crew member cannot rewrite the studio brand its clients see (control: an org admin can)',
+        leaks, (byOwner.data ?? []).length)
+
+      // Left as `{}` either way: the harness tenant must not end a run wearing
+      // a colour a later assertion did not put there.
+      await owner.from('organizations').update({ branding: {} }).eq('id', HARNESS_ORG_ID)
+    }
+
     // ── 56 · 0082 — the collaborator's SEAT is the invite ──────────────────
     //
     // S3-d MD-4's external collaborator has NO roster row anywhere: not crew,

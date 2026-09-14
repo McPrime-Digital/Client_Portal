@@ -4,6 +4,7 @@ import { CONSENT_TEXT, STATUS_LABEL } from '@/lib/contracts'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getSignedDownloadUrl } from '@/lib/r2'
 import { tenantBrand } from '@/lib/tenantBrand'
+import TenantTheme from '@/components/TenantTheme'
 import SignViaLink from '@/components/portal/SignViaLink'
 import FieldFiller from '@/components/portal/FieldFiller'
 
@@ -70,6 +71,10 @@ export default async function SignPage(
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-12">
+      {/* A background actor signing an AI-likeness release sees the STUDIO,
+          because that is who asked them. S0-B §2 reaches the last page in the
+          app with no session. */}
+      <TenantTheme brand={brand.brand} />
       <p className="text-[12px] font-medium uppercase tracking-wider text-faint">
         {brand.name}
       </p>

@@ -3,6 +3,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { readContract, listFields } from '@/lib/contracts'
 import { renderContractPdf, signContractPdf, stampFieldsIntoPdf } from '@/lib/contractPdf'
 import { uploadToR2, getSignedDownloadUrl } from '@/lib/r2'
+import { tenantBrand } from '@/lib/tenantBrand'
+import { pdfBrandRgb } from '@/lib/brandKit'
 
 /**
  * FINALISE — turn a fully-signed contract into a self-contained artifact.
@@ -78,7 +80,12 @@ export async function finalizeContract(
         kind: f.kind, page: f.page, x: f.x, y: f.y, w: f.w, h: f.h, value: f.value,
       })))
     } else {
-      base = await renderContractPdf(detail, studioName)
+      // The studio's colour on the artifact. Resolved HERE and not passed in,
+      // because this is the one moment the bytes are made — and `tenantBrand`
+      // is request-memoised, so it costs nothing on a path that has already
+      // read the organization.
+      const brand = await tenantBrand(detail.contract.organization_id)
+      base = await renderContractPdf(detail, studioName, pdfBrandRgb(brand.brand))
     }
 
     const seal = await signContractPdf(base)

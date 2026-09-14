@@ -6,6 +6,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getBusinessSettings } from '@/lib/businessSettings'
 import { captureError } from '@/lib/errors'
 import { planAllows } from '@/lib/billing/plans'
+import { readBrandKit, type BrandKit } from '@/lib/brandKit'
 
 // The studio's OWN identity, as its clients know it — never the product's
 // (S0-B §2/§3). A client of a studio bought from that studio; they have no
@@ -56,6 +57,14 @@ export type TenantBrand = {
    */
   replyTo: string | null
   /**
+   * The studio's derived colour tokens, or null for "wears the product's
+   * palette". Carried here rather than read separately because it comes off the
+   * SAME organizations row this module already fetches — the argument
+   * `showsAttribution` and `plan` already make. A second query for the brand
+   * would run on every client-facing page in the app.
+   */
+  brand: BrandKit | null
+  /**
    * The raw `organizations.plan` tier, for server-side entitlement checks via
    * lib/billing/plans.ts (`planAllows`). Carried, not decided, exactly like
    * `showsAttribution` — it comes off the same row this module already reads,
@@ -70,6 +79,7 @@ const NEUTRAL: TenantBrand = {
   resolved: false,
   showsAttribution: true,
   replyTo: null,
+  brand: null,
   plan: null,
 }
 
@@ -91,7 +101,7 @@ export const tenantBrand = cache(async function tenantBrand(
       getBusinessSettings(organizationId),
       supabaseAdmin
         .from('organizations')
-        .select('name, logo_url, plan')
+        .select('name, logo_url, plan, branding')
         .eq('id', organizationId)
         .maybeSingle(),
     ])
@@ -105,8 +115,10 @@ export const tenantBrand = cache(async function tenantBrand(
       })
     }
 
-    const org = orgRes.data as
-      { name?: string | null; logo_url?: string | null; plan?: string | null } | null
+    const org = orgRes.data as {
+      name?: string | null; logo_url?: string | null; plan?: string | null
+      branding?: unknown
+    } | null
     const name =
       settings?.business_name?.trim() || org?.name?.trim() || NEUTRAL_TENANT_NAME
 
@@ -116,6 +128,10 @@ export const tenantBrand = cache(async function tenantBrand(
       resolved: name !== NEUTRAL_TENANT_NAME,
       showsAttribution: !planAllows(org?.plan, 'attribution.hide'),
       replyTo: settings?.business_email?.trim() || null,
+      // readBrandKit NEVER half-returns: a partially valid kit rendered as CSS
+      // is a portal with one token from the studio and three from the product,
+      // which reads as a bug in the studio's brand rather than in this code.
+      brand: readBrandKit(org?.branding),
       plan: org?.plan ?? null,
     }
   } catch (e) {

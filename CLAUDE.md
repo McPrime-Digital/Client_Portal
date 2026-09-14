@@ -101,6 +101,11 @@ Accurate notes on the dependency list — several packages are installed but not
   Link an admin pastes in by hand — no API call is made.
 - No AI vendor SDK is installed; every model call is a raw `fetch`
   (`app/api/studio/muse/route.ts`).
+- **`culori` (MIT, zero dependencies) is used at exactly one site** —
+  `lib/brandKit.ts`, for OKLCH conversion. It is the only dependency this repo
+  has added in the audited era, and it was added after `evilmartians/apcach`
+  was rejected for a transitive `apca-w3` dependency whose licence forbids
+  commercial use. See "The brand kit" below before adding a colour library.
 
 Note: dynamic-route `params` and `next/headers` `cookies()` are async (Promises) — always
 `await` them.
@@ -115,8 +120,8 @@ Note: dynamic-route `params` and `next/headers` `cookies()` are async (Promises)
 There is no unit-test framework configured. There are now TWO test surfaces, and both must
 be run after anything touching policies, auth, capabilities or tenancy:
 
-- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **59 assertions**, numbered
-  1–59 with none reserved (slot 21 was held for the retention purge and 0071 filled
+- `npm run test:rls` — the RLS harness (`scripts/test-rls.ts`, **60 assertions**, numbered
+  1–60 with none reserved (slot 21 was held for the retention purge and 0071 filled
   it), every one with a positive control, seeded by
   `npm run seed:harness -- --apply`). Seed, then run ONCE:
   assertion 17 is single-use and reports VACUOUS on a second run without a re-seed.
@@ -514,6 +519,85 @@ same argument `S3-core` §3.2 makes about a version being a file.
 It does NOT claim colour-managed delivery. A grading review needs 10-bit
 transport and a calibrated display, and no managed encoder hands you that over
 HTTP; `ColourCheck` still warns where the display falls short.
+
+## The brand kit — one colour in, an accessible ramp out
+
+`organizations.branding` (jsonb, **no migration — it has existed since 0001
+holding `{}` with zero readers and zero writers**), `lib/brandKit.ts` as the
+derivation, `/api/studio/organization/brand` as the one write path,
+`/studio/client/brand-kit` as the surface, and `components/TenantTheme.tsx` as
+the one thing that renders it.
+
+**Audited before building.** TAKEN: `Evercoder/culori` (MIT, **zero
+dependencies**) for OKLCH conversion; `radix-ui/colors` (MIT) for the SEMANTICS
+of a scale, not its hand-tuned constants; `ricokahler/color2k` (MIT) as
+confirmation that WCAG contrast is five lines of spec arithmetic;
+`jnsahaj/tweakcn` (Apache-2.0) as the UX reference for a live preview.
+
+**REJECTED, and this is the find: `evilmartians/apcach`.** The package is MIT
+and does exactly the right thing — generate a colour FROM a contrast target —
+but it depends on `apca-w3`, which ships under the **"Limited W3 License"**:
+*"Commercial use is prohibited without a written and signed commercial license
+agreement"*, plus a ban on modifying the core constants. This product is
+commercial SaaS. **An MIT badge on the top-level package made the obligation
+invisible; it rode in on a transitive dependency.** The contrast half is
+therefore implemented here against the published WCAG 2.1 formula, and apcach's
+*idea* — solve for the colour that meets the contrast — is reimplemented in
+`deriveOn()`, which is the only part of it that was ever free to take.
+
+**THE THING THAT BEATS THE MARKET.** "Custom branding" in this category is four
+knobs: logo, accent, hide the vendor, custom domain. Frame.io gates it behind
+Enterprise. Everyone stores the hex the customer typed and interpolates it into
+CSS, and the 2026 white-label architecture write-ups name the consequence in
+their own words — preventing "custom CSS or branding assets from breaking core
+UI components or accessibility standards" — and then do not solve it.
+
+Here the studio picks ONE colour and everything else is derived, server-side:
+
+- **The on-colour is CHOSEN BY MEASUREMENT.** A pale gold fill gets near-black
+  type; a navy one gets near-white. There is no input that produces an
+  unreadable Approve button, and a probe proves it across eleven hostile
+  colours (`#FAFAFA`, `#0A0A0A`, neon yellow, pure red) in both themes.
+- **Both themes from one decision.** A hex tuned for white is routinely
+  invisible on the dark shell. Hue and chroma — the parts a person recognises as
+  "their" colour — are held; only lightness moves, and only as far as it must.
+- **The brand reaches what LEAVES THE BUILDING**: the portal, the guest
+  screening page, the signing page, the transactional email, and the **sealed
+  contract PDF**. A branded portal is a login screen; a branded record is the
+  file an auditor still has in seven years, and no client-portal product reaches
+  one because none of them has an artifact.
+
+Rules that are not style preferences:
+
+- **The request carries a colour; the server derives the tokens.** A browser
+  that posted a hand-made `tokens` object would be writing CSS variables into
+  every one of that studio's clients' browsers. The editor previews with the
+  same module so the number shown is the number stored — one derivation, run
+  twice, never two implementations.
+- **`TenantTheme` never renders inside `/studio`** (S0-B §2). The portal wears
+  the tenant; the shell wears the product. "White-label everything" is the
+  market's framing and it is wrong here — a producer working in Genreline should
+  see Genreline.
+- **OKLCH internally, HSL triplets out.** `globals.css` defines every token as
+  `--primary: 40 57% 45%` and ~400 sites read `hsl(var(--primary))`; changing
+  the token format to suit this module would be the tail wagging the dog.
+- **Both halves are stored.** `input` is what the studio chose, `tokens` is what
+  renders. A better derivation later re-runs from the input; storing only the
+  output makes every improvement a migration that has already lost what it needs.
+- **`readBrandKit` never half-returns.** One token from the studio and three
+  from the product reads as a bug in the studio's brand rather than in this code.
+- **Branding the sealed PDF is safe, and that was checked rather than assumed.**
+  `content_hash` is taken at SEND, so a colour that moved after signing would
+  break the module's whole purpose. It cannot: `lib/contractFinalize.ts` renders
+  ONCE when the last signature lands and stores the bytes in R2. A rebrand next
+  year changes the portal and cannot touch a signed file.
+- **The email CTA no longer hardcodes `#ffffff`.** That was correct for the
+  product's gold and unreadable the moment a studio picked a pale accent — and
+  there is no CSS layer in an email to catch it, so the derived on-colour is
+  carried in. A tenant accent is only used for `voice: 'tenant'`; Genreline
+  speaking to the studio it sells to must not wear the studio's colours.
+- **No kit renders nothing**, and the house org has none — so nothing changes
+  for anybody until a studio opts in.
 
 ## The screening room — a guest link that is also evidence
 

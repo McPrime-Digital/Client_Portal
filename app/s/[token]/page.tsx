@@ -2,6 +2,7 @@ import { resolveShareLink } from '@/lib/shareLinks'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { tenantBrand } from '@/lib/tenantBrand'
 import ScreeningRoom from '@/components/portal/ScreeningRoom'
+import TenantTheme from '@/components/TenantTheme'
 
 /**
  * THE SCREENING PAGE — no session, by design.
@@ -56,6 +57,12 @@ export default async function SharePage(
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-12">
+      {/* The brand reaches the ARTIFACT, not just the portal. A financier who
+          will never hold an account opens this page once, and it is the
+          studio's page — which is the half of "custom branding" every
+          client-portal product stops short of, because none of them has
+          anything that leaves the building. */}
+      <TenantTheme brand={brand.brand} />
       <p className="text-[12px] font-medium uppercase tracking-wider text-faint">
         {brand.name}
       </p>

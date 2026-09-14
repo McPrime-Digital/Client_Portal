@@ -72,10 +72,30 @@ const ts = (s: string) =>
     hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'short',
   })
 
-/** The agreement, the signature block, and the certificate of completion. */
+/**
+ * The agreement, the signature block, and the certificate of completion.
+ *
+ * ── THE STUDIO'S COLOUR REACHES THE ARTIFACT ─────────────────────────────
+ *
+ * A branded portal is a login screen. A branded RECORD is the file a financier,
+ * a network or an auditor still has on disk in seven years — and no
+ * client-portal product in this category reaches one, because none of them has
+ * an artifact to reach.
+ *
+ * **AND IT IS SAFE TO DO, WHICH WAS CHECKED RATHER THAN ASSUMED.** A colour
+ * that moved after signing would be catastrophic here: `content_hash` is taken
+ * at SEND and a re-render with different bytes would break the one property the
+ * whole module exists for. It does not happen — `lib/contractFinalize.ts` calls
+ * this ONCE, when the last signature lands, and stores the result in R2. The
+ * bytes freeze at the seal. A rebrand next year changes the portal and cannot
+ * touch a signed file.
+ */
 export async function renderContractPdf(
   detail: ContractDetail,
-  studioName: string
+  studioName: string,
+  /** The studio's brand colour as `[r, g, b]` in 0…1, or null for the
+   *  product's neutral rule. Null is a real answer, never a default brand. */
+  brandRgb?: [number, number, number] | null
 ): Promise<Uint8Array> {
   const { contract, signers, events } = detail
   const pdf = await PDFDocument.create()
@@ -115,7 +135,20 @@ export async function renderContractPdf(
 
   write(contract.title, 17, bold, 26)
   write(studioName, 9.5, font, 18)
-  rule()
+  if (brandRgb) {
+    // A 2pt rule in the studio's own colour, in place of the neutral hairline.
+    // Deliberately the only brand mark on the page: a contract is a legal
+    // instrument and decorating one reads as marketing, which is the opposite
+    // of what this document needs to look like.
+    need(18)
+    page.drawLine({
+      start: { x: MARGIN, y: y + 4 }, end: { x: MARGIN + 64, y: y + 4 },
+      thickness: 2, color: rgb(brandRgb[0], brandRgb[1], brandRgb[2]),
+    })
+    y -= 18
+  } else {
+    rule()
+  }
 
   for (const line of wrap(contract.body?.text ?? '', 92)) {
     if (line === '') { y -= LINE / 2; continue }

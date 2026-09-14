@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { getCurrentUser } from '@/lib/auth/currentUser'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { tenantBrand, tenantBrandForClient } from '@/lib/tenantBrand'
+import TenantTheme from '@/components/TenantTheme'
 import type { Metadata } from 'next'
 import { DEFAULT_ORG_ID } from '@/lib/auth/role'
 import Sidebar from '@/components/layout/Sidebar'
@@ -142,6 +143,9 @@ export default async function PortalLayout({
 
   return (
     <div className="app-canvas flex h-screen gap-2 overflow-hidden p-2 sm:gap-3 sm:p-3">
+      {/* S0-B §2 — the portal wears the STUDIO's colours, not the product's.
+          Null renders nothing and the product palette stands. */}
+      <TenantTheme brand={brand.brand} />
       <PresencePulse
         role="client"
         userId={user.id}

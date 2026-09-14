@@ -1,5 +1,6 @@
 import 'server-only'
 
+import { emailPalette } from '@/lib/brandKit'
 import { PRODUCT_NAME } from '@/lib/product'
 import type { TenantBrand } from '@/lib/tenantBrand'
 
@@ -113,12 +114,22 @@ export function renderEmail(
   // --primary, which is why it survives as the default rather than as one
   // studio's colour (P-1).
   //
-  // PER-TENANT ACCENT IS NOT BUILT. `organizations.brand_color` (S-C §6) would
-  // need a migration, and an additive column has to be applied before the code
-  // deploys or every read fails 42703 (the 0025 ordering lesson). Nobody asked
-  // for per-studio colour; name and logo were the ask. `safeColor` is here as
-  // the validated entry point for when the column lands — one argument changes.
-  const accent = safeColor(null, PRODUCT_ACCENT)
+  // **PER-TENANT ACCENT IS BUILT NOW** (the brand kit). This block used to say
+  // it was not, and named `safeColor` as "the validated entry point for when
+  // the column lands — one argument changes". That is what happened: the column
+  // is `organizations.branding`, no migration was needed because it has existed
+  // since 0001 holding `{}`, and the argument changed.
+  //
+  // A TENANT ACCENT IS ONLY FOR THE TENANT'S VOICE. Genreline speaking to the
+  // studio it sells to (CM-1's `voice: 'product'`) must not wear the studio's
+  // colours — that is S0-B §2's trap read backwards.
+  const palette = voice === 'tenant' ? emailPalette(brand.brand) : null
+  const accent = safeColor(palette?.accent, PRODUCT_ACCENT)
+  // **AND THE TEXT ON IT.** The CTA hardcoded `#ffffff`, which is correct for
+  // the product's gold and unreadable the moment a studio picks a pale one.
+  // There is no CSS layer in an email to catch that, so the contrast-derived
+  // on-colour is carried in. Defaults to white, which is what it was.
+  const onAccent = safeColor(palette?.onAccent, '#ffffff')
 
   const logo = voice === 'tenant' ? brand.logoUrl : null
 
@@ -132,7 +143,7 @@ export function renderEmail(
   const cta = content.cta
     ? `<table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:36px;">
         <tr><td style="background:${accent};border-radius:3px;">
-          <a href="${esc(content.cta.url)}" target="_blank" style="display:inline-block;padding:13px 28px;color:#ffffff;font-size:13px;font-weight:600;text-decoration:none;letter-spacing:0.03em;text-transform:uppercase;">${esc(content.cta.label)}</a>
+          <a href="${esc(content.cta.url)}" target="_blank" style="display:inline-block;padding:13px 28px;color:${onAccent};font-size:13px;font-weight:600;text-decoration:none;letter-spacing:0.03em;text-transform:uppercase;">${esc(content.cta.label)}</a>
         </td></tr>
       </table>`
     : ''
