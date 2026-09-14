@@ -16,6 +16,7 @@ import {
   Receipt, FileSignature, Video,
   Settings,
   UsersRound,
+  CalendarDays,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useSidebarStore } from '@/lib/stores/sidebar-store'
@@ -60,6 +61,7 @@ const navItems = [
       { label: 'Overview', href: '/dashboard', icon: LayoutDashboard },
       { label: 'Projects', href: '/projects', icon: FolderOpen },
       { label: 'Review & Approvals', href: '/approvals', icon: ScanEye },
+      { label: "What's coming", href: '/dashboard/calendar', icon: CalendarDays },
     ],
   },
   {

@@ -520,6 +520,60 @@ It does NOT claim colour-managed delivery. A grading review needs 10-bit
 transport and a calibrated display, and no managed encoder hands you that over
 HTTP; `ColourCheck` still warns where the display falls short.
 
+## The client's calendar — dates that say what happens if you do nothing
+
+`/dashboard/calendar` ("What's coming"), `lib/portalCalendar.ts` for the
+decoration, `listClientEntries` in `lib/calendar.ts` for the read. No migration:
+`calendar_entries` has had a client SELECT policy since 0065 and its writers
+since 0074, and never had a client-facing surface — a deadline the studio could
+see was invisible to the company it binds.
+
+**Audited and NOT used**, with reasons: `fullcalendar/fullcalendar` (MIT core,
+but the resource and timeline views are commercially licensed — the ecosystem
+has a paywall a future ask walks straight into), `schedule-x/schedule-x` (MIT,
+zero deps, genuinely good) and `vkurko/calendar` (MIT). All three render a grid
+of events well; this repo already has `monthGrid`/`groupByDay` and the crew
+calendar uses them, so a library buys a second calendar idiom and moves nothing.
+What was taken is schedule-x's AGENDA view as an idea — a client on a phone
+wants a list, not twelve empty Tuesdays.
+
+**THE THING THAT BEATS THE MARKET.** Every client portal in the category offers
+the same three things and Genreline already had all three: pending items with
+due dates, an escalating reminder ladder, and an approval history. **And all of
+them are passive** — the deadline reminds you, and if you ignore it the badge
+turns red. `S3-c` made silence a decision, so this calendar can write a sentence
+no other product can write truthfully: *"If nobody responds by Thursday 5:00 PM,
+this is approved automatically and the production moves on."* Google Calendar
+cannot say it; neither can a portal that only displays a date. It is only true
+in the system that will do the thing.
+
+Rules that are not style preferences:
+
+- **The order is by whose move it is, not by date.** A chronological list buries
+  the decision that lapses on Thursday under three shoot days in between.
+- **An ACTIVE stage past its deadline is still the client's move and still sorts
+  first.** It is the window between the deadline and the next daily sweep — the
+  most urgent row the page can show — and filing it under "already passed" would
+  put the emergency in history.
+- **The tense is a correctness property.** "If you do nothing by Tuesday" about
+  last Tuesday is grammatical, confident and false, and somebody acts on it.
+  This is the same defect `approvalIntel` shipped once; it recurred here in a
+  second module and was caught by a probe that reads the SENTENCE rather than
+  the row (`scripts/ops/probe-portal-calendar.ts`).
+- **An auto-advance that already happened is SHOWN**, and named as an automatic
+  advance rather than a sign-off. A client must never learn from the
+  consequences that something lapsed on their silence.
+- **`listClientEntries` carries no `organization_id` filter, deliberately.**
+  `calendar_entries_client_read` scopes by `is_client_member`, never by
+  `current_org()`, and a client's JWT may carry no org claim — an `.eq()` there
+  would render an EMPTY CALENDAR rather than an error.
+- **`approvalIntel`'s grading is absent.** The studio sees how its own record
+  would hold up; the client does not. A consequence is a different thing from a
+  grade — it is a fact about what the system will do next.
+- **The nav link is ungated** (`CLIENT_NAV_CAP['/dashboard/calendar'] = null`).
+  Somebody who may not decide may still need to know the date, and RLS already
+  scopes the rows.
+
 ## The brand kit — one colour in, an accessible ramp out
 
 `organizations.branding` (jsonb, **no migration — it has existed since 0001

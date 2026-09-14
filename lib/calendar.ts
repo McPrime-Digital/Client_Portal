@@ -89,6 +89,36 @@ export async function listEntries(
   return (data ?? []) as unknown as CalendarEntry[]
 }
 
+/**
+ * The same read, for a CLIENT session — and deliberately WITHOUT the
+ * `organization_id` filter.
+ *
+ * `calendar_entries_client_read` scopes by `is_client_member(client_id)` and
+ * project visibility; it never consults `current_org()`. A client's JWT may
+ * legitimately carry no `organization_id` claim, and adding `.eq()` on it here
+ * would produce an EMPTY CALENDAR rather than an error — the silent-empty
+ * failure AD-001 exists to prevent, arriving as "the client says their calendar
+ * is blank and nobody can reproduce it".
+ *
+ * So the policy is the only scope, which is also the point of having one.
+ */
+export async function listClientEntries(
+  db: SupabaseClient, from: Date, to: Date
+): Promise<CalendarEntry[]> {
+  const { data, error } = await db
+    .from('calendar_entries')
+    .select(COLUMNS)
+    // The standing obligation from 0073 — belt and braces here, since the
+    // client policy already carries it.
+    .is('deleted_at', null)
+    .gte('starts_at', from.toISOString())
+    .lt('starts_at', to.toISOString())
+    .order('starts_at', { ascending: true })
+    .limit(500)
+  if (error) throw new Error(`listClientEntries: ${error.message}`)
+  return (data ?? []) as unknown as CalendarEntry[]
+}
+
 export type ManualEntryInput = {
   organizationId: string
   title: string

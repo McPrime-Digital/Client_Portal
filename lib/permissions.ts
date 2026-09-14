@@ -91,6 +91,12 @@ const CLIENT_NAV_CAP: Readonly<Record<string, ClientCap | null>> = {
   // question — RLS already decides which meetings exist for you, and gating the
   // LINK would hide it from somebody who is in the call.
   '/dashboard/meetings': null,
+  // The calendar is what your company OWES and is owed. Gating it on
+  // portal.approve would hide the deadline from everybody except the person
+  // holding the approval capability — and the whole point of the page is that a
+  // decision nobody made is about to be made by silence. RLS already scopes the
+  // rows; a person who may not decide may still need to know the date.
+  '/dashboard/calendar': null,
   '/dashboard': null,
   '/projects': null,
   '/messages': null,
