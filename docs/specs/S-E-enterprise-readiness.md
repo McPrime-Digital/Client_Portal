@@ -14,9 +14,12 @@ platform, what is missing from this product today, and in what order to close it
 ## 0. Evidence discipline — read this before quoting anything below
 
 This document was compiled under a constraint and says so rather than
-pretending otherwise. Five research streams were launched; **one completed**,
-three were stopped by the owner mid-run to conserve budget, and the session's
-web-search allowance (200 calls) was exhausted before they could be re-run.
+pretending otherwise. Five research streams were launched; **one completed**, the rest were stopped
+by the owner mid-run to conserve budget, and the session's web-search allowance
+(200 calls) was exhausted. **The remaining topics were then researched directly
+by the author** against primary and secondary sources, which is why §7.4, §8.3,
+§8.4 and §8.5 carry [SOURCED] tags rather than [OPEN] ones. §11 lists what is
+still genuinely unverified.
 
 Every claim below is tagged:
 
@@ -351,20 +354,47 @@ npm package is **MIT with MIT dependencies**; **`contentauth/c2pa-node` is
 ARCHIVED and must not be adopted**. The embed path is `c2patool` as a job-queue
 worker — which 0083/0084 now make possible.
 
-### 7.4 Union agreements — **[OPEN]**
+### 7.4 Union agreements — and the product is closer than expected
 
-Research on SAG-AFTRA's current AI terms (employment-based vs independently
-created digital replicas, what consent must specify, compensation, reuse,
-revocation), the WGA MBA AI provisions, and DGA/IATSE terms **did not
-complete**. The primary source returned HTTP 403 to automated fetch.
+**[SOURCED]** SAG-AFTRA's 2023 TV/Theatrical agreement defines **three**
+categories, and the distinctions are contractual, not cosmetic
+([DLA Piper](https://www.dlapiper.com/en-br/insights/publications/2023/12/inside-the-sag-aftra-collective-bargaining-agreement),
+[Authors Guild](https://authorsguild.org/news/sag-aftra-agreement-establishes-important-ai-safeguards/)):
 
-**[DOMAIN]** The shape to expect: consent must be **specific**, in **writing**,
-**separate from the general employment contract**, must describe the intended
-use, and must survive as a retained record. If that is right, it maps almost
-exactly onto `contracts` + `release_kind` + `subject_file_id` + `ai_training`
-as already built — but **this must be verified before it is claimed to a
-studio.** Do not put union-compliance language in marketing until somebody has
-read the actual agreements.
+| Category | Definition | Consent | Compensation |
+|---|---|---|---|
+| **Employment-Based Digital Replica** | Created **during** employment, with the performer's physical participation | Must be **"clear and conspicuous"**, in the employment contract **or a separate signed document**, with a **specific description of use**. Required where use extends substantially beyond the scripted performance | **Not less than** what the performer would have been paid for the physical performance |
+| **Independently Created Digital Replica** | Created **outside** employment, from pre-existing material | **Explicit written consent** with a **"reasonably specific description" of intended uses**, signed before production begins. After death, **an authorised representative may consent** | Freely negotiated |
+| **Synthetic Performer** | Digitally created, not scanned from a specific actor, but trained on models of real actors | Producer must **notify SAG-AFTRA** and **bargain** over whether compensation is appropriate | Bargained |
+
+Two carve-outs: **no consent** is needed for ordinary post-production alteration
+(cosmetics, effects, clarity), and a **First Amendment exception** covers
+comment, criticism, scholarship, satire and parody. **Residuals** may be owed
+where a replica appears in a way that would have triggered them had the
+performer done the work.
+
+**[CODE] How this maps onto what exists — and the three gaps it exposes.**
+`contracts.release_kind = 'ai_likeness'` plus `subject_file_id`, `ai_training`
+and the 0079 trigger already express most of this. What is missing:
+
+1. **The "reasonably specific description of intended uses" has no field.**
+   Today it lives in prose inside `contracts.body`. The agreement makes
+   specificity a *condition of validity*, so it should be a structured,
+   required field on a replica release — not a paragraph somebody may forget to
+   write. **This is a small change with real legal weight.**
+2. **`release_kind` does not distinguish employment-based from independently
+   created**, and they carry different consent and compensation rules. A fourth
+   value, or a modifier, is needed before the record can claim compliance.
+3. **The signer is always the person.** An authorised representative signing for
+   a deceased performer's estate is explicitly contemplated by the agreement and
+   is not expressible today.
+
+**[OPEN]** WGA MBA, DGA and IATSE AI terms were not verified. Do not claim
+coverage of those.
+
+**Standing rule: do not put union-compliance language in marketing until
+somebody has read the actual agreements.** The above is a secondary-source
+reading of one of four.
 
 ### 7.5 E&O insurance and copyright — **[OPEN]**
 
@@ -417,35 +447,125 @@ to the CSA STAR registry**. It is free, public, and pre-answers the 261
 questions that appear inside SIG Core and every bespoke studio questionnaire.
 Highest ROI item on this entire document.
 
-### 8.3 Production workflow gaps — **[OPEN]**
+### 8.3 The adjacent gap that fits this product exactly: VFX turnover
 
-The department-by-department analysis (script breakdown, scheduling, budgeting,
-call sheets, dailies, VFX turnovers, editorial interchange — EDL/AAF/**OTIO** —
-conform, colour/ACES, QC, deliverables/IMF, localization, archive/LTO) **did not
-complete.**
+**[SOURCED]** This is the most valuable finding in the document, and it was not
+what the research set out to look for.
 
-**[DOMAIN]** The strategic read that does not depend on that research: this
-product owns **review, approval, the record, files, contracts, provenance and
-rights**. Incumbents own scheduling (Movie Magic, Yamdu, Scenechronize),
-budgeting (Movie Magic, Showbiz), payroll (Wrapbook, Cast & Crew, EP) and shot
-tracking (Autodesk Flow/ShotGrid, ftrack) **absolutely**. Competing there is a
-losing fight. The integration surface — speaking **OTIO, EDL, AAF, ALE, CDL** —
-is more valuable than the feature.
+The named cause of wasted VFX spend is **not** technical:
 
-### 8.4 Competitive landscape — **[OPEN]**
+> *"Most wasted VFX work happens because artist and editorial are not on the
+> same version, not because of technical failures."*
+> ([playpause.io](https://playpause.io/blogs/vfx-turnover-tight-editorial-still-cutting-picture))
 
-Only two data points were verified this session:
+Three days of artist labour is discarded when a revised cut arrives. Multiple
+editorial versions circulate at once — director's cut, the supervisor's turnover
+version, the studio review version — and tracking which one a team should be
+working against consumes days of coordinator time, **in spreadsheets and email
+threads**.
 
-- **[SOURCED]** Frame.io gates **custom branding, session-based watermarking,
-  forensic watermarking and DRM to Enterprise**; Enterprise splits into Select
-  and Prime, with Prime carrying advanced security. **Reviewers on shared links
-  are free and unlimited on every plan** — only workspace members bill.
-- **[SOURCED]** Evercast and Moxion both sell forensic watermarking as premium
-  or per-project.
+The tooling deficiencies are named explicitly in the same source:
 
-**[DOMAIN]** The white space worth testing: nobody combines *frame-accurate
-review + a defensible approval record + signed releases that write a rights
-record + AI provenance* in one system. Each half exists; the join does not.
+- shot-level **change notification**
+- **shared version comparison**
+- **frame-accurate timestamped records for all changes**
+- formalised **freeze-list agreements** between departments
+
+And from the turnover specification itself
+([DI/VFX wiki](https://divfx.tashitrieu.com/wiki/turnover-vfx/)):
+
+> *"A higher revision does not inherit approval from the revision before it."*
+> Version numbers alone do not identify approval status — **revision and state
+> require separate tracking fields.**
+
+Per published revision, a turnover needs: **creator or vendor, role, creation
+date and time, reason or change summary, source revision, representation,
+state, approver, and approval date.**
+
+**[CODE] Read that list against what is already built.** That is
+`files.parent_file_id` / `version_no` / `is_current` (0069), `approvals` +
+`approval_stages` + `approval_decisions` with timestamps and named actors
+(0038–0041), `approvalTimeline()`, `review_annotations` anchored at `anchor_ms`
+(0080), and `activity_log` with a 7-year guard. **The product already implements
+the exact record a VFX turnover needs. It has simply never been pointed at that
+audience.**
+
+The turnover package itself is well-specified and worth knowing: 16-bit
+scene-linear EXR plates, a **machine-readable count sheet** (shot identity,
+timecode, frame ranges, handles, source paths, retimes), a v000/bash-comp
+reference per shot plus a cut-context reference movie, **ASC CDL** (`.cc` /
+`.ccc`), show LUTs, lens grids, camera metadata, HDRI. Naming is
+`[SHOT]_[CLASS]_v[VERSION][_DESCRIPTOR].[FRAME].[EXT]`.
+
+**The strategic read.** Incumbents own scheduling (Movie Magic, Yamdu), budgeting
+(Movie Magic, Showbiz), payroll (Wrapbook, Cast & Crew, EP) and shot tracking
+(Autodesk Flow, ftrack) **absolutely**; competing there is a losing fight.
+**[DOMAIN]** But the *version-to-approval join* is not owned by any of them, it
+is the primitive this product is built on, and the people who need it are
+already in the room. Speaking **OTIO, EDL, AAF, ALE and CDL** is worth more than
+building a scheduler.
+
+### 8.4 Competitive landscape — the top tier consolidated while we were building
+
+**[SOURCED]** **Autodesk now owns the whole production lifecycle.** Moxion and
+PIX both became **Flow Capture**; ShotGrid became **Flow Production Tracking**
+([Autodesk](https://blogs.autodesk.com/media-and-entertainment/2026/04/13/understanding-the-differences-between-autodesk-flow-flow-studio-flow-capture-and-flow-production-tracking/)):
+
+| Product | What it is | Note |
+|---|---|---|
+| **Flow Capture** (ex-Moxion / PIX) | Secure cloud review for on-set and editorial: **synchronised playback, chat, frame-specific annotations** | **Forensic watermarking, burnt-in watermarks, granular access control, and DRM** |
+| **Flow Production Tracking** (ex-ShotGrid) | Tasks, assets, schedules, review, across distributed teams | AI generative scheduling; Maya/Unreal integration |
+| **Flow Studio** | AI 3D toolkit — live action to editable CG, motion capture, clean plates | Wonder 3D for text/image → 3D |
+| **Flow** | The connective cloud layer | Moves "data, context and creative intent" between the above |
+
+**This is the sharpest competitive fact in the document.** Flow Capture's
+feature list — synchronised playback, frame-accurate annotation, forensic
+watermarking — is the review session this product built, plus the one control it
+does not have. Autodesk consolidated the tier; the differentiation has to be
+somewhere Autodesk is not.
+
+**[SOURCED]** Frame.io gates **custom branding, session-based watermarking,
+forensic watermarking and DRM to Enterprise**, which splits into Select and
+Prime. **Reviewers on shared links are free and unlimited on every plan** —
+only workspace members bill. That pricing shape is worth copying: it is why
+Frame.io spreads through a production.
+
+**[SOURCED]** Evercast and Moxion both sell forensic watermarking as premium or
+per-project.
+
+### 8.5 The white space, stated precisely
+
+**[SOURCED]** A new external standard landed in **June 2026**: **RSL Media's
+Human Consent Standard**, a free public registry that translates consent
+declarations into **machine-readable signals AI platforms can query before
+ingesting or generating protected material**
+([Venable](https://www.venable.com/insights/publications/2026/06/a-new-framework-for-ai-permissions-in)).
+It uses a **traffic-light model — allowed / allowed with terms / prohibited —**
+across four categories: creative works, **identity (name, image, likeness,
+voice, movement)**, characters, and marks. Built on the Really Simple Licensing
+protocol; backed by major talent agencies, Cate Blanchett and the Music Artists
+Coalition.
+
+**[CODE] Note what that traffic light is.** `allowed / allowed with terms /
+prohibited` is CAWG's `allowed / constrained / notAllowed` — **the exact enum
+0064 already stores** on `rights.data_mining`, `ai_inference` and
+`ai_generative_training`. The industry converged on the vocabulary this product
+adopted.
+
+**So the white space is this, and it is narrow and defensible:**
+
+> RSL is a **registry of standing preferences** — what a person will and will
+> not permit, in general. This product holds the **per-production consent
+> record tied to a signature and an asset** — what this performer agreed to, for
+> this shot, on this date, proven by a PAdES-sealed document.
+>
+> Nobody joins those two. And nobody joins either of them to the **approval
+> record and the version history of the thing the consent is about.**
+
+Autodesk owns review + tracking and has no concept of a release. DocuSign owns
+signature and has no concept of an asset. RSL owns standing preference and has
+no concept of a production. **The join is the product, and it exists because
+both halves are the same system.**
 
 ---
 
@@ -507,6 +627,17 @@ against nothing.
 15. Tenant export + certified deletion
 16. C2PA manifest emission via `c2patool` on the job queue
 
+**Phase 3b — the adjacency, and it is nearly free (§8.3)**
+16a. A **replica-release description field** — SAG-AFTRA makes a "reasonably
+     specific description of intended uses" a condition of consent validity,
+     and it is prose in `contracts.body` today
+16b. Split `release_kind` so **employment-based and independently created**
+     replicas are distinguishable — different consent and compensation rules
+16c. Allow an **authorised representative** as signer (estates)
+16d. Point the existing version + approval record at a **VFX turnover**:
+     revision and state as separate fields, shot-level change notification,
+     and a frozen turnover set. The record already exists; the audience does not
+
 **Phase 4 — content custody (the gate)**
 17. Forensic watermarking (licence, don't build)
 18. DRM for pre-release streams
@@ -518,18 +649,18 @@ against nothing.
 
 ---
 
-## 11. What must be researched before this document is trusted
+## 11. What remains unverified
 
-**[OPEN]**, in priority order:
+Reduced after the second research pass. Still **[OPEN]**:
 
-1. **SAG-AFTRA / WGA / DGA / IATSE AI terms** — what consent must literally
-   contain and what a production must retain. Highest value, because it is the
-   one area where the product may already be compliant and nobody has checked.
-2. **Production workflow by department** — what to integrate with rather than
-   build, and which interchange formats to speak.
-3. **Competitive landscape** — Moxion, Autodesk Flow, Iconik, Dalet, Sohonet,
-   Wrapbook, Yamdu, Pix, DAX.
-4. **E&O insurance requirements for AI-assisted productions** and the US
-   Copyright Office position on AI authorship.
-5. **The other five buyers' published vendor requirements** — only Netflix's
-   were verified.
+1. **WGA MBA, DGA and IATSE AI terms.** Only SAG-AFTRA was verified, and via
+   secondary sources. §7.4's mapping is a reading of one agreement of four.
+2. **E&O insurance requirements for AI-assisted productions**, and the US
+   Copyright Office's Part 2 report on copyrightability of AI outputs (the
+   index page was reachable; the report itself was not parsed).
+3. **The other five buyers' published vendor requirements.** Only Netflix's
+   were verified at specificity.
+4. **Delivery specifications** — IMF, DPP, AS-11, per-platform QC. Named but not
+   researched.
+5. **The MAM tier** — Iconik, Dalet Flex, EditShare, Strawberry — and the remote
+   review field beyond Evercast (Sohonet ClearView, Blackbird, Streambox).
